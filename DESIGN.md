@@ -167,14 +167,17 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 #### Module 1.3 — Game State Model
 - Central TypeScript types describing the entire game state at any moment:
   - Each player's hand (concealed tiles, declared melds, bonus tiles set aside)
+  - Each player's name (matched to their seat wind for the hand)
   - The wall (remaining tiles, position pointer)
   - The communal discard pool (single ordered list; no record of who discarded what)
   - Current turn, current phase (draw / discard / claim-window)
   - Prevailing wind, seat winds
   - Scores
   - Game configuration (e.g. `discardsVisible: boolean`, `knittingEnabled: boolean`, `dirtyWinAllowed: boolean`)
+- `createGameState(config, deal, names)` takes a `names: string[]` in seat order;
+  throws if the array length does not match `playerCount`.
 - This is the single source of truth — all other modules read from or write to this.
-- Status: **complete** — pushed to `addiep/mahjong` main, commit `f507672`
+- Status: **complete** — pushed to `addiep/mahjong` main, commit `7f799e3`
 
 #### Module 1.4 — Turn Engine (State Machine)
 - Drives the game through its phases:
@@ -357,6 +360,7 @@ way a human clicking a button would. This separation must be preserved from the 
 | 2026-06-12 | Ruby and Emerald kept but noted as extremely rare | No one has ever seen them made in practice; exact tile list to confirm at Module 1.7 |
 | 2026-06-13 | `dirtyWinAllowed` defaults to `false`; clean hands only unless explicitly enabled | Dirty hands are significantly easier to achieve, so allowing them by default would undermine the game. Special hands are unaffected. |
 | 2026-06-13 | Single communal discard pool; no per-player tracking | A player may discard a tile and later win by claiming the same kind from the pool. No fish-back rule. Discard authorship is never recorded. |
+| 2026-06-13 | Each player has a `name: string` on `PlayerState`, matched to their seat wind | Required for display in both pass-and-play and online modes. Names are supplied to `createGameState` in seat order. |
 
 ---
 
