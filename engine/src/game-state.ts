@@ -91,6 +91,8 @@ export interface DeclaredMeld {
 // ─── Player state ──────────────────────────────────────────────────────────────
 
 export interface PlayerState {
+  /** The player's display name. */
+  readonly name:       string;
   /** This player's seat position for this hand (0 = East/dealer). */
   readonly seat:       SeatIndex;
   /** This player's seat wind for this hand. */
@@ -189,7 +191,11 @@ export interface GameState {
 // ─── Factory ───────────────────────────────────────────────────────────────────
 
 /**
- * Creates the initial GameState for a new hand from a config and a completed deal.
+ * Creates the initial GameState for a new hand from a config, a completed deal,
+ * and the players' names.
+ *
+ * Names are matched to seats in order: names[0] is East (dealer), names[1] is
+ * South, and so on. The array length must equal config.playerCount.
  *
  * The prevailing wind for hand 0 is East. Rotation of seat winds and
  * prevailing wind across hands is handled by the turn engine (Module 1.4).
@@ -198,8 +204,19 @@ export interface GameState {
  * tiles or declare a kong before discarding. (The turn engine handles that
  * check immediately on the first action.)
  */
-export function createGameState(config: GameConfig, deal: Deal): GameState {
+export function createGameState(
+  config: GameConfig,
+  deal:   Deal,
+  names:  string[],
+): GameState {
+  if (names.length !== config.playerCount) {
+    throw new Error(
+      `createGameState: expected ${config.playerCount} names, got ${names.length}`,
+    );
+  }
+
   const players: PlayerState[] = deal.hands.map((hand, i) => ({
+    name:       names[i],
     seat:       i as SeatIndex,
     seatWind:   SEAT_WINDS[i],
     concealed:  hand,

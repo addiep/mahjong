@@ -6,6 +6,9 @@ import {
 } from '../game-state.js';
 import { buildWall } from '../wall.js';
 
+const NAMES_4 = ['Alice', 'Bob', 'Carol', 'Dave'];
+const NAMES_3 = ['Alice', 'Bob', 'Carol'];
+
 // ─── DEFAULT_CONFIG ────────────────────────────────────────────────────────────
 
 describe('DEFAULT_CONFIG', () => {
@@ -30,7 +33,7 @@ describe('DEFAULT_CONFIG', () => {
 
 describe('createGameState (4 players)', () => {
   const deal  = buildWall(4);
-  const state = createGameState(DEFAULT_CONFIG, deal);
+  const state = createGameState(DEFAULT_CONFIG, deal, NAMES_4);
 
   it('stores the config unchanged', () => {
     expect(state.config).toBe(DEFAULT_CONFIG);
@@ -38,6 +41,10 @@ describe('createGameState (4 players)', () => {
 
   it('creates one player per seat', () => {
     expect(state.players).toHaveLength(4);
+  });
+
+  it('assigns names in seat order', () => {
+    expect(state.players.map(p => p.name)).toEqual(NAMES_4);
   });
 
   it('assigns seat indices 0–3', () => {
@@ -106,10 +113,14 @@ describe('createGameState (4 players)', () => {
 describe('createGameState (3 players)', () => {
   const config: GameConfig = { ...DEFAULT_CONFIG, playerCount: 3 };
   const deal   = buildWall(3);
-  const state  = createGameState(config, deal);
+  const state  = createGameState(config, deal, NAMES_3);
 
   it('creates one player per seat', () => {
     expect(state.players).toHaveLength(3);
+  });
+
+  it('assigns names in seat order', () => {
+    expect(state.players.map(p => p.name)).toEqual(NAMES_3);
   });
 
   it('assigns seat indices 0–2', () => {
@@ -139,10 +150,26 @@ describe('createGameState honours config flags', () => {
       knittingEnabled: true,
       dirtyWinAllowed: true,
     };
-    const state = createGameState(config, buildWall(4));
+    const state = createGameState(config, buildWall(4), NAMES_4);
     expect(state.config).toBe(config);
     expect(state.config.discardsVisible).toBe(false);
     expect(state.config.knittingEnabled).toBe(true);
     expect(state.config.dirtyWinAllowed).toBe(true);
+  });
+});
+
+// ─── createGameState — name validation ────────────────────────────────────────
+
+describe('createGameState name validation', () => {
+  it('throws if too few names are supplied', () => {
+    expect(() =>
+      createGameState(DEFAULT_CONFIG, buildWall(4), ['Alice', 'Bob', 'Carol']),
+    ).toThrow();
+  });
+
+  it('throws if too many names are supplied', () => {
+    expect(() =>
+      createGameState(DEFAULT_CONFIG, buildWall(4), [...NAMES_4, 'Eve']),
+    ).toThrow();
   });
 });
