@@ -174,7 +174,7 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
   - Scores
   - Game configuration (e.g. `discardsVisible: boolean`, `knittingEnabled: boolean`, `dirtyWinAllowed: boolean`)
 - This is the single source of truth — all other modules read from or write to this.
-- Status: **not started**
+- Status: **complete** — pushed to `addiep/mahjong` main, commit `f507672`
 
 #### Module 1.4 — Turn Engine (State Machine)
 - Drives the game through its phases:
