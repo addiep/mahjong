@@ -7,3 +7,4 @@
 
 export * from './tiles.js';
 export * from './wall.js';
+export * from './game-state.js';
