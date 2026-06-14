@@ -8,11 +8,11 @@
  * This is the single source of truth for the engine. All other modules either
  * read from a GameState or produce a new one — nothing is ever mutated in place.
  *
- * Dependencies: tiles.ts (Tile, Wind), wall.ts (Wall, Deal, PlayerCount)
+ * Dependencies: tiles.ts (Tile, TileId, Wind), wall.ts (Wall, Deal, PlayerCount)
  * No UI dependencies. No side effects.
  */
 
-import { Tile, Wind } from './tiles.js';
+import { Tile, TileId, Wind } from './tiles.js';
 import { Wall, Deal, PlayerCount } from './wall.js';
 
 // ─── Seat ──────────────────────────────────────────────────────────────────────
@@ -118,7 +118,8 @@ export interface PlayerState {
  *                now holds it in hand before discarding.
  * CHECK_BONUS  — the player just drew (or received as a replacement) a bonus
  *                tile; it is set aside and a replacement must be drawn from
- *                the dead wall before play continues.
+ *                the dead wall before play continues. Also entered after a
+ *                kong declaration (concealed or open) to draw the extra tile.
  * DISCARDING   — the current player has their full hand and must discard one tile.
  * CLAIM_WINDOW — a tile has just been discarded; other players may claim it.
  *                The tile is the last entry in discardPool.
@@ -149,6 +150,37 @@ export interface HandResult {
    * null  = not applicable (draw game).
    */
   readonly selfDraw:   boolean | null;
+}
+
+// ─── Claim window ─────────────────────────────────────────────────────────────
+
+/**
+ * The type of claim a player may make on a discarded tile.
+ * 'pass' means the player declines to claim.
+ */
+export type ClaimType = 'win' | 'pung' | 'kong' | 'chow' | 'pass';
+
+/**
+ * A single player's decision during the CLAIM_WINDOW phase.
+ *
+ * chowTiles is only set when type === 'chow'. It contains the IDs of the two
+ * tiles from the claimer's concealed hand that, together with the discard,
+ * form the chow sequence.
+ */
+export interface ClaimDecision {
+  readonly type:       ClaimType;
+  readonly chowTiles?: readonly [TileId, TileId];
+}
+
+/**
+ * Tracks every player's response during a CLAIM_WINDOW phase.
+ *
+ * responses is indexed by SeatIndex. null means that seat has not yet
+ * responded. The discarder's own slot is pre-filled with { type: 'pass' }
+ * by the turn engine (they cannot claim their own tile).
+ */
+export interface ClaimWindowState {
+  readonly responses: ReadonlyArray<ClaimDecision | null>;
 }
 
 // ─── Game state ────────────────────────────────────────────────────────────────
@@ -186,6 +218,11 @@ export interface GameState {
   readonly handNumber:     number;
   /** Set when the hand ends; null while the hand is in progress. */
   readonly handResult:     HandResult | null;
+  /**
+   * Set only during CLAIM_WINDOW phase. Tracks each player's response
+   * (pass / pung / kong / chow / win). Null in all other phases.
+   */
+  readonly claimWindow:    ClaimWindowState | null;
 }
 
 // ─── Factory ───────────────────────────────────────────────────────────────────
@@ -235,5 +272,6 @@ export function createGameState(
     prevailingWind: 'east',
     handNumber:     0,
     handResult:     null,
+    claimWindow:    null,
   };
 }
