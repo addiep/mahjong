@@ -10,3 +10,4 @@ export * from './game-state.js';
 export * from './turn-engine.js';
 export * from './game-runner.js';
 export * from './meld-validator.js';
+export * from './claim-window.js';
