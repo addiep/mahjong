@@ -110,9 +110,9 @@ Minor = simples (2–8 of any suit). Major = terminals (1 or 9) or honours (Wind
 | Hand contains no chows | +10 |
 | Hand is all chows + one pair | +1 |
 
-#### Doublings (apply to all players' scores)
+#### Doublings that apply to all players
 
-Each of the following conditions doubles the round total once:
+Each qualifying condition doubles the round total once:
 - Pung or Kong of any major tile (1, 9, Wind, or Dragon) — once per qualifying meld
 - Own Flower or Season
 - Complete set of Flowers or complete set of Seasons (doubles twice)
@@ -120,14 +120,16 @@ Each of the following conditions doubles the round total once:
 
 #### Additional doublings for the winning player only
 
-- Clean hand (all melds and pair in one suit; Winds and Dragons permitted)
-- All concealed (one or more suits, some honour permitted)
-- Winning with a loose tile, last tile of the wall, last discard, original call, or Robbing the Kong
+- Clean hand (all melds and pair in one suit; Winds and Dragons permitted): ×1
+- All concealed: ×1
+- Winning with a loose tile, last tile of the wall, last discard, original call, or Robbing the Kong: ×1
+- Purity (concealed pungs/kongs of one suit, no Winds/Dragons, no chows): ×3 *(unorthodox — most rulesets treat this as a limit hand)*
+- Winds and Dragons only (all melds are Winds or Dragons): ×3
+- Heads & Tails (all melds are 1s and 9s): ×3
 
 #### Special hand scores
 - All Pairs Honours: 500 points (200 when fishing)
 - Buried Treasure: 1,000 points (400 when fishing)
-- Purity: triples (×8) — see open question OQ-11
 - Limit hands: agreed maximum payout, set before play begins
 
 ### Special / Limit Hands
@@ -140,7 +142,8 @@ a discard.
 | Hand | Score | Description |
 |---|---|---|
 | Buried Treasure | 1,000 pts | Concealed pungs/kongs of one suit only + one pair. Winds and Dragons permitted. |
-| Heavenly Twins (Clean Pairs) | Limit | Seven pairs, all one suit. No Winds or Dragons. |
+| Heavenly Twins | Limit | Seven pairs, all one suit. No Winds or Dragons. |
+| Clean Pairs | ½ limit | Seven pairs of one suit, Winds and Dragons permitted. |
 | Honour Pairs | Limit | Seven pairs composed only of Winds and Dragons (no 1s or 9s). |
 | All Pairs Honours | 500 pts | Seven pairs composed only of 1s, 9s, Winds, and Dragons. |
 | Knitting | Limit | Seven pairs of matching numbers across exactly two suits. No Winds or Dragons. |
@@ -153,7 +156,6 @@ a discard.
 
 | Hand | Score | Description |
 |---|---|---|
-| Purity | Limit | Pungs/kongs (open or concealed) of one suit only + one pair. No Winds, Dragons, or chows. |
 | All Honours | Limit | Pungs/kongs of Winds, Dragons, 1s, and 9s only. |
 | All Pungs | Limit | Four pungs (or kongs) + one pair, no chows. Any tiles. |
 | All Kongs (Fourfold Plenty) | Limit | Four kongs + one pair. |
@@ -313,7 +315,7 @@ changes needed for Phase 3.
 | ~~OQ-8~~ | ~~Keep All Pungs, All Kongs, Heavenly Hand, Earthly Hand?~~ | Resolved — all kept |
 | ~~OQ-9~~ | ~~All Honours: include 1s and 9s?~~ | Resolved — yes |
 | ~~OQ-10~~ | ~~Ruby and Emerald: precise tile lists?~~ | Resolved — both hands removed |
-| OQ-11 | Purity: family note treats it as a ×3 doubling (not a limit hand); DESIGN.md has it as a limit hand. Which is correct for this app? | Module 1.7, 1.8 |
+| ~~OQ-11~~ | ~~Purity: limit hand or ×3 doubling?~~ | Resolved — ×3 doubling (unorthodox family rule) |
 
 ---
 
@@ -347,14 +349,14 @@ changes needed for Phase 3.
 | 2026-06-14 | Heads and Tails: limit hand (not a doubling) | Family rule confirmed |
 | 2026-06-14 | Gates of Heaven described as Nine Chances waiting hand | Clearer framing; reference sheet and family note describe the same hand |
 | 2026-06-14 | Added Dragonfly, Windy Dragons, Honour Pairs from family note | Present in family rules; absent from reference sheet |
-| 2026-06-14 | Scoring: pung/kong of any major tile (1, 9, Wind, Dragon) doubles once | Family rule extends reference sheet (which doubled only for own wind/dragon) |
+| 2026-06-14 | Scoring: pung/kong of any major tile (1, 9, Wind, Dragon) doubles once per meld | Family rule extends reference sheet (which doubled only for own wind/dragon) |
 | 2026-06-14 | Scoring: no-chow hand +10 pts; all-chow hand +1 pt; only-possible-tile +2 pts | From family note |
 | 2026-06-14 | Play direction: anticlockwise; wall built clockwise | Confirmed from family note |
-| 2026-06-14 | Wriggling Snake: pair must be ones specifically | Corrected — family rule allows any pair within 1–9 |
 | 2026-06-14 | Earthly Hand: win on East's first discard (not non-dealer's first wall draw) | Per reference sheet; engine detects this at claim time, not draw time |
-| 2026-06-14 | Added Gates of Heaven to first group — was missing from DESIGN.md | Present in reference sheet and family note |
 | 2026-06-14 | Added three circumstance hands: Plum Blossom, Moon, Twofold Fortune | Detected by turn engine at draw time, not by hand evaluator |
 | 2026-06-14 | OQ-1 resolved: scoring table established from reference sheet and family note | Unblocks Module 1.8 |
+| 2026-06-14 | Purity: treated as ×3 doubling for winning player, not a limit hand | Unorthodox family rule; most rulesets count this as a limit hand |
+| 2026-06-14 | Clean Pairs (½ limit) added alongside Heavenly Twins (limit): same suit but W/D allowed | From family note |
 
 ---
 
