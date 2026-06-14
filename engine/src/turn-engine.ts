@@ -28,7 +28,7 @@
  *   - Calculate scores (Module 1.8)
  *   - Rotate seats between hands (Game Runner / caller)
  *
- * Dependencies: game-state.ts, tiles.ts, wall.ts
+ * Dependencies: game-state.ts, tiles.ts, wall.ts, claim-window.ts
  * No UI dependencies. No side effects.
  */
 
@@ -43,6 +43,7 @@ import {
   ClaimWindowState,
 } from './game-state.js';
 import { drawFromWall, drawReplacement } from './wall.js';
+import { validateClaimDecision, selectWinClaimant } from './claim-window.js';
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
@@ -260,13 +261,20 @@ function handleClaimWindow(state: GameState, action: Action): GameState {
   if (cw.responses[seat] !== null) {
     throw new Error(`CLAIM_WINDOW: seat ${seat} has already responded`);
   }
-  if (decision.type === 'chow') {
-    const leftSeat = nextSeat(state.currentSeat, state.config.playerCount);
-    if (seat !== leftSeat) {
-      throw new Error(
-        `CLAIM_WINDOW: only seat ${leftSeat} (left of discarder) may chow`,
-      );
-    }
+
+  // Validate the claim using Module 1.5 before recording it.
+  const discard  = state.discardPool[state.discardPool.length - 1];
+  const claimer  = state.players[seat];
+  const error    = validateClaimDecision(
+    decision,
+    claimer.concealed,
+    discard,
+    seat,
+    state.currentSeat,
+    state.config.playerCount,
+  );
+  if (error !== null) {
+    throw new Error(`CLAIM_WINDOW: invalid claim from seat ${seat}: ${error}`);
   }
 
   const newResponses = [...cw.responses] as (ClaimDecision | null)[];
@@ -291,9 +299,9 @@ function resolveClaimWindow(state: GameState): GameState {
     .map(({ seat }) => seat);
 
   if (winSeats.length > 0) {
-    // OQ-3: simultaneous wins not yet resolved. Placeholder: closest clockwise
-    // to the discarder takes the win.
-    const winner = closestClockwise(winSeats, state.currentSeat, state.config.playerCount);
+    // OQ-3 resolved: simultaneous wins go to the player closest in turn order
+    // (smallest positive seat-index offset from the discarder).
+    const winner = selectWinClaimant(winSeats, state.currentSeat, state.config.playerCount);
     return {
       ...state,
       claimWindow: null,
@@ -426,25 +434,9 @@ function advanceTurn(state: GameState): GameState {
   };
 }
 
-/** The seat immediately clockwise (to the left in play order) of `seat`. */
+/** The seat immediately next in turn order after `seat`. */
 function nextSeat(seat: SeatIndex, playerCount: number): SeatIndex {
   return ((seat + 1) % playerCount) as SeatIndex;
-}
-
-/**
- * Among a list of seats, return the one that is clockwise-closest to `from`.
- * Used as the OQ-3 placeholder for simultaneous win resolution.
- */
-function closestClockwise(
-  seats:       SeatIndex[],
-  from:        SeatIndex,
-  playerCount: number,
-): SeatIndex {
-  return seats.reduce((best, s) => {
-    const dS    = (s    - from + playerCount) % playerCount;
-    const dBest = (best - from + playerCount) % playerCount;
-    return dS < dBest ? s : best;
-  });
 }
 
 /** Count the kongs (open or concealed) in a player's declared melds. */
