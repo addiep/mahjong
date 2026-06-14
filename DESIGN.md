@@ -218,9 +218,8 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Drives DRAWING → CHECK_BONUS → DISCARDING → CLAIM_WINDOW → HAND_OVER.
 - Tile count invariant: `14 + kongCount` total tiles at discard time.
 - Bonus tile loop processed one tile at a time (distinct snapshots for UI animation).
-- OQ-3 placeholder: closest-clockwise wins on simultaneous win claims.
 - Win validation deferred to Module 1.7; claims currently accepted unconditionally.
-- Status: **complete** — commit `d59a21`
+- Status: **complete** — commit `d59a21`; updated in `dd8d003` (wired claim-window)
 
 #### Module 1.4b — Game Runner
 - `PlayerController` interface: `getDiscardAction` + `getClaimDecision`.
@@ -229,11 +228,14 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Status: **complete** — commit `9de3f8a`
 
 #### Module 1.5 — Claim Window Logic
-- Validate incoming pung/kong/chow/win claims using Module 1.6.
-- Enforce chow-from-left rule and claim priority.
-- Provide `canChow(hand, discard)` helper.
-- Resolve OQ-3 (simultaneous wins) properly.
-- Status: **not started**
+- `canPung`, `canKong`, `canChow` capability helpers.
+- `validateClaimDecision`: validates pung/kong/chow/win/pass using Module 1.6.
+  Win structural validation deferred to Module 1.7.
+- `selectWinClaimant`: resolves OQ-3 — simultaneous wins go to the player closest
+  in turn order (smallest positive seat-index offset from the discarder).
+- Chow-from-left enforcement and claim priority handled by the turn engine using
+  these functions.
+- Status: **complete** — commits `5e479a2`, `dd8d003`, `04819f1`, `56e7287`
 
 #### Module 1.6 — Meld Validator
 - Pure predicate functions: `isPair`, `isPung`, `isKong`, `isChow`, `identifyMeld`.
@@ -241,7 +243,6 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
   that is a gameplay concern, not a structural one).
 - Chow validation is order-agnostic; honours can never form chows.
 - Complete melds only; no partial-meld awareness.
-- Standalone — not yet wired into the turn engine (will happen via Module 1.5).
 - Status: **complete** — commit `9c22e5a`
 
 #### Module 1.7 — Hand Evaluator (Win Detector)
@@ -307,7 +308,7 @@ changes needed for Phase 3.
 |---|---|---|
 | ~~OQ-1~~ | ~~Full scoring table: base points per meld, which conditions double~~ | Resolved — see Scoring System in §1 |
 | OQ-2 | Flower/Season bonus values (own flower vs other) | Module 1.9 |
-| OQ-3 | Simultaneous win claims: how to resolve? | Module 1.5 (placeholder in 1.4: closest clockwise) |
+| ~~OQ-3~~ | ~~Simultaneous win claims: how to resolve?~~ | Resolved — closest in turn order (smallest positive seat-index offset from discarder) |
 | ~~OQ-4~~ | ~~Any additional special hands?~~ | Resolved |
 | ~~OQ-5~~ | ~~Minimum points to declare a win?~~ | Resolved — no minimum |
 | OQ-6 | Tile visuals: real imagery, Unicode, or custom SVG? | Module 2.1 |
@@ -338,7 +339,7 @@ changes needed for Phase 3.
 | 2026-06-14 | `PlayerController` interface lives in Game Runner, not the engine | Engine doesn't need to know who is making decisions |
 | 2026-06-14 | Bonus tile loop one tile at a time via CHECK_BONUS phase | Each replacement draw is a distinct snapshot for UI animation |
 | 2026-06-14 | Tile count invariant: `14 + kongCount` total tiles at discard time | Handles East initial deal and kong replacements correctly |
-| 2026-06-14 | OQ-3 placeholder: closest clockwise wins on simultaneous win claims | Simple and deterministic; proper resolution deferred to Module 1.5 |
+| 2026-06-14 | OQ-3 resolved: simultaneous wins go to the player closest in turn order | Smallest positive seat-index offset from discarder = whose turn comes soonest |
 | 2026-06-14 | AI strategy module implements `PlayerController`; lives in `engine/src/ai/` | No engine changes needed for Phase 3 |
 | 2026-06-14 | Module 1.6 exposes complete-meld predicates only; no partial melds, no canChow | Partial melds deferred to AI (Phase 3); canChow deferred to Module 1.5 |
 | 2026-06-14 | MeldKind (`pair/pung/kong/chow`) distinct from MeldType (open/concealed kong) | Open vs concealed is a gameplay concern, not a structural one |
@@ -357,6 +358,8 @@ changes needed for Phase 3.
 | 2026-06-14 | OQ-1 resolved: scoring table established from reference sheet and family note | Unblocks Module 1.8 |
 | 2026-06-14 | Purity: treated as ×3 doubling for winning player, not a limit hand | Unorthodox family rule; most rulesets count this as a limit hand |
 | 2026-06-14 | Clean Pairs (½ limit) added alongside Heavenly Twins (limit): same suit but W/D allowed | From family note |
+| 2026-06-14 | Module 1.5 claim validation: win claims accepted structurally; full check deferred to 1.7 | Keeps modules decoupled; 1.7 not yet written |
+| 2026-06-14 | canChow checks all three positional patterns (discard as low/mid/high tile) | Covers every valid chow sequence without needing meld-validator's isChow directly |
 
 ---
 
