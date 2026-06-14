@@ -174,18 +174,45 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
   - Prevailing wind, seat winds
   - Scores
   - Game configuration (e.g. `discardsVisible: boolean`, `knittingEnabled: boolean`, `dirtyWinAllowed: boolean`)
+  - `claimWindow: ClaimWindowState | null` — per-player responses during CLAIM_WINDOW (added in Module 1.4)
 - `createGameState(config, deal, names)` takes a `names: string[]` in seat order;
   throws if the array length does not match `playerCount`.
 - This is the single source of truth — all other modules read from or write to this.
-- Status: **complete** — pushed to `addiep/mahjong` main, commit `7f799e3`
+- Status: **complete** — pushed to `addiep/mahjong` main, commit `7f799e3`; extended in `d59a21`
 
 #### Module 1.4 — Turn Engine (State Machine)
+- Pure `dispatch(state, action): GameState` function — the only way to advance state.
 - Drives the game through its phases:
-  `DEAL → DRAW → CHECK_BONUS → DISCARD → CLAIM_WINDOW → (back to DRAW or CLAIM)`
-- Handles: bonus tile replacement loop, concealed kong declaration mid-turn,
-  exhausted wall (draw game).
-- Exposes a `dispatch(action)` function — the only way to advance state.
-- Status: **not started**
+  `DRAWING → CHECK_BONUS → DISCARDING → CLAIM_WINDOW → HAND_OVER`
+- Key behaviours:
+  - **BEGIN_TURN:** draws from the live wall if needed (skips draw when player already
+    holds the correct tile count, e.g. East on the initial deal). Hands off to bonus
+    detection before reaching DISCARDING.
+  - **Bonus tile loop:** processed one tile at a time via CHECK_BONUS + DRAW_REPLACEMENT,
+    so each replacement draw is a distinct state snapshot (important for UI animation).
+  - **Tile count invariant:** a player holds `14 + kongCount` total tiles at discard time
+    and `13 + kongCount` at draw time. Kongs are counted from declared melds.
+  - **DECLARE_CONCEALED_KONG:** removes 4 matching tiles, forms the meld, enters
+    CHECK_BONUS for the replacement draw.
+  - **CLAIM_WINDOW resolution:** collects one CLAIM_RESPONSE per non-discarder seat;
+    resolves when all have replied (priority: win > pung/kong > chow > pass).
+  - **Exhausted wall:** transitions immediately to HAND_OVER (draw game).
+  - Win validation deferred to Module 1.7; claims currently accepted unconditionally.
+- Status: **complete** — pushed to `addiep/mahjong` main, commit `d59a21`
+
+#### Module 1.4b — Game Runner
+- Defines the `PlayerController` interface: the seam between the engine and any
+  player-facing code (human UI or Phase 3 AI).
+  - `getDiscardAction(state, seat): Promise<DiscardAction>` — called in DISCARDING phase.
+  - `getClaimDecision(state, seat): Promise<ClaimDecision>` — called in CLAIM_WINDOW.
+- `GameRunner` class drives one hand to completion:
+  - Automatic phases (DRAWING, CHECK_BONUS) dispatch without consulting controllers.
+  - DISCARDING: asks the current player's controller.
+  - CLAIM_WINDOW: asks all non-discarder controllers concurrently (Promise.all),
+    then applies their responses serially to maintain state consistency.
+  - `run()` resolves at HAND_OVER; `stop()` halts after the current step.
+- Between-hand concerns (seat rotation, new hand setup) are the caller's responsibility.
+- Status: **complete** — pushed to `addiep/mahjong` main, commit `9de3f8a`
 
 #### Module 1.5 — Claim Window Logic
 - After a discard, opens a brief window for claims.
@@ -300,6 +327,16 @@ a well-tuned heuristic AI is entirely sufficient and has the added advantage of 
 explainable and adjustable — we can tune aggression, risk tolerance, and discard
 strategy without retraining a model.
 
+**Architecture (decided 2026-06-14):**
+
+The `PlayerController` interface defined in Module 1.4b is the integration point.
+The AI implements `getDiscardAction` and `getClaimDecision`; it never touches the
+engine directly. The `GameRunner` does not know or care whether a given seat's
+controller is human or AI. This separation is already in place.
+
+The AI strategy module will live in `engine/src/ai/` and will be a separate concern
+from the engine's state machine.
+
 **Key AI decisions to implement per turn:**
 
 - *What to discard?* Evaluate the hand, score potential winning shapes, discard the
@@ -319,13 +356,6 @@ Consider offering at least two levels:
 - *Easy:* AI plays greedily towards the fastest win, ignores defence.
 - *Hard:* AI incorporates basic defensive discard logic and reads the table.
 
-**Architecture note:**
-
-The AI module will be a separate player-controller that conforms to the same
-`dispatch(action)` interface as a human player. The engine itself does not need
-to change — the AI simply decides which action to dispatch on its turn, the same
-way a human clicking a button would. This separation must be preserved from the start.
-
 ---
 
 ## 4. Open Questions
@@ -334,7 +364,7 @@ way a human clicking a button would. This separation must be preserved from the 
 |---|---|---|
 | OQ-1 | Full scoring table: base points per meld, which conditions double | Module 1.8 |
 | OQ-2 | Flower/Season bonus values (own flower vs other) | Module 1.9 |
-| OQ-3 | Simultaneous win claims: how to resolve? | Module 1.5 |
+| OQ-3 | Simultaneous win claims: how to resolve? | Module 1.5 (placeholder in 1.4: closest clockwise) |
 | ~~OQ-4~~ | ~~Any additional special hands beyond the six listed?~~ | Resolved — full list added from source page |
 | ~~OQ-5~~ | ~~Minimum points required to declare a win?~~ | Resolved — see decisions log |
 | OQ-6 | Tile visuals: real imagery, Unicode, or custom SVG? | Module 2.1 |
@@ -361,6 +391,12 @@ way a human clicking a button would. This separation must be preserved from the 
 | 2026-06-13 | `dirtyWinAllowed` defaults to `false`; clean hands only unless explicitly enabled | Dirty hands are significantly easier to achieve, so allowing them by default would undermine the game. Special hands are unaffected. |
 | 2026-06-13 | Single communal discard pool; no per-player tracking | A player may discard a tile and later win by claiming the same kind from the pool. No fish-back rule. Discard authorship is never recorded. |
 | 2026-06-13 | Each player has a `name: string` on `PlayerState`, matched to their seat wind | Required for display in both pass-and-play and online modes. Names are supplied to `createGameState` in seat order. |
+| 2026-06-14 | Turn engine (1.4) is a pure state machine with no knowledge of controllers | Keeps the engine testable in isolation; GameRunner (1.4b) handles the wiring |
+| 2026-06-14 | `PlayerController` interface lives in GameRunner (1.4b), not the engine | The engine doesn't need to know who is making decisions — it just accepts actions |
+| 2026-06-14 | Bonus tile loop processed one tile at a time via CHECK_BONUS phase | Each replacement draw becomes a distinct state snapshot, which the UI needs for animation |
+| 2026-06-14 | Tile count invariant: `14 + kongCount` total tiles at discard time | Correctly handles initial East deal (14 tiles, no draw needed) and kongs (each adds one extra tile) |
+| 2026-06-14 | OQ-3 placeholder: closest clockwise to discarder wins on simultaneous win claims | Simple and deterministic; real resolution to be decided when Module 1.5 is built |
+| 2026-06-14 | AI strategy module will implement `PlayerController`; lives in `engine/src/ai/` | No engine changes needed for Phase 3; the seam is already in place |
 
 ---
 
