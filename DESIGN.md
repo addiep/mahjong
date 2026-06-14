@@ -101,8 +101,8 @@ a discard.
 | All Pairs Honours | ½ limit | Seven pairs composed only of 1s, 9s, Winds, and Dragons. |
 | Knitting | Limit | Seven pairs of matching numbers across exactly two suits. No Winds or Dragons. |
 | Crocheting (Triple Knitting) | ½ limit | Four sets of three same-numbered tiles across all three suits + one pair of same numbers. |
-| Flying Angel (Wriggling Snake) | Limit | 1 through 9 of any one suit + one tile of each Wind + one pair from any of those tiles. |
-| Windy Chow | Limit | One chow in each suit + one of each Wind + one pair of any Wind. |
+| Gates of Heaven | Limit | Concealed pung of 1s + concealed pung of 9s + run from 2 to 8 + one pair (all same suit, pair is a duplicate of one of the run numbers). |
+| Wriggling Snake (Flying Angel) | Limit | Pair of 1s + run from 2 to 9, all in the same suit + one of each Wind. (14 tiles: 2 + 8 + 4.) |
 | 13 Unique Wonders | Limit | One of each Dragon (3 tiles) + one of each Wind (4 tiles) + 1 and 9 of each suit (6 tiles) + any one of those tiles paired. |
 
 **Second group (no wall-draw restriction):**
@@ -111,18 +111,51 @@ a discard.
 |---|---|---|
 | Purity | Limit | Pungs/kongs (open or concealed) of one suit only + one pair. No Winds, Dragons, or chows. |
 | All Honours | Limit | Pungs/kongs of Winds, Dragons, 1s, and 9s only. |
-| Ruby | ½ limit | Pungs/kongs in Circles, but only numbers whose tiles contain red circles + must include a pung/kong of the Red Dragon. Extremely rare in practice. |
-| Emerald | ½ limit | Pungs/kongs in Bamboo, but only numbers whose tiles are entirely green + must include a pung/kong of the Green Dragon. Extremely rare in practice. |
 | All Pungs | Limit | Four pungs (or kongs) + one pair, no chows. Any tiles. |
 | All Kongs | Limit | Four kongs + one pair. |
+| Three Great Scholars | Limit | Pungs/kongs of all three Dragons + one further pung/kong + one pair. |
+| Four Blessings Hovering Over the Door | Limit | Pungs/kongs of each of the four Winds + any pair. |
+| Imperial Jade | Limit | Pungs/kongs composed entirely of green tiles + one pair. |
+| Heads and Tails | Limit | Pungs/kongs of 1s and 9s only + one pair. |
 | Heavenly Hand | Limit | Dealer wins on the initial deal before any discard is made. |
-| Earthly Hand | Limit | Non-dealer wins on their very first draw from the wall. |
+| Earthly Hand | Limit | Non-dealer wins by claiming East's very first discard. |
+
+**Third group (circumstance hands — tile composition irrelevant; engine detects automatically):**
+
+| Hand | Score | Description |
+|---|---|---|
+| Gathering the Plum Blossom from the Roof | Limit | Player draws the 5 of Circles as a replacement tile from the dead wall and that tile completes their hand. |
+| Plucking the Moon from the Bottom of the Sea | Limit | Player draws the 1 of Circles as the very last tile from the live wall and that tile completes their hand. |
+| Twofold Fortune | Limit | Player declares a kong, draws a replacement tile and uses it to declare a second kong, then draws another replacement tile that completes their hand. |
 
 ### Scoring Table
-> **Not yet established.** We need to go through the base-point values for each meld type
-> (e.g. concealed pung of terminals, melded pung of simples, etc.) and which conditions
-> trigger doublings (seat wind, prevailing wind, dragons, all-concealed, etc.).
-> This will be done when we build the scoring engine module.
+Base points per meld:
+
+| Meld | Minor | Major |
+|---|---|---|
+| Exposed Pung | 2 | 4 |
+| Concealed Pung | 4 | 8 |
+| Exposed Kong | 8 | 16 |
+| Concealed Kong | 16 | 32 |
+| Pair (Dragon / prevailing / seat Wind) | 2 | — |
+| Flower or Season | 4 | — |
+
+Minor = simples (2–8 of any suit). Major = terminals (1 or 9) or honours (Winds/Dragons).
+
+For going Mah-Jong: **20 points**. If the winning tile is drawn from the live wall: +**2 points**.
+
+Doublings (each doubles the total for all players):
+- Seat Wind, Prevailing Wind, Dragons, own Flower/Season, complete set of Flowers or Seasons (×2), Original Call (fishing after first discard).
+
+Additional doublings for the winning player only:
+- No chows; all same suit (and some honour); all 1s/9s (and some honour); all concealed; winning with a loose tile, last tile, last discard, original call, or Robbing the Kong.
+
+Special hand scores (where not "limit"):
+- Purity: doubles 3 times (same when fishing).
+- All Pairs Honours: 500 points (200 when fishing).
+- Buried Treasure: 1,000 points (400 when fishing).
+
+"Limit" = the maximum payout for the game session; agreed before play begins.
 
 ---
 
@@ -200,12 +233,14 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
   can sometimes be read multiple ways). Builds on Module 1.6.
 - Must enforce `dirtyWinAllowed`: if `false`, reject standard 4+1 wins where melds
   span more than one suit. Special hands bypass this check entirely.
+- Circumstance hands (Plum Blossom, Moon, Twofold Fortune) are detected by the turn
+  engine at the moment the winning tile is drawn, not by the hand evaluator.
 - Status: **not started**
 
 #### Module 1.8 — Scoring Engine
 - Calculates score for a winning hand (base points + doublings + bonuses).
 - Config-driven: points table in a JSON/TS config file.
-- Requires OQ-1 (scoring table) to be resolved before building.
+- Scoring table now established (see §1 Scoring Table above).
 - Status: **not started**
 
 #### Module 1.9 — Flower / Season Scoring
@@ -251,7 +286,7 @@ changes needed for Phase 3.
 
 | # | Question | Where it blocks us |
 |---|---|---|
-| OQ-1 | Full scoring table: base points per meld, which conditions double | Module 1.8 |
+| ~~OQ-1~~ | ~~Full scoring table: base points per meld, which conditions double~~ | Resolved — see Scoring Table in §1 |
 | OQ-2 | Flower/Season bonus values (own flower vs other) | Module 1.9 |
 | OQ-3 | Simultaneous win claims: how to resolve? | Module 1.5 (placeholder in 1.4: closest clockwise) |
 | ~~OQ-4~~ | ~~Any additional special hands?~~ | Resolved |
@@ -260,7 +295,7 @@ changes needed for Phase 3.
 | ~~OQ-7~~ | ~~Crocheting: what is the pair allowed to be?~~ | Resolved — any same-numbered pair |
 | ~~OQ-8~~ | ~~Keep All Pungs, All Kongs, Heavenly Hand, Earthly Hand?~~ | Resolved — all kept |
 | ~~OQ-9~~ | ~~All Honours: include 1s and 9s?~~ | Resolved — yes |
-| ~~OQ-10~~ | ~~Ruby and Emerald: precise tile lists?~~ | Resolved — confirm at Module 1.7 |
+| ~~OQ-10~~ | ~~Ruby and Emerald: precise tile lists?~~ | Resolved — both hands removed |
 
 ---
 
@@ -275,8 +310,7 @@ changes needed for Phase 3.
 | 2026-06-12 | Discards face-up by default; face-down is optional config | Face-up is standard; face-down is a hard mode variant |
 | 2026-06-12 | Knitting & crocheting controlled by a single `knittingEnabled` flag | They come as a pair |
 | 2026-06-12 | Kept All Pungs, All Kongs, Heavenly Hand, Earthly Hand | Family plays with these |
-| 2026-06-12 | All Honours includes 1s and 9s | Matches reference page and family understanding |
-| 2026-06-12 | Ruby and Emerald kept; exact tile list to confirm at Module 1.7 | Extremely rare in practice |
+| 2026-06-12 | All Honours includes 1s and 9s | Matches reference sheet and family understanding |
 | 2026-06-13 | `dirtyWinAllowed` defaults to `false` | Dirty hands too easy; special hands unaffected |
 | 2026-06-13 | Single communal discard pool; no per-player tracking | No fish-back rule; discard authorship never recorded |
 | 2026-06-13 | Each player has `name: string` on `PlayerState` | Required for display in pass-and-play and online modes |
@@ -288,6 +322,14 @@ changes needed for Phase 3.
 | 2026-06-14 | AI strategy module implements `PlayerController`; lives in `engine/src/ai/` | No engine changes needed for Phase 3 |
 | 2026-06-14 | Module 1.6 exposes complete-meld predicates only; no partial melds, no canChow | Partial melds deferred to AI (Phase 3); canChow deferred to Module 1.5 |
 | 2026-06-14 | MeldKind (`pair/pung/kong/chow`) distinct from MeldType (open/concealed kong) | Open vs concealed is a gameplay concern, not a structural one |
+| 2026-06-14 | Removed Windy Chow and Ruby — not in reference ruleset | Reference sheet (Peter Gregory, MahJongBritishRules.com) does not include them |
+| 2026-06-14 | Buried Treasure: kongs permitted; Winds and Dragons permitted | House rule — stricter "pungs only" variant not adopted |
+| 2026-06-14 | Wriggling Snake: pair must be 1s specifically (not any tile in the hand) | Per reference sheet; previously DESIGN.md said "any tile" which was wrong |
+| 2026-06-14 | Earthly Hand: win on East's first discard (not non-dealer's first wall draw) | Per reference sheet; engine detects this at claim time, not draw time |
+| 2026-06-14 | Added Gates of Heaven to first group — was missing from DESIGN.md | Present in reference sheet; structure: concealed pung 1s + concealed pung 9s + run 2–8 + pair, all same suit |
+| 2026-06-14 | Added three circumstance hands: Plum Blossom, Moon, Twofold Fortune | Detected by turn engine at draw time, not by hand evaluator |
+| 2026-06-14 | Circumstance hands detected by turn engine, not hand evaluator | They depend on how the winning tile arrived, not tile composition |
+| 2026-06-14 | OQ-1 resolved: scoring table established from reference sheet | Unblocks Module 1.8 |
 
 ---
 
