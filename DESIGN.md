@@ -153,208 +153,97 @@ All modules in Phase 1 are frontend/engine only. The goal is a fully playable lo
 pass-and-play game (all four hands visible on one screen) that correctly enforces the rules.
 
 #### Module 1.1 — Tile Definitions
-- TypeScript types for every tile: suit, value, category (suited / honour / bonus).
-- Unique tile IDs (used throughout the engine to track individual tiles).
-- Utility functions: `isSuited()`, `isHonour()`, `isBonus()`, `isTerminal()`, `tileEquals()`, etc.
-- Status: **complete** — pushed to `addiep/mahjong` main, commit `60684e4`
+- Status: **complete** — commit `60684e4`
 
 #### Module 1.2 — Wall Builder
-- Builds the full 144-tile set and shuffles it.
-- Deals initial hands: 13 tiles to each player, 14 to the dealer (East).
-- Separates the dead wall (last 14 tiles) for kong/bonus replacements.
-- Status: **complete** — pushed to `addiep/mahjong` main, commit `f40e1a6`
+- Status: **complete** — commit `f40e1a6`
 
 #### Module 1.3 — Game State Model
-- Central TypeScript types describing the entire game state at any moment:
-  - Each player's hand (concealed tiles, declared melds, bonus tiles set aside)
-  - Each player's name (matched to their seat wind for the hand)
-  - The wall (remaining tiles, position pointer)
-  - The communal discard pool (single ordered list; no record of who discarded what)
-  - Current turn, current phase (draw / discard / claim-window)
-  - Prevailing wind, seat winds
-  - Scores
-  - Game configuration (e.g. `discardsVisible: boolean`, `knittingEnabled: boolean`, `dirtyWinAllowed: boolean`)
-  - `claimWindow: ClaimWindowState | null` — per-player responses during CLAIM_WINDOW (added in Module 1.4)
-- `createGameState(config, deal, names)` takes a `names: string[]` in seat order;
-  throws if the array length does not match `playerCount`.
-- This is the single source of truth — all other modules read from or write to this.
-- Status: **complete** — pushed to `addiep/mahjong` main, commit `7f799e3`; extended in `d59a21`
+- Status: **complete** — commit `7f799e3`; extended in `d59a21` (claimWindow field)
 
 #### Module 1.4 — Turn Engine (State Machine)
 - Pure `dispatch(state, action): GameState` function — the only way to advance state.
-- Drives the game through its phases:
-  `DRAWING → CHECK_BONUS → DISCARDING → CLAIM_WINDOW → HAND_OVER`
-- Key behaviours:
-  - **BEGIN_TURN:** draws from the live wall if needed (skips draw when player already
-    holds the correct tile count, e.g. East on the initial deal). Hands off to bonus
-    detection before reaching DISCARDING.
-  - **Bonus tile loop:** processed one tile at a time via CHECK_BONUS + DRAW_REPLACEMENT,
-    so each replacement draw is a distinct state snapshot (important for UI animation).
-  - **Tile count invariant:** a player holds `14 + kongCount` total tiles at discard time
-    and `13 + kongCount` at draw time. Kongs are counted from declared melds.
-  - **DECLARE_CONCEALED_KONG:** removes 4 matching tiles, forms the meld, enters
-    CHECK_BONUS for the replacement draw.
-  - **CLAIM_WINDOW resolution:** collects one CLAIM_RESPONSE per non-discarder seat;
-    resolves when all have replied (priority: win > pung/kong > chow > pass).
-  - **Exhausted wall:** transitions immediately to HAND_OVER (draw game).
-  - Win validation deferred to Module 1.7; claims currently accepted unconditionally.
-- Status: **complete** — pushed to `addiep/mahjong` main, commit `d59a21`
+- Drives DRAWING → CHECK_BONUS → DISCARDING → CLAIM_WINDOW → HAND_OVER.
+- Tile count invariant: `14 + kongCount` total tiles at discard time.
+- Bonus tile loop processed one tile at a time (distinct snapshots for UI animation).
+- OQ-3 placeholder: closest-clockwise wins on simultaneous win claims.
+- Win validation deferred to Module 1.7; claims currently accepted unconditionally.
+- Status: **complete** — commit `d59a21`
 
 #### Module 1.4b — Game Runner
-- Defines the `PlayerController` interface: the seam between the engine and any
-  player-facing code (human UI or Phase 3 AI).
-  - `getDiscardAction(state, seat): Promise<DiscardAction>` — called in DISCARDING phase.
-  - `getClaimDecision(state, seat): Promise<ClaimDecision>` — called in CLAIM_WINDOW.
-- `GameRunner` class drives one hand to completion:
-  - Automatic phases (DRAWING, CHECK_BONUS) dispatch without consulting controllers.
-  - DISCARDING: asks the current player's controller.
-  - CLAIM_WINDOW: asks all non-discarder controllers concurrently (Promise.all),
-    then applies their responses serially to maintain state consistency.
-  - `run()` resolves at HAND_OVER; `stop()` halts after the current step.
-- Between-hand concerns (seat rotation, new hand setup) are the caller's responsibility.
-- Status: **complete** — pushed to `addiep/mahjong` main, commit `9de3f8a`
+- `PlayerController` interface: `getDiscardAction` + `getClaimDecision`.
+- `GameRunner` drives one hand; auto-dispatches non-decision actions; gathers claim
+  decisions concurrently then applies serially.
+- Status: **complete** — commit `9de3f8a`
 
 #### Module 1.5 — Claim Window Logic
-- After a discard, opens a brief window for claims.
-- Resolves simultaneous claims by priority: win > pung/kong > chow.
-- Enforces the chow-from-left rule.
-- Handles the case where multiple players want to win on the same discard
-  (need to decide: first claimant wins, or specific priority? — **open question**).
+- Validate incoming pung/kong/chow/win claims using Module 1.6.
+- Enforce chow-from-left rule and claim priority.
+- Provide `canChow(hand, discard)` helper.
+- Resolve OQ-3 (simultaneous wins) properly.
 - Status: **not started**
 
 #### Module 1.6 — Meld Validator
-- Given a set of tiles, validates whether they form a legal meld:
-  - Pung: three identical tiles.
-  - Kong: four identical tiles.
-  - Chow: three consecutive suited tiles.
-  - Pair: two identical tiles.
-- Used by both the claim window and the hand evaluator.
-- Status: **not started**
+- Pure predicate functions: `isPair`, `isPung`, `isKong`, `isChow`, `identifyMeld`.
+- `MeldKind` type: `'pair' | 'pung' | 'kong' | 'chow'` (no open/concealed distinction —
+  that is a gameplay concern, not a structural one).
+- Chow validation is order-agnostic; honours can never form chows.
+- Complete melds only; no partial-meld awareness.
+- Standalone — not yet wired into the turn engine (will happen via Module 1.5).
+- Status: **complete** — commit `9c22e5a`
 
 #### Module 1.7 — Hand Evaluator (Win Detector)
-- Given a player's 14 tiles (concealed + drawable/claimable tile), determines:
+- Given a player's 14 tiles (concealed + claimable/drawable tile), determines:
   - Can this hand win in standard form (4 melds + 1 pair)?
   - Does it match any special limit hand?
-- This is algorithmically the trickiest module — needs to try all valid decompositions
-  (a hand can sometimes be read multiple ways).
-- Must enforce `dirtyWinAllowed`: if `false`, reject a standard 4+1 win where melds
-  span more than one suit. Special hands bypass this check entirely — their own
-  definitions determine whether they are clean or dirty.
+- Algorithmically the trickiest module — must try all valid decompositions (a hand
+  can sometimes be read multiple ways). Builds on Module 1.6.
+- Must enforce `dirtyWinAllowed`: if `false`, reject standard 4+1 wins where melds
+  span more than one suit. Special hands bypass this check entirely.
 - Status: **not started**
 
 #### Module 1.8 — Scoring Engine
-- Calculates the score for a winning hand:
-  1. Base points: sum points for each meld (type × concealed/melded × terminal-or-not).
-  2. Apply doublings: each qualifying condition doubles the running total.
-  3. Apply bonuses: self-draw bonus, discard bonus, flower/season bonus.
-  4. If a special limit hand, return fixed limit score instead.
-- Requires the scoring table to be filled in (**open question — see Section 1**).
-- Config-driven: the points table lives in a JSON/TS config file, not hardcoded.
+- Calculates score for a winning hand (base points + doublings + bonuses).
+- Config-driven: points table in a JSON/TS config file.
+- Requires OQ-1 (scoring table) to be resolved before building.
 - Status: **not started**
 
 #### Module 1.9 — Flower / Season Scoring
-- At end of hand, each flower/season a player has set aside scores points.
-- Common rule: your own flower/season (matching your seat) scores more.
-- **Open question:** confirm the exact bonus values.
+- Bonus tile scoring at end of hand.
+- Requires OQ-2 (bonus values) to be resolved.
 - Status: **not started**
 
 #### Module 2.0 — UI: Board Layout
-- Top-level React component laying out the four player areas, the central discard zone,
-  and the wall indicator.
-- For pass-and-play: all four hands visible. For online (Phase 2): only current player's
-  hand face-up.
 - Status: **not started**
 
 #### Module 2.1 — UI: Tile Component
-- Renders a single tile, face-up or face-down.
-- States: default / selected / highlighted (e.g. claimable) / disabled.
-- Uses real Mah Jong tile imagery or Unicode characters (decision TBD).
 - Status: **not started**
 
 #### Module 2.2 — UI: Player Hand
-- Renders a player's concealed tiles + their declared melds + their bonus tiles.
-- Handles tile selection (click to select before discarding).
 - Status: **not started**
 
 #### Module 2.3 — UI: Discard Pool
-- Renders the single communal discard pool in order.
-- Highlights the most recent discard during the claim window.
-- Respects the `discardsVisible` game config flag: face-up (default) or face-down.
-  When face-down, only the most recently discarded tile is shown (during the claim
-  window); all prior discards are hidden from everyone.
 - Status: **not started**
 
 #### Module 2.4 — UI: Action Bar
-- Shows the available actions for the current player at each phase:
-  - Claim window: **Pung / Chow / Kong / Win / Pass**
-  - Post-draw: **Discard / Declare Kong**
-- Buttons are only shown when the action is actually legal (engine-driven).
 - Status: **not started**
 
 #### Module 2.5 — UI: Score Panel
-- Displays the running points tally for each player.
-- Shows a breakdown after each winning hand (meld-by-meld scoring, doublings applied).
 - Status: **not started**
 
 ---
 
 ### Phase 2 — Online Multiplayer (future)
 
-> Details to be fleshed out when Phase 1 is complete. High-level plan:
-
-- Node.js + Socket.io server hosts game rooms.
-- Room created with a short join code; up to 4 players connect.
-- Server runs the same engine from `engine/` in authoritative mode.
-- Clients send actions (`DISCARD`, `CLAIM_PUNG`, `PASS`, etc.); server validates, updates
-  state, and broadcasts sanitised state (hidden tiles redacted) to all players.
-- Each client only sees their own hand face-up.
-- Handle disconnects gracefully (pause timer, allow rejoin).
+> Details to be fleshed out when Phase 1 is complete.
 
 ---
 
 ### Phase 3 — AI Players (future)
 
-> To be detailed once Phase 2 is stable. High-level plan:
-
-The goal is to allow 1 human player to play against 2 or 3 AI opponents, so the game
-is playable solo without waiting for others online.
-
-**Approach: rule-based heuristic AI (not machine learning)**
-
-A learning-based approach (neural networks, reinforcement learning) would produce
-stronger play but is vastly more complex to build and maintain. For a family game,
-a well-tuned heuristic AI is entirely sufficient and has the added advantage of being
-explainable and adjustable — we can tune aggression, risk tolerance, and discard
-strategy without retraining a model.
-
-**Architecture (decided 2026-06-14):**
-
-The `PlayerController` interface defined in Module 1.4b is the integration point.
-The AI implements `getDiscardAction` and `getClaimDecision`; it never touches the
-engine directly. The `GameRunner` does not know or care whether a given seat's
-controller is human or AI. This separation is already in place.
-
-The AI strategy module will live in `engine/src/ai/` and will be a separate concern
-from the engine's state machine.
-
-**Key AI decisions to implement per turn:**
-
-- *What to discard?* Evaluate the hand, score potential winning shapes, discard the
-  tile that least disrupts the most promising paths. Prefer to break isolated tiles
-  over breaking partial melds.
-- *Claim or pass?* Decide whether to claim a discard for a pung/chow based on how
-  much it advances the hand versus how much it reveals (declared melds are visible
-  to all).
-- *When to declare a kong?* Weigh the replacement draw opportunity against revealing
-  information.
-- *Defensive play?* In later stages of the wall, consider whether a discard is
-  "safe" (already discarded by others, unlikely to complete an opponent's hand).
-
-**Difficulty levels:**
-
-Consider offering at least two levels:
-- *Easy:* AI plays greedily towards the fastest win, ignores defence.
-- *Hard:* AI incorporates basic defensive discard logic and reads the table.
+Rule-based heuristic AI. The `PlayerController` interface (Module 1.4b) is the
+integration point — the AI implements it and lives in `engine/src/ai/`. No engine
+changes needed for Phase 3.
 
 ---
 
@@ -365,13 +254,13 @@ Consider offering at least two levels:
 | OQ-1 | Full scoring table: base points per meld, which conditions double | Module 1.8 |
 | OQ-2 | Flower/Season bonus values (own flower vs other) | Module 1.9 |
 | OQ-3 | Simultaneous win claims: how to resolve? | Module 1.5 (placeholder in 1.4: closest clockwise) |
-| ~~OQ-4~~ | ~~Any additional special hands beyond the six listed?~~ | Resolved — full list added from source page |
-| ~~OQ-5~~ | ~~Minimum points required to declare a win?~~ | Resolved — see decisions log |
+| ~~OQ-4~~ | ~~Any additional special hands?~~ | Resolved |
+| ~~OQ-5~~ | ~~Minimum points to declare a win?~~ | Resolved — no minimum |
 | OQ-6 | Tile visuals: real imagery, Unicode, or custom SVG? | Module 2.1 |
-| ~~OQ-7~~ | ~~Crocheting: what is the pair allowed to be?~~ | Resolved — any pair of same-numbered tiles |
-| ~~OQ-8~~ | ~~Do we keep All Pungs, All Kongs, Heavenly Hand, Earthly Hand?~~ | Resolved — all kept |
-| ~~OQ-9~~ | ~~All Honours: Winds and Dragons only, or include 1s and 9s?~~ | Resolved — includes 1s and 9s |
-| ~~OQ-10~~ | ~~Ruby and Emerald: precise tile lists?~~ | Resolved — kept as-is; noted as extremely rare in practice; exact tile composition to confirm when building Module 1.7 |
+| ~~OQ-7~~ | ~~Crocheting: what is the pair allowed to be?~~ | Resolved — any same-numbered pair |
+| ~~OQ-8~~ | ~~Keep All Pungs, All Kongs, Heavenly Hand, Earthly Hand?~~ | Resolved — all kept |
+| ~~OQ-9~~ | ~~All Honours: include 1s and 9s?~~ | Resolved — yes |
+| ~~OQ-10~~ | ~~Ruby and Emerald: precise tile lists?~~ | Resolved — confirm at Module 1.7 |
 
 ---
 
@@ -382,21 +271,23 @@ Consider offering at least two levels:
 | 2026-06-12 | Engine written as pure TS, shared between client and server | Avoids duplicating logic; keeps rules testable independently of UI |
 | 2026-06-12 | Phase 1 targets pass-and-play (no server) | Lets us validate rules before adding network complexity |
 | 2026-06-12 | Scoring config in a JSON/TS file, not hardcoded | Easy to adjust once scoring table is confirmed |
-| 2026-06-12 | No minimum points required to declare a win | In practice four melds always yield enough points; the rule adds complexity for no benefit |
-| 2026-06-12 | Discards face-up by default; face-down is an optional config flag | Face-up is standard play; face-down is a hard mode variant. Config flag kept in game state so the engine and UI both respect it |
-| 2026-06-12 | Knitting & crocheting controlled by a single `knittingEnabled` flag | They come as a pair — no reason to allow one without the other. Decided before the game starts, not mid-game |
-| 2026-06-12 | Kept All Pungs, All Kongs, Heavenly Hand, Earthly Hand | Family plays with these even though they don't appear on the reference page |
-| 2026-06-12 | All Honours includes 1s and 9s, not just Winds and Dragons | Matches reference page and family understanding |
-| 2026-06-12 | Ruby and Emerald kept but noted as extremely rare | No one has ever seen them made in practice; exact tile list to confirm at Module 1.7 |
-| 2026-06-13 | `dirtyWinAllowed` defaults to `false`; clean hands only unless explicitly enabled | Dirty hands are significantly easier to achieve, so allowing them by default would undermine the game. Special hands are unaffected. |
-| 2026-06-13 | Single communal discard pool; no per-player tracking | A player may discard a tile and later win by claiming the same kind from the pool. No fish-back rule. Discard authorship is never recorded. |
-| 2026-06-13 | Each player has a `name: string` on `PlayerState`, matched to their seat wind | Required for display in both pass-and-play and online modes. Names are supplied to `createGameState` in seat order. |
-| 2026-06-14 | Turn engine (1.4) is a pure state machine with no knowledge of controllers | Keeps the engine testable in isolation; GameRunner (1.4b) handles the wiring |
-| 2026-06-14 | `PlayerController` interface lives in GameRunner (1.4b), not the engine | The engine doesn't need to know who is making decisions — it just accepts actions |
-| 2026-06-14 | Bonus tile loop processed one tile at a time via CHECK_BONUS phase | Each replacement draw becomes a distinct state snapshot, which the UI needs for animation |
-| 2026-06-14 | Tile count invariant: `14 + kongCount` total tiles at discard time | Correctly handles initial East deal (14 tiles, no draw needed) and kongs (each adds one extra tile) |
-| 2026-06-14 | OQ-3 placeholder: closest clockwise to discarder wins on simultaneous win claims | Simple and deterministic; real resolution to be decided when Module 1.5 is built |
-| 2026-06-14 | AI strategy module will implement `PlayerController`; lives in `engine/src/ai/` | No engine changes needed for Phase 3; the seam is already in place |
+| 2026-06-12 | No minimum points required to declare a win | In practice four melds always yield enough points |
+| 2026-06-12 | Discards face-up by default; face-down is optional config | Face-up is standard; face-down is a hard mode variant |
+| 2026-06-12 | Knitting & crocheting controlled by a single `knittingEnabled` flag | They come as a pair |
+| 2026-06-12 | Kept All Pungs, All Kongs, Heavenly Hand, Earthly Hand | Family plays with these |
+| 2026-06-12 | All Honours includes 1s and 9s | Matches reference page and family understanding |
+| 2026-06-12 | Ruby and Emerald kept; exact tile list to confirm at Module 1.7 | Extremely rare in practice |
+| 2026-06-13 | `dirtyWinAllowed` defaults to `false` | Dirty hands too easy; special hands unaffected |
+| 2026-06-13 | Single communal discard pool; no per-player tracking | No fish-back rule; discard authorship never recorded |
+| 2026-06-13 | Each player has `name: string` on `PlayerState` | Required for display in pass-and-play and online modes |
+| 2026-06-14 | Turn engine (1.4) is a pure state machine; Game Runner (1.4b) handles wiring | Keeps engine testable in isolation |
+| 2026-06-14 | `PlayerController` interface lives in Game Runner, not the engine | Engine doesn't need to know who is making decisions |
+| 2026-06-14 | Bonus tile loop one tile at a time via CHECK_BONUS phase | Each replacement draw is a distinct snapshot for UI animation |
+| 2026-06-14 | Tile count invariant: `14 + kongCount` total tiles at discard time | Handles East initial deal and kong replacements correctly |
+| 2026-06-14 | OQ-3 placeholder: closest clockwise wins on simultaneous win claims | Simple and deterministic; proper resolution deferred to Module 1.5 |
+| 2026-06-14 | AI strategy module implements `PlayerController`; lives in `engine/src/ai/` | No engine changes needed for Phase 3 |
+| 2026-06-14 | Module 1.6 exposes complete-meld predicates only; no partial melds, no canChow | Partial melds deferred to AI (Phase 3); canChow deferred to Module 1.5 |
+| 2026-06-14 | MeldKind (`pair/pung/kong/chow`) distinct from MeldType (open/concealed kong) | Open vs concealed is a gameplay concern, not a structural one |
 
 ---
 
@@ -405,9 +296,6 @@ Consider offering at least two levels:
 ### GitHub
 - Repository: `addiep/mahjong` (private)
 - **All completed code must be pushed to GitHub immediately after each module is done.**
-  Do not wait to be asked. Push as part of finishing the module, not as a separate step.
-- Push directly to `main` unless the work is experimental or a branch is explicitly requested.
-- Commit messages follow the pattern: `Module X.Y — Short description` plus a brief
-  bullet summary of what was added.
-- This design document (`DESIGN.md`) lives in the repository root and is maintained there.
-  Claude reads it from GitHub at the start of each session and pushes updates as decisions are made.
+- Push directly to `main` unless work is experimental.
+- Commit messages: `Module X.Y — Short description` + bullet summary.
+- `DESIGN.md` lives in the repo root; Claude reads it at session start and pushes updates as decisions are made.
