@@ -186,6 +186,7 @@ a discard.
 - **React** with **TypeScript**
 - Rationale: complex game state benefits from TS type safety; React's component model maps naturally onto tiles, hands, and board regions.
 - Styling: TBD (CSS Modules or Tailwind — decide when we start the UI).
+- Tile visuals: custom SVG, drawn in `Tile.tsx` (no external assets). See OQ-6.
 
 ### Backend (Phase 2 only)
 - **Node.js** with **Socket.io**
@@ -293,10 +294,16 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Status: **not started**
 
 #### Module 2.0 — UI: Board Layout
-- Status: **not started**
+- Status: **not started** (React app scaffold — Vite — to be set up here)
 
 #### Module 2.1 — UI: Tile Component
-- Status: **not started**
+- `Tile.tsx`: a typed React component rendering any engine `Tile` as self-contained SVG;
+  all 36 designs drawn in code (no external assets). Characters show a Latin digit and
+  Winds an E/S/W/N letter for readability; Dots/Bamboo are countable. Fixed physical
+  colours (identical in light/dark). Props: `size`, `faceDown`, `selected`, `onClick`.
+- Resolves OQ-6 (custom SVG). Lives in `src/components/`; the React app scaffold (Vite)
+  is still to be set up (Module 2.0).
+- Status: **complete** — commit `f4a3fc2`
 
 #### Module 2.2 — UI: Player Hand
 - Status: **not started**
@@ -335,7 +342,7 @@ changes needed for Phase 3.
 | ~~OQ-3~~ | ~~Simultaneous win claims: how to resolve?~~ | Resolved — closest in turn order (smallest positive seat-index offset from discarder) |
 | ~~OQ-4~~ | ~~Any additional special hands?~~ | Resolved |
 | ~~OQ-5~~ | ~~Minimum points to declare a win?~~ | Resolved — no minimum |
-| OQ-6 | Tile visuals: real imagery, Unicode, or custom SVG? | Module 2.1 |
+| ~~OQ-6~~ | ~~Tile visuals: real imagery, Unicode, or custom SVG?~~ | Resolved — custom SVG; all 36 designs drawn in `Tile.tsx`. Commercial-site images avoided (copyright); Wikimedia's free SVGs considered but custom chosen for ownership and theming |
 | ~~OQ-7~~ | ~~Crocheting: what is the pair allowed to be?~~ | Resolved — any same-numbered pair |
 | ~~OQ-8~~ | ~~Keep All Pungs, All Kongs, Heavenly Hand, Earthly Hand?~~ | Resolved — all kept |
 | ~~OQ-9~~ | ~~All Honours: include 1s and 9s?~~ | Resolved — yes |
@@ -396,6 +403,8 @@ changes needed for Phase 3.
 | 2026-06-16 | OQ-13a resolved: Knitting = seven cross-suit pairs across two suits (same number from each suit; per-value counts match) | Family rule; `isKnitting` updated in commit `5a615db` (26 vitest cases) |
 | 2026-06-16 | OQ-13b resolved: the Crocheting pair is any two tiles sharing a number (any suits) | Consistent with OQ-7 |
 | 2026-06-16 | Module 1.4 added kong + Robbing the Kong implemented (`DECLARE_ADDED_KONG`, `ROBBING_KONG` phase, `RobbingKongState`); robs validated via Module 1.7; 35 turn-engine vitest cases | Closes OQ-12 (commit `f9cb525`) |
+| 2026-06-17 | OQ-6 resolved: tile visuals are custom SVG (Module 2.1), not scraped imagery or Unicode | Full ownership, no licensing risk, crisp at any size, themeable; commercial-site tile images are copyrighted |
+| 2026-06-17 | Characters tiles carry a Latin digit and Winds an E/S/W/N letter | Most players can't read the Chinese numerals or wind characters |
 
 ---
 
