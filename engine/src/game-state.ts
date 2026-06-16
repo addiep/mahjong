@@ -15,7 +15,7 @@
 import { Tile, TileId, Wind } from './tiles.js';
 import { Wall, Deal, PlayerCount } from './wall.js';
 
-// ─── Seat ──────────────────────────────────────────────────────────────────────
+// ─── Seat ───────────────────────────────────────────────────────────────
 
 /**
  * A player's seat position for a hand.
@@ -27,7 +27,7 @@ export type SeatIndex = 0 | 1 | 2 | 3;
 /** The seat winds in canonical seat order. */
 const SEAT_WINDS: readonly Wind[] = ['east', 'south', 'west', 'north'];
 
-// ─── Game configuration ────────────────────────────────────────────────────────
+// ─── Game configuration ─────────────────────────────────────────────────
 
 /**
  * Configuration set before the hand begins and immutable during play.
@@ -35,24 +35,8 @@ const SEAT_WINDS: readonly Wind[] = ['east', 'south', 'west', 'north'];
  */
 export interface GameConfig {
   readonly playerCount:     PlayerCount;
-  /**
-   * true (default): the communal discard pool is face-up; all players can see
-   * every tile that has been discarded.
-   * false: the pool is face-down; only the tile currently up for claiming is
-   * visible (during the claim window).
-   */
   readonly discardsVisible: boolean;
-  /**
-   * Whether the Knitting and Crocheting special hands are legal.
-   * They are enabled or disabled together — there is no reason to allow one
-   * without the other.
-   */
   readonly knittingEnabled: boolean;
-  /**
-   * Whether a player may declare Mahjong with a dirty hand (melds spanning
-   * more than one suit). Winds and Dragons are always permitted as honours
-   * regardless of this flag. Special hands are unaffected.
-   */
   readonly dirtyWinAllowed: boolean;
 }
 
@@ -64,7 +48,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   dirtyWinAllowed: false,
 };
 
-// ─── Declared melds ────────────────────────────────────────────────────────────
+// ─── Declared melds ──────────────────────────────────────────────────────
 
 /**
  * The type of a declared (face-up) meld.
@@ -88,7 +72,7 @@ export interface DeclaredMeld {
   readonly tiles: readonly Tile[];
 }
 
-// ─── Player state ──────────────────────────────────────────────────────────────
+// ─── Player state ───────────────────────────────────────────────────────
 
 export interface PlayerState {
   /** The player's display name. */
@@ -107,22 +91,20 @@ export interface PlayerState {
   readonly score:      number;
 }
 
-// ─── Game phase ────────────────────────────────────────────────────────────────
+// ─── Game phase ────────────────────────────────────────────────────────
 
 /**
  * The phase the game is currently in. The turn engine (Module 1.4) drives
  * transitions between these phases.
  *
- * DRAWING      — the current player needs to draw from the live wall (normal
- *                turn start), or has just successfully claimed a discard and
- *                now holds it in hand before discarding.
- * CHECK_BONUS  — the player just drew (or received as a replacement) a bonus
- *                tile; it is set aside and a replacement must be drawn from
- *                the dead wall before play continues. Also entered after a
- *                kong declaration (concealed or open) to draw the extra tile.
+ * DRAWING      — the current player needs to draw from the live wall, or has
+ *                just claimed a discard and holds it before discarding.
+ * CHECK_BONUS  — a bonus tile (or kong) requires a replacement draw from the
+ *                dead wall before play continues.
  * DISCARDING   — the current player has their full hand and must discard one tile.
  * CLAIM_WINDOW — a tile has just been discarded; other players may claim it.
- *                The tile is the last entry in discardPool.
+ * ROBBING_KONG — a player has promoted an exposed pung to a kong; other players
+ *                may rob that exact tile for a win before the replacement draw.
  * HAND_OVER    — the hand has ended (win or exhausted wall); handResult is set.
  */
 export type GamePhase =
@@ -130,9 +112,10 @@ export type GamePhase =
   | 'CHECK_BONUS'
   | 'DISCARDING'
   | 'CLAIM_WINDOW'
+  | 'ROBBING_KONG'
   | 'HAND_OVER';
 
-// ─── Hand result ───────────────────────────────────────────────────────────────
+// ─── Hand result ────────────────────────────────────────────────────────
 
 /** Why the hand ended. */
 export type HandEndReason = 'win' | 'draw';
@@ -146,13 +129,13 @@ export interface HandResult {
   readonly winnerSeat: SeatIndex | null;
   /**
    * true  = won by self-draw (drew their own winning tile from the wall).
-   * false = won by claiming a discard.
+   * false = won by claiming a discard (including robbing a kong).
    * null  = not applicable (draw game).
    */
   readonly selfDraw:   boolean | null;
 }
 
-// ─── Claim window ─────────────────────────────────────────────────────────────
+// ─── Claim window ──────────────────────────────────────────────────────
 
 /**
  * The type of claim a player may make on a discarded tile.
@@ -161,7 +144,7 @@ export interface HandResult {
 export type ClaimType = 'win' | 'pung' | 'kong' | 'chow' | 'pass';
 
 /**
- * A single player's decision during the CLAIM_WINDOW phase.
+ * A single player's decision during the CLAIM_WINDOW (or ROBBING_KONG) phase.
  *
  * chowTiles is only set when type === 'chow'. It contains the IDs of the two
  * tiles from the claimer's concealed hand that, together with the discard,
@@ -183,30 +166,39 @@ export interface ClaimWindowState {
   readonly responses: ReadonlyArray<ClaimDecision | null>;
 }
 
-// ─── Game state ────────────────────────────────────────────────────────────────
+/**
+ * Tracks the Robbing the Kong window, opened when a player promotes an exposed
+ * pung to a kong by adding a drawn tile. Only that exact tile may be claimed,
+ * and only as a winning tile ('win' or 'pass'); concealed kongs are never robbable.
+ *
+ * responses is indexed by SeatIndex, like ClaimWindowState. The melder's own
+ * slot is pre-filled with { type: 'pass' } — they cannot rob their own kong.
+ */
+export interface RobbingKongState {
+  /** The tile just added to the kong; the only tile that may be robbed. */
+  readonly tile:       Tile;
+  /** The seat that declared the added kong. */
+  readonly melderSeat: SeatIndex;
+  /** Each seat's response; null = not yet responded. Only 'win'/'pass' are legal. */
+  readonly responses:  ReadonlyArray<ClaimDecision | null>;
+}
+
+// ─── Game state ────────────────────────────────────────────────────────
 
 /**
  * The complete, immutable snapshot of the game at a single point in time.
  *
  * The turn engine produces a new GameState for every action — old snapshots
- * are never modified. This makes the state easy to reason about, test, and
- * (eventually) replay or undo.
+ * are never modified.
  */
 export interface GameState {
   /** Immutable configuration for this game. */
   readonly config:         GameConfig;
-  /**
-   * One PlayerState per seat, indexed 0 to (playerCount - 1).
-   * players[0] is always the current East (dealer) for this hand.
-   */
+  /** One PlayerState per seat, indexed 0 to (playerCount - 1). */
   readonly players:        readonly PlayerState[];
   /** The live wall and dead wall. */
   readonly wall:           Wall;
-  /**
-   * The communal discard pool in chronological order.
-   * The last element is the most recently discarded tile.
-   * During CLAIM_WINDOW this is the tile currently available to claim.
-   */
+  /** The communal discard pool in chronological order (last = most recent). */
   readonly discardPool:    readonly Tile[];
   /** Seat index of the player whose turn it currently is. */
   readonly currentSeat:    SeatIndex;
@@ -218,14 +210,13 @@ export interface GameState {
   readonly handNumber:     number;
   /** Set when the hand ends; null while the hand is in progress. */
   readonly handResult:     HandResult | null;
-  /**
-   * Set only during CLAIM_WINDOW phase. Tracks each player's response
-   * (pass / pung / kong / chow / win). Null in all other phases.
-   */
+  /** Set only during CLAIM_WINDOW phase; null otherwise. */
   readonly claimWindow:    ClaimWindowState | null;
+  /** Set only during ROBBING_KONG phase; null otherwise. */
+  readonly robbingKong:    RobbingKongState | null;
 }
 
-// ─── Factory ───────────────────────────────────────────────────────────────────
+// ─── Factory ────────────────────────────────────────────────────────────
 
 /**
  * Creates the initial GameState for a new hand from a config, a completed deal,
@@ -233,13 +224,6 @@ export interface GameState {
  *
  * Names are matched to seats in order: names[0] is East (dealer), names[1] is
  * South, and so on. The array length must equal config.playerCount.
- *
- * The prevailing wind for hand 0 is East. Rotation of seat winds and
- * prevailing wind across hands is handled by the turn engine (Module 1.4).
- *
- * The initial phase is DRAWING: East holds 14 tiles and must check for bonus
- * tiles or declare a kong before discarding. (The turn engine handles that
- * check immediately on the first action.)
  */
 export function createGameState(
   config: GameConfig,
@@ -253,9 +237,9 @@ export function createGameState(
   }
 
   const players: PlayerState[] = deal.hands.map((hand, i) => ({
-    name:       names[i],
+    name:       names[i]!,
     seat:       i as SeatIndex,
-    seatWind:   SEAT_WINDS[i],
+    seatWind:   SEAT_WINDS[i]!,
     concealed:  hand,
     melds:      [],
     bonusTiles: [],
@@ -273,5 +257,6 @@ export function createGameState(
     handNumber:     0,
     handResult:     null,
     claimWindow:    null,
+    robbingKong:    null,
   };
 }
