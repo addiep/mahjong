@@ -12,3 +12,5 @@ export * from './game-runner.js';
 export * from './meld-validator.js';
 export * from './claim-window.js';
 export * from './hand-evaluator.js';
+export * from './scoring-config.js';
+export * from './scoring.js';
