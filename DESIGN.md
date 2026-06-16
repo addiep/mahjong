@@ -43,10 +43,12 @@ Two additional special hands, enabled or disabled as a single binary switch set 
 the game begins. If the switch is off, neither hand is legal and neither appears in the
 hand evaluator.
 
-- **Knitting:** seven pairs of matching numbers across exactly two suits. No Winds or
-  Dragons. (14 tiles: 7 pairs.)
+- **Knitting:** seven pairs across exactly two suits, where each pair is the same number
+  taken once from each suit (e.g. bamboo-3 + characters-3). The two suits' per-value
+  counts therefore match. No Winds or Dragons. (14 tiles: 7 cross-suit pairs.)
 - **Crocheting (triple knitting):** four sets of three — one tile of the same number
-  from each of the three suits — plus one pair of same-numbered tiles. (14 tiles: 4×3 + 2.)
+  from each of the three suits — plus one pair of two tiles sharing a number (any suits).
+  (14 tiles: 4×3 + 2.)
 
 Both hands score as special/limit hands when enabled.
 
@@ -146,8 +148,8 @@ a discard.
 | Clean Pairs | ½ limit | Seven pairs of one suit, Winds and Dragons permitted. |
 | Honour Pairs | Limit | Seven pairs composed only of Winds and Dragons (no 1s or 9s). |
 | All Pairs Honours | 500 pts | Seven pairs composed only of 1s, 9s, Winds, and Dragons. |
-| Knitting | Limit | Seven pairs of matching numbers across exactly two suits. No Winds or Dragons. |
-| Crocheting (Triple Knitting) | ½ limit | Four sets of three same-numbered tiles across all three suits + one pair of same numbers. |
+| Knitting | Limit | Seven cross-suit pairs across exactly two suits (each pair = same number, one from each suit). No Winds or Dragons. |
+| Crocheting (Triple Knitting) | ½ limit | Four sets of three same-numbered tiles across all three suits + one pair of two tiles sharing a number (any suits). |
 | Gates of Heaven (Nine Chances) | Limit | Waiting hand: concealed pung of 1s + run 2–8 + concealed pung of 9s, all one suit (13 tiles). Any tile 1–9 of that suit completes it. |
 | Wriggling Snake | Limit | Run 1–9 in one suit with one of those numbers paired (any of 1–9) + one of each Wind. (14 tiles: 10 suited + 4 winds.) |
 | 13 Unique Wonders | Limit | One of each Dragon (3) + one of each Wind (4) + 1 and 9 of each suit (6) + any one of those tiles paired. |
@@ -220,9 +222,10 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Bonus tile loop processed one tile at a time (distinct snapshots for UI animation).
 - Win validation deferred to Module 1.7; claims currently accepted unconditionally.
 - Known gap: no action yet for the *added kong* (promoting an exposed pung to an open
-  kong with a drawn tile). `DECLARE_CONCEALED_KONG` only handles four matching tiles in
-  the concealed hand. Implementing the added kong also requires a Robbing the Kong claim
-  window (the added tile may complete another player's hand). Tracked as OQ-12.
+  kong with a drawn tile); `DECLARE_CONCEALED_KONG` only handles four matching tiles in
+  the concealed hand. Per OQ-12 (resolved), implementing it also requires a Robbing the
+  Kong window: only an added kong can be robbed, by a player who completes their win on
+  that exact tile; concealed kongs are safe. Implementation still outstanding.
 - Status: **complete** — commit `d59a21`; updated in `dd8d003` (wired claim-window). Added-kong action outstanding (OQ-12).
 
 #### Module 1.4b — Game Runner
@@ -270,9 +273,10 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Circumstance hands (Plum Blossom, Moon, Twofold Fortune) detected via a provenance
   context object the turn engine passes in (winning-tile source, last-wall-tile flag,
   kong-replacement chain); `detectCircumstance` presupposes an otherwise-winning hand.
-- Knitting/Crocheting use a documented first-cut interpretation pending OQ-13; the default
-  game (knitting off) is unaffected.
-- Status: **complete** — commit `3b9c7da` (25 vitest cases passing).
+- Knitting/Crocheting follow OQ-13 (resolved): Knitting = seven cross-suit number pairs
+  across two suits; the Crocheting pair is any two tiles sharing a number. Gated by
+  `knittingEnabled` (off by default).
+- Status: **complete** — commits `3b9c7da`, `5a615db` (26 vitest cases passing).
 
 #### Module 1.8 — Scoring Engine
 - Calculates score for a winning hand (base points + doublings + bonuses).
@@ -336,8 +340,8 @@ changes needed for Phase 3.
 | ~~OQ-9~~ | ~~All Honours: include 1s and 9s?~~ | Resolved — yes |
 | ~~OQ-10~~ | ~~Ruby and Emerald: precise tile lists?~~ | Resolved — both hands removed |
 | ~~OQ-11~~ | ~~Purity: limit hand or ×3 doubling?~~ | Resolved — ×3 doubling (unorthodox family rule) |
-| OQ-12 | Robbing the Kong: claim-window interaction when an exposed pung is promoted to a kong | Module 1.4 added-kong action |
-| OQ-13 | Knitting / Crocheting: exact tile structure ("matching numbers across two suits"; what the crocheting pair may be). Module 1.7 ships a first-cut interpretation gated behind `knittingEnabled` | Module 1.7 special-hand detection |
+| ~~OQ-12~~ | ~~Robbing the Kong: claim-window interaction when an exposed pung is promoted to a kong~~ | Resolved — added kong only; robbed by a player completing their win on that tile; concealed kongs safe. Turn-engine implementation outstanding (Module 1.4) |
+| ~~OQ-13~~ | ~~Knitting / Crocheting: exact tile structure~~ | Resolved — Knitting = seven cross-suit number pairs across two suits; Crocheting pair = any two tiles sharing a number |
 
 ---
 
@@ -387,7 +391,9 @@ changes needed for Phase 3.
 | 2026-06-16 | Circumstance hands detected by the hand evaluator via a provenance context object, not by the turn engine alone | Keeps all hand-identification in one module for the scorer; supersedes the 2026-06-14 framing |
 | 2026-06-16 | Hand evaluator's public result is binary (winning hand or not); enumerating readings to maximise score is the scorer's job | Win detection is all the engine and AI need; the decomposition search is a shared helper both modules call. Supersedes the earlier "returns all decompositions" note |
 | 2026-06-16 | Module 1.7 complete: binary `isWinningHand` + shared `decomposeStandard`; All Pungs (no-chow) bypass keeps mixed-suit limit hands valid with dirtyWin off; 25 vitest cases | Trickiest module; built and tested in isolation per conventions |
-| 2026-06-16 | Knitting/Crocheting given a first-cut interpretation behind `knittingEnabled`; exact rule deferred to OQ-13 | Family definitions are ambiguous; the default game (knitting off) is unaffected |
+| 2026-06-16 | OQ-12 resolved: only an added kong (promoted pung) can be robbed, by a player completing their win on that tile; concealed kongs safe | Standard HK rule; matches the existing Robbing the Kong doubling. Turn-engine implementation still outstanding |
+| 2026-06-16 | OQ-13a resolved: Knitting = seven cross-suit pairs across two suits (same number from each suit; per-value counts match) | Family rule; `isKnitting` updated in commit `5a615db` (26 vitest cases) |
+| 2026-06-16 | OQ-13b resolved: the Crocheting pair is any two tiles sharing a number (any suits) | Consistent with OQ-7 |
 
 ---
 
