@@ -258,16 +258,21 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
   decomposed. Bonus tiles (flowers/seasons) are excluded entirely; they score in 1.9.
 - Algorithmically the trickiest module: even a yes/no answer requires trying to carve the
   tiles into melds, and a hand can be read multiple ways. The decomposition search is
-  written once as a shared helper. The evaluator asks it "is there any valid carving?"
-  (boolean); the scorer (1.8) asks it for every carving and picks the highest-scoring one.
-  Choosing between equally-valid readings is a scoring concern, not an evaluation one.
-- Must enforce `dirtyWinAllowed`: if `false`, reject standard 4+1 wins where melds
-  span more than one suit. Special hands bypass this check entirely.
-- Circumstance hands (Plum Blossom, Moon, Twofold Fortune) are detected here too, via a
-  provenance context object the turn engine passes in (winning-tile source, last-wall-tile
-  flag, kong-replacement chain). The structural decomposition itself does not depend on
-  this context.
-- Status: **not started**
+  written once as a shared helper (`decomposeStandard`). The evaluator asks it "is there
+  any valid carving?" (boolean); the scorer (1.8) asks it for every carving and picks the
+  highest-scoring one. Choosing between equally-valid readings is a scoring concern.
+- Enforces `dirtyWinAllowed`: if `false`, reject standard 4+1 wins where melds span more
+  than one suit. A no-chow standard hand is always at least All Pungs (a limit hand) and
+  bypasses the restriction. Special hands bypass it entirely.
+- Non-standard winning shapes the meld decomposition cannot express are detected
+  separately and require a fully concealed hand: the seven-pairs family, Wriggling Snake,
+  13 Unique Wonders, and (gated by `knittingEnabled`) Knitting and Crocheting.
+- Circumstance hands (Plum Blossom, Moon, Twofold Fortune) detected via a provenance
+  context object the turn engine passes in (winning-tile source, last-wall-tile flag,
+  kong-replacement chain); `detectCircumstance` presupposes an otherwise-winning hand.
+- Knitting/Crocheting use a documented first-cut interpretation pending OQ-13; the default
+  game (knitting off) is unaffected.
+- Status: **complete** — commit `3b9c7da` (25 vitest cases passing).
 
 #### Module 1.8 — Scoring Engine
 - Calculates score for a winning hand (base points + doublings + bonuses).
@@ -332,6 +337,7 @@ changes needed for Phase 3.
 | ~~OQ-10~~ | ~~Ruby and Emerald: precise tile lists?~~ | Resolved — both hands removed |
 | ~~OQ-11~~ | ~~Purity: limit hand or ×3 doubling?~~ | Resolved — ×3 doubling (unorthodox family rule) |
 | OQ-12 | Robbing the Kong: claim-window interaction when an exposed pung is promoted to a kong | Module 1.4 added-kong action |
+| OQ-13 | Knitting / Crocheting: exact tile structure ("matching numbers across two suits"; what the crocheting pair may be). Module 1.7 ships a first-cut interpretation gated behind `knittingEnabled` | Module 1.7 special-hand detection |
 
 ---
 
@@ -380,6 +386,8 @@ changes needed for Phase 3.
 | 2026-06-16 | Added kong (promoting an exposed pung) and Robbing the Kong not yet implemented in the turn engine; logged as a gap (OQ-12) | The `open_kong` type anticipates it, but no action exists and `DECLARE_CONCEALED_KONG` needs all four tiles in hand |
 | 2026-06-16 | Circumstance hands detected by the hand evaluator via a provenance context object, not by the turn engine alone | Keeps all hand-identification in one module for the scorer; supersedes the 2026-06-14 framing |
 | 2026-06-16 | Hand evaluator's public result is binary (winning hand or not); enumerating readings to maximise score is the scorer's job | Win detection is all the engine and AI need; the decomposition search is a shared helper both modules call. Supersedes the earlier "returns all decompositions" note |
+| 2026-06-16 | Module 1.7 complete: binary `isWinningHand` + shared `decomposeStandard`; All Pungs (no-chow) bypass keeps mixed-suit limit hands valid with dirtyWin off; 25 vitest cases | Trickiest module; built and tested in isolation per conventions |
+| 2026-06-16 | Knitting/Crocheting given a first-cut interpretation behind `knittingEnabled`; exact rule deferred to OQ-13 | Family definitions are ambiguous; the default game (knitting off) is unaffected |
 
 ---
 
