@@ -368,22 +368,31 @@ function isThirteenWonders(tiles: readonly Tile[]): boolean {
 }
 
 /**
- * Knitting: all suited, exactly two suits, fourteen tiles forming seven pairs.
- * NOTE: the precise family rule for "matching numbers across two suits" is not
- * fully pinned down (see DESIGN.md OQ-13). This is a documented first cut, gated
- * behind `knittingEnabled` (off by default).
+ * Knitting (OQ-13a resolved): all suited, exactly two suits, and the two suits
+ * pair up across each other by number. Each of the seven pairs is the same number
+ * taken once from each suit (e.g. bamboo-3 + characters-3), so the per-value counts
+ * in the two suits must match. Gated behind `knittingEnabled` (off by default).
  */
 function isKnitting(tiles: readonly Tile[]): boolean {
   if (tiles.length !== 14) return false;
   if (!tiles.every(isSuited)) return false;
-  if (suitsOf(tiles).size !== 2) return false;
-  return asSevenPairs(tiles).isSevenGroups;
+  const present = [...suitsOf(tiles)];
+  if (present.length !== 2) return false;
+  const [s1] = present as [Suit, Suit];
+  const a = emptySuitArray(), b = emptySuitArray();
+  for (const t of tiles) {
+    if (!isSuited(t)) return false;
+    if (t.suit === s1) a[t.value] = (a[t.value] ?? 0) + 1;
+    else b[t.value] = (b[t.value] ?? 0) + 1;
+  }
+  for (let v = 1; v <= 9; v++) if ((a[v] ?? 0) !== (b[v] ?? 0)) return false;
+  return true; // 14 tiles with matched counts = seven cross-suit number pairs
 }
 
 /**
  * Crocheting (triple knitting): four triples, each one tile of the same number
- * from all three suits, plus a pair of same-numbered tiles. All suited, no honours.
- * Gated behind `knittingEnabled` (see OQ-13).
+ * from all three suits, plus a pair of same-numbered tiles (any suits, OQ-13b).
+ * All suited, no honours. Gated behind `knittingEnabled`.
  */
 function isCrocheting(tiles: readonly Tile[]): boolean {
   if (tiles.length !== 14) return false;

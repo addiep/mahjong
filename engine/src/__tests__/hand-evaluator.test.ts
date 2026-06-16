@@ -131,14 +131,18 @@ describe('isWinningHand — bespoke special hands', () => {
 
 // ─── Knitting / crocheting gating ───────────────────────────────────────────────
 describe('isWinningHand — knitting gated by config', () => {
-  const knit = [...pr(B, 1), ...pr(B, 2), ...pr(B, 3), ...pr(B, 4), ...pr(C, 5), ...pr(C, 6), ...pr(C, 7)];
+  const knit = [B(1), B(2), B(3), B(4), B(5), B(6), B(7), C(1), C(2), C(3), C(4), C(5), C(6), C(7)];
   const crochet = [B(1), C(1), O(1), B(2), C(2), O(2), B(3), C(3), O(3), B(4), C(4), O(4), B(5), B(5)];
 
   it('rejects knitting when knittingEnabled is false', () => {
     expect(isWinningHand(knit, [], cfg({ knittingEnabled: false }))).toBe(false);
   });
-  it('accepts knitting when knittingEnabled is true', () => {
+  it('accepts knitting (cross-suit number pairs) when knittingEnabled is true', () => {
     expect(isWinningHand(knit, [], cfg({ knittingEnabled: true }))).toBe(true);
+  });
+  it('rejects two-suit identical pairs that are not cross-suit matched, even when enabled', () => {
+    const hand = [...pr(B, 1), ...pr(B, 2), ...pr(B, 3), ...pr(B, 4), ...pr(C, 5), ...pr(C, 6), ...pr(C, 7)];
+    expect(isWinningHand(hand, [], cfg({ knittingEnabled: true }))).toBe(false);
   });
   it('accepts crocheting only when knittingEnabled is true', () => {
     expect(isWinningHand(crochet, [], cfg({ knittingEnabled: false }))).toBe(false);
