@@ -213,26 +213,26 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Status: **complete** — commit `f40e1a6`
 
 #### Module 1.3 — Game State Model
-- Status: **complete** — commit `7f799e3`; extended in `d59a21` (claimWindow field)
+- Status: **complete** — commit `7f799e3`; extended in `d59a21` (claimWindow) and `f9cb525` (robbingKong + ROBBING_KONG phase)
 
 #### Module 1.4 — Turn Engine (State Machine)
 - Pure `dispatch(state, action): GameState` function — the only way to advance state.
-- Drives DRAWING → CHECK_BONUS → DISCARDING → CLAIM_WINDOW → HAND_OVER.
+- Drives DRAWING → CHECK_BONUS → DISCARDING → CLAIM_WINDOW → ROBBING_KONG → HAND_OVER.
 - Tile count invariant: `14 + kongCount` total tiles at discard time.
 - Bonus tile loop processed one tile at a time (distinct snapshots for UI animation).
-- Win validation deferred to Module 1.7; claims currently accepted unconditionally.
-- Known gap: no action yet for the *added kong* (promoting an exposed pung to an open
-  kong with a drawn tile); `DECLARE_CONCEALED_KONG` only handles four matching tiles in
-  the concealed hand. Per OQ-12 (resolved), implementing it also requires a Robbing the
-  Kong window: only an added kong can be robbed, by a player who completes their win on
-  that exact tile; concealed kongs are safe. Implementation still outstanding.
-- Status: **complete** — commit `d59a21`; updated in `dd8d003` (wired claim-window). Added-kong action outstanding (OQ-12).
+- Win validation deferred for ordinary discard claims; Module 1.7 is wired where a
+  structural win is required (the Robbing the Kong window).
+- Added kong (OQ-12): `DECLARE_ADDED_KONG` promotes an exposed pung to an open kong with
+  a drawn tile, then opens a `ROBBING_KONG` window. Only that tile may be robbed, only for
+  a win (validated via Module 1.7), and only an added kong is robbable — concealed kongs
+  are safe. If nobody robs, the melder proceeds to the kong replacement draw.
+- Status: **complete** — commits `d59a21`, `dd8d003` (claim-window), `f9cb525` (added kong + Robbing the Kong).
 
 #### Module 1.4b — Game Runner
 - `PlayerController` interface: `getDiscardAction` + `getClaimDecision`.
 - `GameRunner` drives one hand; auto-dispatches non-decision actions; gathers claim
-  decisions concurrently then applies serially.
-- Status: **complete** — commit `9de3f8a`
+  decisions concurrently then applies serially. Drives the ROBBING_KONG window too.
+- Status: **complete** — commit `9de3f8a`; updated in `f9cb525` (ROBBING_KONG)
 
 #### Module 1.5 — Claim Window Logic
 - `canPung`, `canKong`, `canChow` capability helpers.
@@ -276,7 +276,8 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Knitting/Crocheting follow OQ-13 (resolved): Knitting = seven cross-suit number pairs
   across two suits; the Crocheting pair is any two tiles sharing a number. Gated by
   `knittingEnabled` (off by default).
-- Status: **complete** — commits `3b9c7da`, `5a615db` (26 vitest cases passing).
+- Status: **complete** — commits `3b9c7da`, `5a615db` (26 vitest cases passing). Wired into
+  Module 1.4's Robbing the Kong validation in `f9cb525`.
 
 #### Module 1.8 — Scoring Engine
 - Calculates score for a winning hand (base points + doublings + bonuses).
@@ -340,7 +341,7 @@ changes needed for Phase 3.
 | ~~OQ-9~~ | ~~All Honours: include 1s and 9s?~~ | Resolved — yes |
 | ~~OQ-10~~ | ~~Ruby and Emerald: precise tile lists?~~ | Resolved — both hands removed |
 | ~~OQ-11~~ | ~~Purity: limit hand or ×3 doubling?~~ | Resolved — ×3 doubling (unorthodox family rule) |
-| ~~OQ-12~~ | ~~Robbing the Kong: claim-window interaction when an exposed pung is promoted to a kong~~ | Resolved — added kong only; robbed by a player completing their win on that tile; concealed kongs safe. Turn-engine implementation outstanding (Module 1.4) |
+| ~~OQ-12~~ | ~~Robbing the Kong: claim-window interaction when an exposed pung is promoted to a kong~~ | Resolved & implemented (commit `f9cb525`) — added kong only; robbed by a player completing their win on that tile; concealed kongs safe |
 | ~~OQ-13~~ | ~~Knitting / Crocheting: exact tile structure~~ | Resolved — Knitting = seven cross-suit number pairs across two suits; Crocheting pair = any two tiles sharing a number |
 
 ---
@@ -387,13 +388,14 @@ changes needed for Phase 3.
 | 2026-06-14 | canChow checks all three positional patterns (discard as low/mid/high tile) | Covers every valid chow sequence without needing meld-validator's isChow directly |
 | 2026-06-16 | OQ-2 resolved: each flower/season scores a flat 4 points; no own-vs-other distinction | Family plays a flat bonus, not a seat-matched one |
 | 2026-06-16 | Removed the "Own Flower or Season" doubling | No own-flower rule in the family game; complete-set doubling retained |
-| 2026-06-16 | Added kong (promoting an exposed pung) and Robbing the Kong not yet implemented in the turn engine; logged as a gap (OQ-12) | The `open_kong` type anticipates it, but no action exists and `DECLARE_CONCEALED_KONG` needs all four tiles in hand |
+| 2026-06-16 | Added kong (promoting an exposed pung) and Robbing the Kong logged as a gap (OQ-12) | The `open_kong` type anticipated it, but no action existed |
 | 2026-06-16 | Circumstance hands detected by the hand evaluator via a provenance context object, not by the turn engine alone | Keeps all hand-identification in one module for the scorer; supersedes the 2026-06-14 framing |
 | 2026-06-16 | Hand evaluator's public result is binary (winning hand or not); enumerating readings to maximise score is the scorer's job | Win detection is all the engine and AI need; the decomposition search is a shared helper both modules call. Supersedes the earlier "returns all decompositions" note |
 | 2026-06-16 | Module 1.7 complete: binary `isWinningHand` + shared `decomposeStandard`; All Pungs (no-chow) bypass keeps mixed-suit limit hands valid with dirtyWin off; 25 vitest cases | Trickiest module; built and tested in isolation per conventions |
-| 2026-06-16 | OQ-12 resolved: only an added kong (promoted pung) can be robbed, by a player completing their win on that tile; concealed kongs safe | Standard HK rule; matches the existing Robbing the Kong doubling. Turn-engine implementation still outstanding |
+| 2026-06-16 | OQ-12 resolved: only an added kong (promoted pung) can be robbed, by a player completing their win on that tile; concealed kongs safe | Standard HK rule; matches the existing Robbing the Kong doubling |
 | 2026-06-16 | OQ-13a resolved: Knitting = seven cross-suit pairs across two suits (same number from each suit; per-value counts match) | Family rule; `isKnitting` updated in commit `5a615db` (26 vitest cases) |
 | 2026-06-16 | OQ-13b resolved: the Crocheting pair is any two tiles sharing a number (any suits) | Consistent with OQ-7 |
+| 2026-06-16 | Module 1.4 added kong + Robbing the Kong implemented (`DECLARE_ADDED_KONG`, `ROBBING_KONG` phase, `RobbingKongState`); robs validated via Module 1.7; 35 turn-engine vitest cases | Closes OQ-12 (commit `f9cb525`) |
 
 ---
 
