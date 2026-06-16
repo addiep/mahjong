@@ -250,14 +250,17 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Status: **complete** — commit `9c22e5a`
 
 #### Module 1.7 — Hand Evaluator (Win Detector)
-- Given a player's concealed tiles, declared melds, and the winning tile, determines:
-  - Can this hand win in standard form (4 melds + 1 pair)?
-  - Does it match any special limit hand?
-- Declared melds are fixed; only the concealed portion is decomposed. Bonus tiles
-  (flowers/seasons) are excluded entirely; they score in Module 1.9.
-- Algorithmically the trickiest module: must try all valid decompositions (a hand can
-  sometimes be read multiple ways) and return every valid reading, so the scoring engine
-  (1.8) can pick the highest-scoring one. Builds on Module 1.6.
+- Public contract is binary: does this hand win, yes or no, in standard form (4 melds +
+  1 pair) or as a special/limit hand. That is all the turn engine and the AI need: a
+  player declares Mah Jong and the evaluator confirms the hand is legal.
+- Given a player's concealed tiles, declared melds, and the winning tile (plus the
+  provenance context, see below). Declared melds are fixed; only the concealed portion is
+  decomposed. Bonus tiles (flowers/seasons) are excluded entirely; they score in 1.9.
+- Algorithmically the trickiest module: even a yes/no answer requires trying to carve the
+  tiles into melds, and a hand can be read multiple ways. The decomposition search is
+  written once as a shared helper. The evaluator asks it "is there any valid carving?"
+  (boolean); the scorer (1.8) asks it for every carving and picks the highest-scoring one.
+  Choosing between equally-valid readings is a scoring concern, not an evaluation one.
 - Must enforce `dirtyWinAllowed`: if `false`, reject standard 4+1 wins where melds
   span more than one suit. Special hands bypass this check entirely.
 - Circumstance hands (Plum Blossom, Moon, Twofold Fortune) are detected here too, via a
@@ -268,6 +271,8 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 
 #### Module 1.8 — Scoring Engine
 - Calculates score for a winning hand (base points + doublings + bonuses).
+- Uses the shared decomposition helper to enumerate every valid reading of the hand and
+  scores the highest-paying one (the player is entitled to their best score).
 - Config-driven: points table in a JSON/TS config file.
 - Scoring table now established (see §1 Scoring System above).
 - Status: **not started**
@@ -374,7 +379,7 @@ changes needed for Phase 3.
 | 2026-06-16 | Removed the "Own Flower or Season" doubling | No own-flower rule in the family game; complete-set doubling retained |
 | 2026-06-16 | Added kong (promoting an exposed pung) and Robbing the Kong not yet implemented in the turn engine; logged as a gap (OQ-12) | The `open_kong` type anticipates it, but no action exists and `DECLARE_CONCEALED_KONG` needs all four tiles in hand |
 | 2026-06-16 | Circumstance hands detected by the hand evaluator via a provenance context object, not by the turn engine alone | Keeps all hand-identification in one module for the scorer; supersedes the 2026-06-14 framing |
-| 2026-06-16 | Hand evaluator returns all valid decompositions, not just a boolean | Scoring (1.8) needs every reading to pick the highest-scoring one |
+| 2026-06-16 | Hand evaluator's public result is binary (winning hand or not); enumerating readings to maximise score is the scorer's job | Win detection is all the engine and AI need; the decomposition search is a shared helper both modules call. Supersedes the earlier "returns all decompositions" note |
 
 ---
 
