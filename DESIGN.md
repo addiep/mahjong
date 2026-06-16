@@ -114,7 +114,6 @@ Minor = simples (2–8 of any suit). Major = terminals (1 or 9) or honours (Wind
 
 Each qualifying condition doubles the round total once:
 - Pung or Kong of any major tile (1, 9, Wind, or Dragon) — once per qualifying meld
-- Own Flower or Season
 - Complete set of Flowers or complete set of Seasons (doubles twice)
 - Original Call (declared fishing after the player's very first discard)
 
@@ -264,8 +263,8 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Status: **not started**
 
 #### Module 1.9 — Flower / Season Scoring
-- Bonus tile scoring at end of hand.
-- Requires OQ-2 (bonus values) to be resolved.
+- Bonus tile scoring at end of hand: flat 4 points per flower or season.
+- No own-flower distinction and no own-flower doubling (OQ-2 resolved).
 - Status: **not started**
 
 #### Module 2.0 — UI: Board Layout
@@ -307,7 +306,7 @@ changes needed for Phase 3.
 | # | Question | Where it blocks us |
 |---|---|---|
 | ~~OQ-1~~ | ~~Full scoring table: base points per meld, which conditions double~~ | Resolved — see Scoring System in §1 |
-| OQ-2 | Flower/Season bonus values (own flower vs other) | Module 1.9 |
+| ~~OQ-2~~ | ~~Flower/Season bonus values (own flower vs other)~~ | Resolved — flat 4 pts each; no own/other distinction; no own-flower doubling |
 | ~~OQ-3~~ | ~~Simultaneous win claims: how to resolve?~~ | Resolved — closest in turn order (smallest positive seat-index offset from discarder) |
 | ~~OQ-4~~ | ~~Any additional special hands?~~ | Resolved |
 | ~~OQ-5~~ | ~~Minimum points to declare a win?~~ | Resolved — no minimum |
@@ -360,6 +359,8 @@ changes needed for Phase 3.
 | 2026-06-14 | Clean Pairs (½ limit) added alongside Heavenly Twins (limit): same suit but W/D allowed | From family note |
 | 2026-06-14 | Module 1.5 claim validation: win claims accepted structurally; full check deferred to 1.7 | Keeps modules decoupled; 1.7 not yet written |
 | 2026-06-14 | canChow checks all three positional patterns (discard as low/mid/high tile) | Covers every valid chow sequence without needing meld-validator's isChow directly |
+| 2026-06-16 | OQ-2 resolved: each flower/season scores a flat 4 points; no own-vs-other distinction | Family plays a flat bonus, not a seat-matched one |
+| 2026-06-16 | Removed the "Own Flower or Season" doubling | No own-flower rule in the family game; complete-set doubling retained |
 
 ---
 
