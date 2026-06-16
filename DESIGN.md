@@ -281,16 +281,33 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
   Module 1.4's Robbing the Kong validation in `f9cb525`.
 
 #### Module 1.8 — Scoring Engine
-- Calculates score for a winning hand (base points + doublings + bonuses).
-- Uses the shared decomposition helper to enumerate every valid reading of the hand and
-  scores the highest-paying one (the player is entitled to their best score).
-- Config-driven: points table in a JSON/TS config file.
-- Scoring table now established (see §1 Scoring System above).
-- Status: **not started**
+- Public entry point `scoreWinningHand(input, scoringConfig?)` returns a `ScoreResult`
+  (total, special-hand name, base points, doublings, and a per-line breakdown).
+- Uses the shared `decomposeStandard` helper to enumerate every valid reading of the hand,
+  scores each, and keeps the highest-paying one (the player is entitled to their best score).
+- Config-driven: the points table lives in `scoring-config.ts` (`DEFAULT_SCORING_CONFIG`),
+  not hardcoded in the logic.
+- Doublings are expressed as a *count* of ×2 multipliers, so a "×3" rule (Purity, Winds &
+  Dragons only) contributes 3 doublings (×8) and a complete flower/season set contributes 2.
+- The winning tile completes an *exposed* meld when it is claimed from a discard (or robbed);
+  on a self-draw the completed meld stays concealed. This drives the exposed/concealed
+  base-point split and the "all concealed" doubling.
+- Special / limit / circumstance hands override the normal tally: every detector runs, the
+  best-paying hand is chosen, and a tie-break priority gives the more specific hand the label
+  (e.g. Imperial Jade over the generic All Pungs). Heads and Tails is scored as a limit hand
+  (not the ×3 doubling), per the 2026-06-14 decision.
+- The agreed **limit** (default 1,000; half-limit 500) is also the table-wide cap on any
+  single hand, so a heavily-doubled normal hand cannot exceed it.
+- Per-flower/season flat points (4 each) are deferred to Module 1.9; the scorer surfaces the
+  bonus-tile count and applies the complete-set doublings, but does not add the flat points.
+  Settlement of points between players is out of scope (a higher-level concern).
+- Status: **complete** — commits `14fe9fb` (config + index), `7be1898` (engine + 18 vitest cases).
 
 #### Module 1.9 — Flower / Season Scoring
 - Bonus tile scoring at end of hand: flat 4 points per flower or season.
 - No own-flower distinction and no own-flower doubling (OQ-2 resolved).
+- Note: Module 1.8 already applies the complete-set-of-flowers / complete-set-of-seasons
+  doublings and exposes `bonusTileCount`; 1.9 owns only the flat 4-per-tile points.
 - Status: **not started**
 
 #### Module 2.0 — UI: Board Layout
@@ -402,9 +419,14 @@ changes needed for Phase 3.
 | 2026-06-16 | OQ-12 resolved: only an added kong (promoted pung) can be robbed, by a player completing their win on that tile; concealed kongs safe | Standard HK rule; matches the existing Robbing the Kong doubling |
 | 2026-06-16 | OQ-13a resolved: Knitting = seven cross-suit pairs across two suits (same number from each suit; per-value counts match) | Family rule; `isKnitting` updated in commit `5a615db` (26 vitest cases) |
 | 2026-06-16 | OQ-13b resolved: the Crocheting pair is any two tiles sharing a number (any suits) | Consistent with OQ-7 |
-| 2026-06-16 | Module 1.4 added kong + Robbing the Kong implemented (`DECLARE_ADDED_KONG`, `ROBBING_KONG` phase, `RobbingKongState`); robs validated via Module 1.7; 35 turn-engine vitest cases | Closes OQ-12 (commit `f9cb525`) |
 | 2026-06-17 | OQ-6 resolved: tile visuals are custom SVG (Module 2.1), not scraped imagery or Unicode | Full ownership, no licensing risk, crisp at any size, themeable; commercial-site tile images are copyrighted |
 | 2026-06-17 | Characters tiles carry a Latin digit and Winds an E/S/W/N letter | Most players can't read the Chinese numerals or wind characters |
+| 2026-06-17 | Module 1.8 complete: `scoreWinningHand` over the shared `decomposeStandard`; config-driven points table in `scoring-config.ts`; 18 vitest cases | Scoring built and tested in isolation per conventions (commits `14fe9fb`, `7be1898`) |
+| 2026-06-17 | Doublings stored as a count of ×2 multipliers; a "×3" rule = 3 doublings (×8), a complete flower/season set = 2 | Keeps the doublings table unambiguous and composable |
+| 2026-06-17 | The agreed limit (default 1,000) is also the table-wide cap on any single hand | Standard family interpretation: no hand pays more than the limit, doubled or not |
+| 2026-06-17 | Winning tile completes an exposed meld when claimed from a discard or robbed; concealed on a self-draw | Drives the exposed/concealed base-point split and the "all concealed" doubling; conventional HK reading not spelled out in the source |
+| 2026-06-17 | When several special hands tie on score, a priority order awards the label to the more specific hand (e.g. Imperial Jade over All Pungs) | Payout is identical; the name shown should be the more prestigious/specific one |
+| 2026-06-17 | Module 1.8 applies the complete-flower/season-set doublings and reports `bonusTileCount`, but leaves the flat 4-per-tile points to Module 1.9 | Keeps the module boundary clean; 1.9 owns flat bonus-tile points only |
 
 ---
 
