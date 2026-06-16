@@ -36,6 +36,7 @@ Play passes anticlockwise. The wall is built clockwise.
 ### Bonus Tiles (Flowers & Seasons)
 - If a player draws a Flower or Season, they set it aside (it scores at the end) and draw a replacement tile from the back of the wall (the "dead wall").
 - This replacement draw can itself be a bonus tile, triggering another replacement.
+- Bonus tiles are held in a separate list, never in the playing hand; the hand stays at 14 (+ one per declared kong).
 
 ### Knitting & Crocheting
 Two additional special hands, enabled or disabled as a single binary switch set before
@@ -76,7 +77,7 @@ Special limit hands are an exception (see below).
 ### Turn Sequence
 1. Player draws a tile (or claims a discard).
 2. If a bonus tile is drawn, set aside and draw replacement.
-3. Player may declare a concealed kong (draws replacement from dead wall).
+3. Player may declare a concealed kong, or add a drawn tile to an exposed pung to form a kong (draws replacement from dead wall).
 4. Player discards one tile.
 5. Claim window opens for other players (priority: win > pung/kong > chow).
 6. If no claim, turn passes left.
@@ -167,7 +168,7 @@ a discard.
 | Heavenly Hand | Limit | Dealer wins on the initial deal before any discard is made. |
 | Earthly Hand | Limit | Non-dealer wins by claiming East's very first discard. |
 
-**Third group (circumstance hands — tile composition irrelevant; engine detects automatically):**
+**Third group (circumstance hands; tile composition irrelevant; the hand evaluator detects these from the provenance context the turn engine supplies):**
 
 | Hand | Score | Description |
 |---|---|---|
@@ -218,7 +219,11 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Tile count invariant: `14 + kongCount` total tiles at discard time.
 - Bonus tile loop processed one tile at a time (distinct snapshots for UI animation).
 - Win validation deferred to Module 1.7; claims currently accepted unconditionally.
-- Status: **complete** — commit `d59a21`; updated in `dd8d003` (wired claim-window)
+- Known gap: no action yet for the *added kong* (promoting an exposed pung to an open
+  kong with a drawn tile). `DECLARE_CONCEALED_KONG` only handles four matching tiles in
+  the concealed hand. Implementing the added kong also requires a Robbing the Kong claim
+  window (the added tile may complete another player's hand). Tracked as OQ-12.
+- Status: **complete** — commit `d59a21`; updated in `dd8d003` (wired claim-window). Added-kong action outstanding (OQ-12).
 
 #### Module 1.4b — Game Runner
 - `PlayerController` interface: `getDiscardAction` + `getClaimDecision`.
@@ -245,15 +250,20 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Status: **complete** — commit `9c22e5a`
 
 #### Module 1.7 — Hand Evaluator (Win Detector)
-- Given a player's 14 tiles (concealed + claimable/drawable tile), determines:
+- Given a player's concealed tiles, declared melds, and the winning tile, determines:
   - Can this hand win in standard form (4 melds + 1 pair)?
   - Does it match any special limit hand?
-- Algorithmically the trickiest module — must try all valid decompositions (a hand
-  can sometimes be read multiple ways). Builds on Module 1.6.
+- Declared melds are fixed; only the concealed portion is decomposed. Bonus tiles
+  (flowers/seasons) are excluded entirely; they score in Module 1.9.
+- Algorithmically the trickiest module: must try all valid decompositions (a hand can
+  sometimes be read multiple ways) and return every valid reading, so the scoring engine
+  (1.8) can pick the highest-scoring one. Builds on Module 1.6.
 - Must enforce `dirtyWinAllowed`: if `false`, reject standard 4+1 wins where melds
   span more than one suit. Special hands bypass this check entirely.
-- Circumstance hands (Plum Blossom, Moon, Twofold Fortune) are detected by the turn
-  engine at the moment the winning tile is drawn, not by the hand evaluator.
+- Circumstance hands (Plum Blossom, Moon, Twofold Fortune) are detected here too, via a
+  provenance context object the turn engine passes in (winning-tile source, last-wall-tile
+  flag, kong-replacement chain). The structural decomposition itself does not depend on
+  this context.
 - Status: **not started**
 
 #### Module 1.8 — Scoring Engine
@@ -316,6 +326,7 @@ changes needed for Phase 3.
 | ~~OQ-9~~ | ~~All Honours: include 1s and 9s?~~ | Resolved — yes |
 | ~~OQ-10~~ | ~~Ruby and Emerald: precise tile lists?~~ | Resolved — both hands removed |
 | ~~OQ-11~~ | ~~Purity: limit hand or ×3 doubling?~~ | Resolved — ×3 doubling (unorthodox family rule) |
+| OQ-12 | Robbing the Kong: claim-window interaction when an exposed pung is promoted to a kong | Module 1.4 added-kong action |
 
 ---
 
@@ -353,7 +364,7 @@ changes needed for Phase 3.
 | 2026-06-14 | Scoring: no-chow hand +10 pts; all-chow hand +1 pt; only-possible-tile +2 pts | From family note |
 | 2026-06-14 | Play direction: anticlockwise; wall built clockwise | Confirmed from family note |
 | 2026-06-14 | Earthly Hand: win on East's first discard (not non-dealer's first wall draw) | Per reference sheet; engine detects this at claim time, not draw time |
-| 2026-06-14 | Added three circumstance hands: Plum Blossom, Moon, Twofold Fortune | Detected by turn engine at draw time, not by hand evaluator |
+| 2026-06-14 | Added three circumstance hands: Plum Blossom, Moon, Twofold Fortune | Detected from winning-tile provenance; see 2026-06-16 update moving detection into the hand evaluator |
 | 2026-06-14 | OQ-1 resolved: scoring table established from reference sheet and family note | Unblocks Module 1.8 |
 | 2026-06-14 | Purity: treated as ×3 doubling for winning player, not a limit hand | Unorthodox family rule; most rulesets count this as a limit hand |
 | 2026-06-14 | Clean Pairs (½ limit) added alongside Heavenly Twins (limit): same suit but W/D allowed | From family note |
@@ -361,6 +372,9 @@ changes needed for Phase 3.
 | 2026-06-14 | canChow checks all three positional patterns (discard as low/mid/high tile) | Covers every valid chow sequence without needing meld-validator's isChow directly |
 | 2026-06-16 | OQ-2 resolved: each flower/season scores a flat 4 points; no own-vs-other distinction | Family plays a flat bonus, not a seat-matched one |
 | 2026-06-16 | Removed the "Own Flower or Season" doubling | No own-flower rule in the family game; complete-set doubling retained |
+| 2026-06-16 | Added kong (promoting an exposed pung) and Robbing the Kong not yet implemented in the turn engine; logged as a gap (OQ-12) | The `open_kong` type anticipates it, but no action exists and `DECLARE_CONCEALED_KONG` needs all four tiles in hand |
+| 2026-06-16 | Circumstance hands detected by the hand evaluator via a provenance context object, not by the turn engine alone | Keeps all hand-identification in one module for the scorer; supersedes the 2026-06-14 framing |
+| 2026-06-16 | Hand evaluator returns all valid decompositions, not just a boolean | Scoring (1.8) needs every reading to pick the highest-scoring one |
 
 ---
 
