@@ -12,9 +12,6 @@
  * the *other* end of the same wall; there is nothing special about them beyond
  * that, so they are drawn identically and recede from the far end.
  *
- * In Hong Kong mahjong players take turns anticlockwise but tiles leave the wall
- * clockwise, so a ↻ marks the live (normal) draw point.
- *
  * Each stack is two tiles: a darker bottom and a lighter top raised onto it. An
  * odd remaining count renders the front stack as a single bottom tile, so every
  * individual draw is visible (the top goes, then the bottom).
@@ -26,8 +23,8 @@
 import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react';
 import styles from './Wall.module.css';
 
-const PITCH = 22;   // spacing between stacks along an edge
-const MARGIN = 16;  // distance from the frame edge to a stack's centre line
+const PITCH = 30;   // spacing between stacks along an edge (wider for bigger tiles)
+const MARGIN = 20;  // distance from the frame edge to a stack's centre line
 
 interface Slot { readonly x: number; readonly y: number; readonly vertical: boolean; }
 
@@ -84,10 +81,6 @@ export function WallFrame({ liveCount, deadCount, children }: WallFrameProps) {
   const slots = w > 0 && h > 0 ? perimeterSlots(w, h) : [];
   const cap = slots.length;
 
-  // Live wall fills from the start (slot 0) and is drawn from its far, most-
-  // clockwise end. The loose end fills from the last slot inward and is drawn
-  // from its inner end. Each is anchored at the end it is NOT drawn from, so
-  // remaining tiles never move.
   const liveStacks = Math.min(cap, Math.ceil(liveCount / 2));
   const deadStacks = Math.min(Math.max(0, cap - liveStacks), Math.ceil(deadCount / 2));
   const liveFront = liveStacks - 1;
@@ -97,7 +90,7 @@ export function WallFrame({ liveCount, deadCount, children }: WallFrameProps) {
     <div
       ref={ref}
       className={styles.frame}
-      aria-label={`Wall: ${liveCount + deadCount} tiles remaining, drawn clockwise`}
+      aria-label={`Wall: ${liveCount + deadCount} tiles remaining`}
     >
       {slots.slice(0, liveStacks).map((slot, i) => (
         <Stack key={`L${i}`} slot={slot} half={liveCount % 2 === 1 && i === liveFront} front={i === liveFront} />
@@ -110,7 +103,7 @@ export function WallFrame({ liveCount, deadCount, children }: WallFrameProps) {
       {liveStacks > 0 && liveArrow && (
         <span
           className={styles.drawArrow}
-          style={{ left: `${liveArrow.x + 14}px`, top: `${Math.max(8, liveArrow.y)}px` }}
+          style={{ left: `${liveArrow.x + 16}px`, top: `${Math.max(8, liveArrow.y)}px` }}
           aria-hidden="true"
         >↻</span>
       )}

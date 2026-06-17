@@ -11,9 +11,14 @@
  * the hook reconciles: tiles the player already arranged keep their position,
  * a newly added tile appears at the end, and a removed tile drops out. So the
  * player's grouping survives across their turn instead of being reshuffled.
+ *
+ * Accepts an optional `initialOrder` (saved IDs from a previous turn) so that
+ * hand order persists for each seat across the hand, even as the board rotates.
+ * The `onOrderChange` callback fires whenever the order changes, allowing the
+ * caller to save it for later restoration.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Tile } from '@mahjong/engine';
 
 function reconcile(prev: readonly string[], tiles: readonly Tile[]): string[] {
@@ -37,8 +42,17 @@ export interface HandOrder {
   readonly moveTile: (from: number, to: number) => void;
 }
 
-export function useHandOrder(tiles: readonly Tile[]): HandOrder {
-  const [orderIds, setOrderIds] = useState<string[]>(() => tiles.map((t) => t.id));
+export function useHandOrder(
+  tiles: readonly Tile[],
+  initialOrder?: string[],
+  onOrderChange?: (ids: string[]) => void,
+): HandOrder {
+  const [orderIds, setOrderIds] = useState<string[]>(() => {
+    if (initialOrder && initialOrder.length > 0) {
+      return reconcile(initialOrder, tiles);
+    }
+    return tiles.map((t) => t.id);
+  });
 
   // Reconcile whenever the set of tiles changes (draw / claim / discard).
   const idsSignature = tiles.map((t) => t.id).join(',');
@@ -50,6 +64,17 @@ export function useHandOrder(tiles: readonly Tile[]): HandOrder {
     // idsSignature captures the dependency on the tile-id set.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsSignature]);
+
+  // Fire onOrderChange whenever orderIds changes, but skip the initial mount.
+  const onOrderChangeRef = useRef(onOrderChange);
+  onOrderChangeRef.current = onOrderChange;
+  const prevOrderRef = useRef<string[]>(orderIds);
+  useEffect(() => {
+    if (!sameOrder(prevOrderRef.current, orderIds)) {
+      prevOrderRef.current = orderIds;
+      onOrderChangeRef.current?.(orderIds);
+    }
+  }, [orderIds]);
 
   const ordered = useMemo(() => {
     const byId = new Map<string, Tile>(tiles.map((t) => [t.id, t]));

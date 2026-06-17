@@ -1,24 +1,23 @@
 /**
- * App shell — wired to the live turn engine (Module 2.2).
+ * App shell — wired to the live turn engine.
  *
- * Holds a live GameState and auto-advances all phases that need no human
- * input: DRAWING (BEGIN_TURN), CHECK_BONUS (DRAW_REPLACEMENT).
- *
- * CLAIM_WINDOW and ROBBING_KONG use a smarter auto-pass (Module 2.4):
- * each pending seat is checked for legal actions. If none are available
- * the seat is auto-passed; otherwise the ActionBar handles the decision.
- *
- * The DISCARDING phase is interactive: the current player taps a tile to
- * select it (lifted, green border), then taps again to confirm the discard.
- *
- * Module 2.5: when HAND_OVER is reached, scores are computed and shown in
- * the ScorePanel overlay.
+ * Phase 1 playtest fixes (2026-06-17):
+ *  #1  Game setup screen before each hand (player count, dirty wins, dead wall).
+ *  #2  Hand order persists per seat across board rotations (handOrdersRef).
+ *  #3  Gold border on the newly drawn tile (drawnTileId tracked by phase transition).
+ *  #4  Red border on last discard during claim window (in Board/DiscardArea).
+ *  #5  Chow suppressed in auto-advance when a pung/kong is already claimed.
+ *  #8  DECLARE_WIN wired: self-draw Mah Jong button shown when hand is complete.
+ *  #9  Draw (wall exhausted) no longer updates running totals or shows scores.
+ * #12  "Drawn clockwise" label removed (in Board).
+ * #13  Bigger tiles (bottom 68px, others 50px, in Board).
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { Board } from './components/Board';
 import { ScorePanel } from './components/ScorePanel';
 import type { PlayerBonusInfo } from './components/ScorePanel';
+import { GameSetup } from './components/GameSetup';
 import {
   buildWall,
   createGameState,
@@ -38,15 +37,18 @@ import {
 } from '@mahjong/engine';
 import styles from './App.module.css';
 
-function makeInitialState(playerCount: 3 | 4): GameState {
-  const config: GameConfig = { ...DEFAULT_CONFIG, playerCount };
-  const deal = buildWall(playerCount, config.deadWall ?? false);
+// ─── Game initialisation ──────────────────────────────────────────────────────
+
+function makeInitialState(config: GameConfig): GameState {
+  const deal = buildWall(config.playerCount, config.deadWall ?? false);
   const names =
-    playerCount === 4
+    config.playerCount === 4
       ? ['Alice', 'Bob', 'Carol', 'Dan']
       : ['Alice', 'Bob', 'Carol'];
   return createGameState(config, deal, names);
 }
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface HandScoreInfo {
   winnerName: string | null;
@@ -54,22 +56,59 @@ interface HandScoreInfo {
   playerBonuses: PlayerBonusInfo[];
 }
 
+// ─── App ──────────────────────────────────────────────────────────────────────
+
 export function App() {
-  const [playerCount, setPlayerCount] = useState<3 | 4>(4);
+  // 'setup' = show the setup screen; 'playing' = game in progress.
+  const [appPhase, setAppPhase] = useState<'setup' | 'playing'>('setup');
+  const [gameConfig, setGameConfig] = useState<GameConfig>({ ...DEFAULT_CONFIG });
   const [revealAll, setRevealAll] = useState(true);
-  const [state, setState] = useState<GameState>(() => makeInitialState(4));
+  const [state, setState] = useState<GameState | null>(null);
   const [handScore, setHandScore] = useState<HandScoreInfo | null>(null);
   const [runningTotals, setRunningTotals] = useState<number[]>([0, 0, 0, 0]);
 
-  // Guard against computing the score twice for the same HAND_OVER state
-  // (React StrictMode double-invokes effects; the ref persists through cleanup).
+  // Tile just drawn from the wall — shown with a gold border.
+  const [drawnTileId, setDrawnTileId] = useState<TileId | null>(null);
+
+  // Per-seat hand display orders: preserved across board rotations within a hand.
+  const handOrdersRef = useRef<Map<number, string[]>>(new Map());
+  // The saved order for whoever is currently the interactive (bottom) seat.
+  const [currentSeatOrder, setCurrentSeatOrder] = useState<string[] | undefined>(undefined);
+
+  // Guard against scoring the same HAND_OVER state twice (React StrictMode).
   const scoredStateRef = useRef<GameState | null>(null);
 
-  /**
-   * Auto-advance non-interactive phases.
-   */
+  // Track phase transitions to detect when a tile is newly drawn.
+  const prevPhaseRef = useRef<string | null>(null);
+  const prevSeatRef = useRef<number | null>(null);
+
+  // ── Start / new hand ───────────────────────────────────────────────────────
+
+  const startGame = (config: GameConfig) => {
+    setGameConfig(config);
+    setRunningTotals(Array(config.playerCount).fill(0));
+    handOrdersRef.current.clear();
+    setCurrentSeatOrder(undefined);
+    setHandScore(null);
+    setDrawnTileId(null);
+    setState(makeInitialState(config));
+    setAppPhase('playing');
+  };
+
+  const startNewHand = () => {
+    handOrdersRef.current.clear();
+    setCurrentSeatOrder(undefined);
+    setHandScore(null);
+    setDrawnTileId(null);
+    setState(makeInitialState(gameConfig));
+  };
+
+  // ── Auto-advance non-interactive phases ────────────────────────────────────
+
   useEffect(() => {
+    if (!state) return;
     setState(s => {
+      if (!s) return s;
       try {
         switch (s.phase) {
           case 'DRAWING':
@@ -86,11 +125,19 @@ export function App() {
             const claimer = s.players[pending];
             if (!claimer) return s;
             const leftSeat = (s.currentSeat + 1) % s.config.playerCount;
+
+            // If any seat already has a pung/kong/win claim in, suppress chow
+            // for remaining seats (priority: win > pung/kong > chow).
+            const higherClaimIn = s.claimWindow!.responses.some(
+              r => r !== null && (r.type === 'pung' || r.type === 'kong' || r.type === 'win'),
+            );
+
             const hasLegal =
               isWinningHand([...claimer.concealed, discard], claimer.melds, s.config) ||
               canPung(claimer.concealed, discard) ||
               canKong(claimer.concealed, discard) ||
-              (pending === leftSeat && canChow(claimer.concealed, discard));
+              (!higherClaimIn && pending === leftSeat && canChow(claimer.concealed, discard));
+
             if (hasLegal) return s;
             return engineDispatch(s, {
               type: 'CLAIM_RESPONSE',
@@ -124,12 +171,40 @@ export function App() {
     });
   }, [state]);
 
-  /**
-   * Compute and store the hand score when HAND_OVER is reached.
-   * The scoredStateRef guard ensures this runs exactly once per hand end,
-   * even under React 18 StrictMode double-invocation.
-   */
+  // ── Track drawn tile (gold border) ─────────────────────────────────────────
+
   useEffect(() => {
+    if (!state) return;
+    const prevPhase = prevPhaseRef.current;
+    const prevSeat = prevSeatRef.current;
+    prevPhaseRef.current = state.phase;
+    prevSeatRef.current = state.currentSeat;
+
+    if (
+      state.phase === 'DISCARDING' &&
+      (prevPhase === 'DRAWING' || prevPhase === 'CHECK_BONUS' || prevSeat !== state.currentSeat)
+    ) {
+      // The last tile in the current player's concealed hand is the one just drawn.
+      const player = state.players[state.currentSeat];
+      const drawn = player?.concealed[player.concealed.length - 1];
+      setDrawnTileId(drawn?.id ?? null);
+    } else if (state.phase !== 'DISCARDING') {
+      setDrawnTileId(null);
+    }
+  }, [state]);
+
+  // ── Restore saved hand order when current seat changes ─────────────────────
+
+  useEffect(() => {
+    if (!state) return;
+    const saved = handOrdersRef.current.get(state.currentSeat);
+    setCurrentSeatOrder(saved);
+  }, [state?.currentSeat]);
+
+  // ── Score HAND_OVER ────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!state) return;
     if (state.phase !== 'HAND_OVER') return;
     if (scoredStateRef.current === state) return;
     scoredStateRef.current = state;
@@ -137,13 +212,18 @@ export function App() {
     const hr = state.handResult;
     if (!hr) return;
 
+    // Draw: no scoring, no running total update.
+    if (hr.reason === 'draw') {
+      setHandScore({ winnerName: null, result: null, playerBonuses: [] });
+      return;
+    }
+
+    // Win: compute hand score and bonus tiles.
     let result: ScoreResult | null = null;
 
-    if (hr.reason === 'win' && hr.winnerSeat !== null && hr.winningTile) {
+    if (hr.winnerSeat !== null && hr.winningTile) {
       const winner = state.players[hr.winnerSeat];
       if (winner) {
-        // For discard/robbing-kong wins, the winning tile is in the discard pool,
-        // not yet in the winner's concealed hand — add it for scoring.
         const concealed = hr.selfDraw
           ? winner.concealed
           : [...winner.concealed, hr.winningTile];
@@ -175,14 +255,12 @@ export function App() {
       }
     }
 
-    // Bonus tiles for all players (applies whether win or draw).
     const playerBonuses: PlayerBonusInfo[] = state.players.map(p => ({
       name: p.name,
       seat: p.seat,
       bonus: scoreBonusTiles(p.bonusTiles),
     }));
 
-    // Update running totals.
     setRunningTotals(prev =>
       prev.map((t, i) => {
         const player = state.players[i];
@@ -200,41 +278,42 @@ export function App() {
     });
   }, [state]);
 
+  // ── Event handlers ─────────────────────────────────────────────────────────
+
   const handleDiscard = (tileId: TileId) => {
-    setState(s => engineDispatch(s, { type: 'DISCARD', tileId }));
+    setDrawnTileId(null);
+    setState(s => s ? engineDispatch(s, { type: 'DISCARD', tileId }) : s);
+  };
+
+  const handleDeclareWin = () => {
+    setState(s => s ? engineDispatch(s, { type: 'DECLARE_WIN' }) : s);
   };
 
   const handleClaimResponse = (seat: SeatIndex, decision: ClaimDecision) => {
-    setState(s => engineDispatch(s, { type: 'CLAIM_RESPONSE', seat, decision }));
+    setState(s => s ? engineDispatch(s, { type: 'CLAIM_RESPONSE', seat, decision }) : s);
   };
 
-  const startNewHand = (count: 3 | 4 = playerCount) => {
-    if (count !== playerCount) {
-      setRunningTotals([0, 0, 0, 0]);
-    }
-    setHandScore(null);
-    setState(makeInitialState(count));
+  const handleOrderChange = (ids: string[]) => {
+    if (!state) return;
+    handOrdersRef.current.set(state.currentSeat, ids);
   };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  // Setup screen.
+  if (appPhase === 'setup' || !state) {
+    return (
+      <div className={styles.app}>
+        <GameSetup defaultConfig={gameConfig} onStart={startGame} />
+      </div>
+    );
+  }
 
   return (
     <div className={styles.app}>
       <div className={styles.toolbar}>
         <span className={styles.title}>Mah Jong</span>
         <div className={styles.controls}>
-          <label>
-            Players
-            <select
-              value={playerCount}
-              onChange={e => {
-                const n = Number(e.target.value) as 3 | 4;
-                setPlayerCount(n);
-                startNewHand(n);
-              }}
-            >
-              <option value={4}>4</option>
-              <option value={3}>3</option>
-            </select>
-          </label>
           <label>
             <input
               type="checkbox"
@@ -243,7 +322,10 @@ export function App() {
             />
             Reveal all hands
           </label>
-          <button type="button" className={styles.newHandBtn} onClick={() => startNewHand()}>
+          <button type="button" className={styles.newHandBtn} onClick={() => setAppPhase('setup')}>
+            Setup
+          </button>
+          <button type="button" className={styles.newHandBtn} onClick={startNewHand}>
             New hand
           </button>
         </div>
@@ -254,7 +336,11 @@ export function App() {
           state={state}
           revealAll={revealAll}
           onDiscard={state.phase === 'DISCARDING' ? handleDiscard : undefined}
+          onDeclareWin={state.phase === 'DISCARDING' ? handleDeclareWin : undefined}
           onClaimResponse={handleClaimResponse}
+          drawnTileId={drawnTileId}
+          savedOrder={currentSeatOrder}
+          onOrderChange={handleOrderChange}
         />
       </div>
 
@@ -267,7 +353,7 @@ export function App() {
             name: p.name,
             total: runningTotals[i] ?? 0,
           }))}
-          onNewHand={() => startNewHand()}
+          onNewHand={startNewHand}
         />
       )}
     </div>

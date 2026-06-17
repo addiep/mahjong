@@ -2,31 +2,16 @@
  * Module 2.0 — UI: Board Layout
  *
  * The structural shell for a pass-and-play table. `Board` is a pure,
- * presentational component driven entirely by a `GameState` prop: it arranges
- * the four (or three) seats around a central table and lays out the regions the
- * later UI modules fill in.
+ * presentational component driven entirely by a `GameState` prop.
  *
- * Region ownership:
- *   - Seat panels (name, wind, score, exposed melds + bonus, concealed hand).
- *     The local seat's concealed hand is the interactive, reorderable
- *     PlayerHand (Module 2.2); other seats render a static strip. Exposed melds
- *     sit towards the centre (above the hand for the bottom/top seats).
- *   - Central table: the wall (face-down ring drawn from both ends, Module 2.3)
- *     frames the discards, which scatter without overlapping.
- *   - Action bar (below the local seat) — Module 2.4.
- *   - Score panel (corner) — Module 2.5 (placeholder here).
- *
- * The board adapts to 3- or 4-player games (the engine supports both): with
- * three players the seat opposite is dropped. The local seat (the player to
- * show at the bottom) defaults to whoever's turn it is.
- *
- * Updated Module 2.2: accepts onDiscard and threads isDiscarding + onDiscard
- * into the interactive seat's PlayerHand.
- * Updated Module 2.4: accepts onClaimResponse and renders ActionBar.
- *
- * Dependencies: @mahjong/engine (types only), Tile (Module 2.1), PlayerHand
- * (Module 2.2), WallFrame (Module 2.3), ActionBar (Module 2.4).
- * No engine logic and no game mutation here.
+ * Updated for playtest fixes:
+ * - Threads drawnTileId (gold border on newly drawn tile) and lastDiscardId
+ *   (red border on last discard during claim window) down to PlayerHand /
+ *   DiscardArea.
+ * - Threads onDeclareWin (self-draw Mah Jong button) to the interactive seat.
+ * - Threads savedOrder / onOrderChange (per-seat hand order persistence).
+ * - Bigger tile sizes: bottom seat 68px, other seats 50px.
+ * - "Drawn clockwise" label removed from the centre info bar.
  */
 
 import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState } from 'react';
@@ -61,24 +46,38 @@ export interface BoardProps {
    * When false, only the local seat's hand is face-up. Defaults to true.
    */
   readonly revealAll?: boolean;
-  /**
-   * Called with the tile ID to discard. Provided by App only during the
-   * DISCARDING phase; undefined otherwise so the hand is not interactive.
-   */
+  /** Called with the tile ID to discard. Provided by App only during DISCARDING. */
   readonly onDiscard?: (tileId: TileId) => void;
+  /** Called when the current player declares a self-draw win. */
+  readonly onDeclareWin?: () => void;
   /**
    * Called when a player responds to a claim window (CLAIM_WINDOW or
    * ROBBING_KONG phase). Provided by App; the ActionBar component uses it.
    */
   readonly onClaimResponse?: (seat: SeatIndex, decision: ClaimDecision) => void;
+  /** ID of the tile just drawn from the wall (shown with gold border). */
+  readonly drawnTileId?: TileId | null;
+  /** Saved display order for the interactive (bottom) seat. */
+  readonly savedOrder?: string[];
+  /** Fires when the interactive seat changes their display order. */
+  readonly onOrderChange?: (ids: string[]) => void;
 }
 
-export function Board({ state, localSeat, revealAll = true, onDiscard, onClaimResponse }: BoardProps) {
+export function Board({
+  state,
+  localSeat,
+  revealAll = true,
+  onDiscard,
+  onDeclareWin,
+  onClaimResponse,
+  drawnTileId,
+  savedOrder,
+  onOrderChange,
+}: BoardProps) {
   const { players, config, currentSeat, phase } = state;
   const base = localSeat ?? currentSeat;
   const positions = seatPositions(config.playerCount);
 
-  // Map each on-screen position to the seat that occupies it.
   const seatByPosition = new Map<SeatPosition, PlayerState>();
   for (const player of players) {
     const offset = (player.seat - base + config.playerCount) % config.playerCount;
@@ -90,8 +89,6 @@ export function Board({ state, localSeat, revealAll = true, onDiscard, onClaimRe
     const player = seatByPosition.get(position);
     if (!player) return <div className={styles.seatEmpty} aria-hidden="true" />;
     const isInteractive = player.seat === base;
-    // isDiscarding: it's this player's turn, they're the interactive (bottom)
-    // seat, and the engine is waiting for a discard.
     const isDiscarding = isInteractive && phase === 'DISCARDING' && player.seat === currentSeat;
     return (
       <SeatPanel
@@ -102,6 +99,10 @@ export function Board({ state, localSeat, revealAll = true, onDiscard, onClaimRe
         interactive={isInteractive}
         isDiscarding={isDiscarding}
         onDiscard={isInteractive ? onDiscard : undefined}
+        onDeclareWin={isDiscarding ? onDeclareWin : undefined}
+        drawnTileId={isInteractive ? drawnTileId : undefined}
+        savedOrder={isInteractive ? savedOrder : undefined}
+        onOrderChange={isInteractive ? onOrderChange : undefined}
       />
     );
   };
@@ -136,7 +137,8 @@ export function Board({ state, localSeat, revealAll = true, onDiscard, onClaimRe
 // ─── Seat panel ─────────────────────────────────────────────────────────────────
 
 function SeatPanel({
-  player, position, isCurrent, faceDown, interactive, isDiscarding, onDiscard,
+  player, position, isCurrent, faceDown, interactive, isDiscarding,
+  onDiscard, onDeclareWin, drawnTileId, savedOrder, onOrderChange,
 }: {
   player: PlayerState;
   position: SeatPosition;
@@ -145,9 +147,13 @@ function SeatPanel({
   interactive: boolean;
   isDiscarding?: boolean;
   onDiscard?: (tileId: TileId) => void;
+  onDeclareWin?: () => void;
+  drawnTileId?: TileId | null;
+  savedOrder?: string[];
+  onOrderChange?: (ids: string[]) => void;
 }) {
   const vertical = position === 'left' || position === 'right';
-  const handSize = position === 'bottom' ? 56 : 40;
+  const handSize = position === 'bottom' ? 68 : 50;
 
   const handBlock = interactive && !faceDown ? (
     <PlayerHand
@@ -155,6 +161,10 @@ function SeatPanel({
       size={handSize}
       isDiscarding={isDiscarding}
       onDiscard={onDiscard}
+      onDeclareWin={onDeclareWin}
+      drawnTileId={drawnTileId}
+      savedOrder={savedOrder}
+      onOrderChange={onOrderChange}
     />
   ) : (
     <div className={`${styles.hand} ${vertical ? styles.handVertical : ''}`}>
@@ -167,20 +177,18 @@ function SeatPanel({
   const exposedBlock = (player.melds.length > 0 || player.bonusTiles.length > 0) ? (
     <div className={styles.melds}>
       {player.melds.map((meld, i) => (
-        <MeldGroup key={i} meld={meld} size={handSize - 8} />
+        <MeldGroup key={i} meld={meld} size={handSize - 10} />
       ))}
       {player.bonusTiles.length > 0 && (
         <div className={styles.bonus} title="Flowers and seasons">
           {player.bonusTiles.map((tile) => (
-            <Tile key={tile.id} tile={tile} size={handSize - 8} />
+            <Tile key={tile.id} tile={tile} size={handSize - 10} />
           ))}
         </div>
       )}
     </div>
   ) : null;
 
-  // Exposed melds sit on the table in front of the player (towards the centre),
-  // so for the bottom seat they render above the concealed hand.
   const exposedAbove = position === 'bottom' || position === 'top';
 
   return (
@@ -210,7 +218,6 @@ function MeldGroup({ meld, size }: { meld: DeclaredMeld; size: number }) {
           key={tile.id}
           tile={tile}
           size={size}
-          // A concealed kong shows its two end tiles face-down by convention.
           faceDown={concealed && (i === 0 || i === meld.tiles.length - 1)}
         />
       ))}
@@ -229,15 +236,12 @@ function hashFloat(str: string, salt: number): number {
   return ((h >>> 0) % 100000) / 100000;
 }
 
-// Discard scatter. Each tile drops into its own grid cell, sized comfortably
-// larger than a tilted tile so neighbouring cells can never collide.
 const DISCARD_TILE = 46;
 const CELL_W = 62;
 const CELL_H = 66;
-const BBOX_W = 42; // tilted-tile bounding box, used to bound the in-cell jitter
+const BBOX_W = 42;
 const BBOX_H = 52;
 
-/** Measures an element in px, updating on resize. */
 function useElementSize<T extends HTMLElement>(ref: RefObject<T>): { w: number; h: number } {
   const [size, setSize] = useState({ w: 0, h: 0 });
   useLayoutEffect(() => {
@@ -252,19 +256,12 @@ function useElementSize<T extends HTMLElement>(ref: RefObject<T>): { w: number; 
   return size;
 }
 
-/** A spread (shuffled) ordering of the grid's cells, stable for a given grid. */
 function cellOrder(cols: number, rows: number): Array<[number, number]> {
   const cells: Array<[number, number]> = [];
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cells.push([c, r]);
   return cells.sort((a, b) => hashFloat(`${a[0]}-${a[1]}`, 7) - hashFloat(`${b[0]}-${b[1]}`, 7));
 }
 
-/**
- * Scatters discards across the whole central area without overlapping. The area
- * is divided into a grid of cells each comfortably larger than a tilted tile;
- * discards drop into cells in a spread, shuffled order, with a small in-cell
- * jitter and tilt. Placement is stable — a tile never moves once it has landed.
- */
 function discardStyle(id: string, index: number, cols: number, rows: number, w: number, h: number): CSSProperties {
   const order = cellOrder(cols, rows);
   const [c, r] = order[index % order.length] ?? [0, 0];
@@ -285,12 +282,20 @@ function DiscardArea({ state }: { state: GameState }) {
   const cols = Math.max(1, Math.floor(w / CELL_W));
   const rows = Math.max(1, Math.floor(h / CELL_H));
   const current = state.players.find((p) => p.seat === state.currentSeat);
+
+  // The last tile in the discard pool gets a red border during the claim window
+  // so players can easily see what was just thrown.
+  const lastDiscardId =
+    (phase === 'CLAIM_WINDOW' || phase === 'ROBBING_KONG')
+      ? discardPool[discardPool.length - 1]?.id
+      : undefined;
+
   return (
     <div className={styles.centre}>
       <div className={styles.wallInfo}>
         <span><strong>{wall.live.length + wall.dead.length}</strong> tiles in wall</span>
         <span className={styles.turnInfo}>
-          {current ? `${current.name}` : '—'} · {phase.toLowerCase().replace('_', ' ')} · drawn clockwise ↻
+          {current ? `${current.name}` : '—'} · {phase.toLowerCase().replace(/_/g, ' ')}
         </span>
       </div>
 
@@ -298,7 +303,7 @@ function DiscardArea({ state }: { state: GameState }) {
         <div ref={poolRef} className={styles.discardPool} aria-label={`${discardPool.length} tiles discarded`}>
           {w > 0 && discardPool.map((tile, i) => (
             <div key={tile.id} className={styles.discardTile} style={discardStyle(tile.id, i, cols, rows, w, h)}>
-              <Tile tile={tile} size={DISCARD_TILE} />
+              <Tile tile={tile} size={DISCARD_TILE} highlight={tile.id === lastDiscardId ? 'red' : undefined} />
             </div>
           ))}
         </div>
@@ -307,7 +312,7 @@ function DiscardArea({ state }: { state: GameState }) {
   );
 }
 
-// ─── Score panel placeholder (refined in Module 2.5) ────────────────────────────
+// ─── Score panel placeholder (Module 2.5) ────────────────────────────────────
 
 function ScorePanel({
   players, prevailingWind, handNumber,
@@ -330,7 +335,6 @@ function ScorePanel({
           </li>
         ))}
       </ul>
-      <span className={styles.placeholderTag}>Score panel — Module 2.5</span>
     </aside>
   );
 }

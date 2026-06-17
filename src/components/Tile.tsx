@@ -25,8 +25,14 @@ export interface TileProps {
   readonly size?: number;
   /** Render the tile face-down (back pattern) instead of its face. */
   readonly faceDown?: boolean;
-  /** Draw a selection highlight around the tile. */
+  /** Draw a selection highlight around the tile (green). */
   readonly selected?: boolean;
+  /**
+   * Draw a coloured highlight border:
+   * - 'gold'  — newly drawn tile
+   * - 'red'   — most recently discarded tile (claim window)
+   */
+  readonly highlight?: 'gold' | 'red';
   readonly onClick?: () => void;
   readonly className?: string;
   /** Accessible label; defaults to a generated description of the tile. */
@@ -41,6 +47,7 @@ const COL = {
   red: '#C2362B', green: '#2E7D32', greenDk: '#1B5E20', blue: '#225E9B', navy: '#1F3A5F',
   purple: '#6E4FA3', amber: '#BD8A18', selected: '#2E7D32',
   back: '#1F6F5C', backEdge: '#15523F', backMotif: '#52A98F',
+  gold: '#D4A017', highlightRed: '#C2362B',
 } as const;
 
 const CJK = "'Noto Serif SC','Songti SC','SimSun','STSong',serif";
@@ -218,9 +225,10 @@ function Face({ tile }: { tile: Tile }): React.ReactElement {
 
 // ─── Component ──────────────────────────────────────────────────────────────────
 
-export function Tile({ tile, size = 74, faceDown = false, selected = false, onClick, className, ariaLabel }: TileProps) {
+export function Tile({ tile, size = 74, faceDown = false, selected = false, highlight, onClick, className, ariaLabel }: TileProps) {
   const width = (size * 54) / 74;
   const label = faceDown ? 'face-down tile' : (ariaLabel ?? describe(tile));
+  const highlightColour = highlight === 'gold' ? COL.gold : highlight === 'red' ? COL.highlightRed : null;
   return (
     <svg
       viewBox="0 0 54 74" width={width} height={size} className={className}
@@ -238,6 +246,9 @@ export function Tile({ tile, size = 74, faceDown = false, selected = false, onCl
       </>)}
       {selected && (
         <rect x={1.5} y={1.5} width={51} height={71} rx={7} fill="none" stroke={COL.selected} strokeWidth={2.5} />
+      )}
+      {highlightColour && !selected && (
+        <rect x={1} y={1} width={52} height={72} rx={7.5} fill="none" stroke={highlightColour} strokeWidth={3.5} />
       )}
     </svg>
   );

@@ -1,0 +1,120 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 200;
+}
+
+.card {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  padding: 36px 44px;
+  min-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+}
+
+.heading {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: 1px;
+  text-align: center;
+}
+
+.sub {
+  margin: -12px 0 0;
+  font-size: 13px;
+  color: var(--text-muted, rgba(255,255,255,0.45));
+  text-align: center;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted, rgba(255,255,255,0.45));
+}
+
+/* Player count toggle */
+.toggle {
+  display: flex;
+  gap: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+  width: fit-content;
+}
+
+.activeBtn,
+.inactiveBtn {
+  padding: 7px 28px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.activeBtn {
+  background: var(--accent);
+  color: #fff;
+}
+
+.inactiveBtn {
+  background: transparent;
+  color: var(--text-muted, rgba(255,255,255,0.5));
+}
+.inactiveBtn:hover { background: rgba(255,255,255,0.06); }
+
+/* Checkbox rows */
+.checkLabel {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.checkLabel input[type="checkbox"] {
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.hint {
+  color: var(--text-muted, rgba(255,255,255,0.45));
+  font-size: 13px;
+}
+
+.startBtn {
+  margin-top: 8px;
+  padding: 12px 0;
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.startBtn:hover { opacity: 0.85; }

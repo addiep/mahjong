@@ -1,25 +1,22 @@
 /**
  * Module 2.2 — UI: Player Hand (interactive, local seat)
  *
- * The local player's concealed tiles. Two interactions:
+ * Two interactions:
  *
- * 1. Drag to reorder — exactly as you shuffle real tiles into pungs and runs.
- *    Drag is built on pointer events (works with mouse and touch alike — no
- *    library). The tiles form a single equal-width row, so the maths is 1-D:
- *    the dragged tile follows the pointer via a translate from its grab point,
- *    and the tiles it passes shift by one slot to open a gap. The new order is
- *    committed on release. Reordering is view-only (useHandOrder); the engine
- *    is never touched, since tile order has no rules meaning.
+ * 1. Drag to reorder — tiles can be dragged horizontally to group pungs/runs.
+ *    Drag is custom pointer events (mouse + touch, no library).
  *
- * 2. Tap to select / tap again to discard — active only when isDiscarding is
- *    true (i.e. the engine is in DISCARDING phase for this seat). A single tap
- *    lifts the tile (translateY + green border); a second tap on the same tile
- *    calls onDiscard with its ID. Tapping a different tile switches selection.
- *    Selection is cleared whenever the tile set changes (draw / claim / discard).
+ * 2. Discard — two ways:
+ *    a. Tap to select (lifts tile, green border), tap again to confirm discard.
+ *    b. Drag upward past a threshold to fling a tile directly to the discard
+ *       pool (dy < -50px and more vertical than horizontal).
  *
- * Tap vs drag distinguished by |dx| < 5 px at pointer-up.
+ * 3. Mah Jong button — shown during DISCARDING when the hand is already
+ *    complete (self-draw win). Calls onDeclareWin.
  *
- * A one-tap Sort arranges the hand by suit then number as a tidy baseline.
+ * Order persistence: accepts savedOrder (restored IDs from a previous turn for
+ * this seat) and onOrderChange (fires whenever the order changes) so App.tsx can
+ * preserve each seat's arrangement across board rotations.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -50,8 +47,10 @@ interface DragState {
   readonly id: string;
   readonly from: number;
   readonly startX: number;
+  readonly startY: number;
   readonly pitch: number;
   dx: number;
+  dy: number;
   target: number;
 }
 
@@ -62,14 +61,35 @@ export interface PlayerHandProps {
   /**
    * When true, tiles are selectable for discard: first tap selects (lifts
    * the tile), second tap on the same tile calls onDiscard.
+   * Upward drag also triggers discard directly.
    */
   readonly isDiscarding?: boolean;
   /** Called with the chosen tile's ID when the player confirms a discard. */
   readonly onDiscard?: (tileId: TileId) => void;
+  /**
+   * Called when the player clicks the Mah Jong button (self-draw win).
+   * Only shown when the hand is already complete.
+   */
+  readonly onDeclareWin?: () => void;
+  /** ID of the tile just drawn from the wall — shown with a gold border. */
+  readonly drawnTileId?: TileId | null;
+  /** Saved display order from the player's previous turn (IDs). */
+  readonly savedOrder?: string[];
+  /** Fires whenever the display order changes, for the caller to persist. */
+  readonly onOrderChange?: (ids: string[]) => void;
 }
 
-export function PlayerHand({ tiles, size = 56, isDiscarding = false, onDiscard }: PlayerHandProps) {
-  const { ordered, setOrder, moveTile } = useHandOrder(tiles);
+export function PlayerHand({
+  tiles,
+  size = 56,
+  isDiscarding = false,
+  onDiscard,
+  onDeclareWin,
+  drawnTileId,
+  savedOrder,
+  onOrderChange,
+}: PlayerHandProps) {
+  const { ordered, setOrder, moveTile } = useHandOrder(tiles, savedOrder, onOrderChange);
   const rowRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [selectedId, setSelectedId] = useState<TileId | null>(null);
@@ -77,11 +97,10 @@ export function PlayerHand({ tiles, size = 56, isDiscarding = false, onDiscard }
   const n = ordered.length;
 
   // Clear selection whenever the set of tiles changes (a tile drawn, claimed,
-  // or discarded by the engine). Uses the same id-signature trick as useHandOrder.
+  // or discarded by the engine).
   const tilesSignature = tiles.map(t => t.id).join(',');
   useEffect(() => {
     setSelectedId(null);
-    // tilesSignature captures the dependency on the tile-id set.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tilesSignature]);
 
@@ -93,11 +112,9 @@ export function PlayerHand({ tiles, size = 56, isDiscarding = false, onDiscard }
   const handleTap = (tileId: TileId) => {
     if (!isDiscarding) return;
     if (tileId === selectedId) {
-      // Second tap on the selected tile: confirm discard.
       onDiscard?.(tileId);
       setSelectedId(null);
     } else {
-      // First tap (or switching selection): lift this tile.
       setSelectedId(tileId);
     }
   };
@@ -114,27 +131,38 @@ export function PlayerHand({ tiles, size = 56, isDiscarding = false, onDiscard }
     e.currentTarget.setPointerCapture(e.pointerId);
     const tile = ordered[index];
     if (!tile) return;
-    setDrag({ id: tile.id, from: index, startX: e.clientX, pitch, dx: 0, target: index });
+    setDrag({ id: tile.id, from: index, startX: e.clientX, startY: e.clientY, pitch, dx: 0, dy: 0, target: index });
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
     setDrag((d) => {
       if (!d) return d;
       const dx = e.clientX - d.startX;
+      const dy = e.clientY - d.startY;
       const target = Math.max(0, Math.min(n - 1, Math.round(d.from + dx / d.pitch)));
-      return { ...d, dx, target };
+      return { ...d, dx, dy, target };
     });
   };
 
   const endDrag = (e: React.PointerEvent) => {
     if (drag) {
-      const wasTap = Math.abs(drag.dx) < 5;
+      const absDx = Math.abs(drag.dx);
+      const absDy = Math.abs(drag.dy);
+      const wasTap = absDx < 5 && absDy < 5;
+
       if (wasTap) {
-        // Treat as a tap: select / confirm discard.
+        // Pure tap: select / confirm discard.
         const tile = ordered[drag.from];
         if (tile) handleTap(tile.id);
+      } else if (isDiscarding && drag.dy < -50 && absDy > absDx) {
+        // Upward fling: direct discard without tap confirmation.
+        const tile = ordered[drag.from];
+        if (tile) {
+          onDiscard?.(tile.id);
+          setSelectedId(null);
+        }
       } else {
-        // Genuine drag: reorder.
+        // Horizontal drag: reorder.
         moveTile(drag.from, drag.target);
       }
       try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ }
@@ -145,19 +173,34 @@ export function PlayerHand({ tiles, size = 56, isDiscarding = false, onDiscard }
   /** Transform for the tile at on-screen index i, given the current drag. */
   const tileTransform = (i: number): string | undefined => {
     if (!drag) return undefined;
-    if (i === drag.from) return `translateX(${drag.dx}px)`;
+    if (i === drag.from) {
+      // During an upward fling drag, follow the pointer vertically too.
+      const isDiscardFling = isDiscarding && drag.dy < -10 && Math.abs(drag.dy) > Math.abs(drag.dx);
+      if (isDiscardFling) return `translate(${drag.dx}px, ${drag.dy}px)`;
+      return `translateX(${drag.dx}px)`;
+    }
     if (drag.from < drag.target && i > drag.from && i <= drag.target) return `translateX(${-drag.pitch}px)`;
     if (drag.target < drag.from && i >= drag.target && i < drag.from) return `translateX(${drag.pitch}px)`;
     return undefined;
   };
 
   const hint = isDiscarding
-    ? (selectedId ? 'tap again to discard' : 'tap a tile to select')
-    : 'drag tiles to rearrange';
+    ? (selectedId ? 'tap again to discard, or drag up' : 'tap a tile to select, or drag up to discard')
+    : 'drag tiles to rearrange · sort';
 
   return (
     <div className={`${styles.wrap} ${isDiscarding ? styles.discarding : ''}`}>
       <div className={styles.toolbar}>
+        {onDeclareWin && (
+          <button
+            type="button"
+            className={styles.mjBtn}
+            onClick={onDeclareWin}
+            title="Declare Mah Jong (self-draw win)"
+          >
+            Mah Jong!
+          </button>
+        )}
         <button type="button" className={styles.sortBtn} onClick={sortHand} title="Sort by suit then number">
           Sort
         </button>
@@ -168,6 +211,7 @@ export function PlayerHand({ tiles, size = 56, isDiscarding = false, onDiscard }
         {ordered.map((tile, i) => {
           const isDragged = drag?.id === tile.id;
           const isSelected = tile.id === selectedId;
+          const isDrawn = tile.id === drawnTileId;
           return (
             <div
               key={tile.id}
@@ -180,7 +224,12 @@ export function PlayerHand({ tiles, size = 56, isDiscarding = false, onDiscard }
               onPointerUp={endDrag}
               onPointerCancel={endDrag}
             >
-              <TileView tile={tile} size={size} selected={isSelected} />
+              <TileView
+                tile={tile}
+                size={size}
+                selected={isSelected}
+                highlight={!isSelected && isDrawn ? 'gold' : undefined}
+              />
             </div>
           );
         })}

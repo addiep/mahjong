@@ -116,3 +116,10 @@
 .newHandBtn:hover {
   background: #5a4f3a;
 }
+
+.drawNote {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: 0 0 8px;
+}

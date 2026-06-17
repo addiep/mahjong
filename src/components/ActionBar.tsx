@@ -11,6 +11,11 @@
  * Claim priority displayed left-to-right: Mah Jong > Kong > Pung > Chow > Pass.
  * Multiple Chow options (different sequences) get separate buttons labelled
  * with the three tile values, e.g. "Chow 3-4-5".
+ *
+ * Priority enforcement: if any seat has already submitted a pung/kong/win
+ * claim, chow is suppressed for remaining seats (a pung always beats a chow;
+ * no point asking). A win claim always stays available since it beats
+ * everything.
  */
 
 import {
@@ -32,7 +37,6 @@ interface ActionBarProps {
 function chowOptions(concealed: readonly Tile[], discard: Tile): [TileId, TileId][] {
   if (!isSuited(discard)) return [];
   const d = discard as SuitedTile;
-  // Three patterns: the discard may be the high, middle, or low tile.
   const patterns: [number, number][] = [
     [d.value - 2, d.value - 1],
     [d.value - 1, d.value + 1],
@@ -77,11 +81,17 @@ export function ActionBar({ state, onClaim }: ActionBarProps) {
     const discard = discardPool[discardPool.length - 1];
     if (!claimer || !discard) return null;
 
+    // If any seat already has a higher-priority claim in, suppress chow for
+    // remaining seats (pung/kong beats chow; only a win can still override).
+    const higherClaimIn = claimWindow.responses.some(
+      r => r !== null && (r.type === 'pung' || r.type === 'kong' || r.type === 'win'),
+    );
+
     const leftSeat = ((currentSeat + 1) % config.playerCount) as SeatIndex;
     const canW = isWinningHand([...claimer.concealed, discard], claimer.melds, config);
     const canK = canKong(claimer.concealed, discard);
     const canP = canPung(claimer.concealed, discard);
-    const canC = pendingSeat === leftSeat && canChow(claimer.concealed, discard);
+    const canC = !higherClaimIn && pendingSeat === leftSeat && canChow(claimer.concealed, discard);
     const chows = canC ? chowOptions(claimer.concealed, discard) : [];
 
     const respond = (decision: ClaimDecision) => onClaim(pendingSeat, decision);

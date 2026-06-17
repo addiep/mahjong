@@ -1,4 +1,4 @@
-/* Module 2.2 — interactive local hand (drag to reorder; tap to select + discard). */
+/* Module 2.2 — Player Hand (interactive, local seat). */
 
 .wrap {
   display: flex;
@@ -10,62 +10,68 @@
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   font-size: 12px;
   color: var(--text-dim);
 }
 
 .sortBtn {
   background: var(--panel-bg);
-  color: var(--text);
+  color: var(--text-dim);
   border: 1px solid var(--panel-border);
-  border-radius: 7px;
-  padding: 3px 12px;
-  font-size: 12px;
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 11px;
   cursor: pointer;
 }
+.sortBtn:hover { color: var(--text); border-color: var(--accent); }
 
-.sortBtn:hover { border-color: var(--accent); color: var(--accent); }
+/* Mah Jong self-draw button — prominently styled */
+.mjBtn {
+  background: #8B2000;
+  color: #FFE8B0;
+  border: 1px solid #C2362B;
+  border-radius: 7px;
+  padding: 3px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  box-shadow: 0 0 8px rgba(194, 54, 43, 0.5);
+  animation: mjPulse 1.4s ease-in-out infinite;
+}
+.mjBtn:hover { background: #A82800; box-shadow: 0 0 14px rgba(194, 54, 43, 0.8); }
 
-.hint { font-style: italic; }
+@keyframes mjPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(194, 54, 43, 0.5); }
+  50% { box-shadow: 0 0 16px rgba(194, 54, 43, 0.9); }
+}
+
+.hint { color: var(--text-dim); font-size: 11px; }
+
+.discarding .hint { color: var(--accent); }
 
 .row {
   display: flex;
+  gap: 3px;
   flex-wrap: nowrap;
-  gap: 4px;
-  padding: 4px;
-  max-width: 100%;
-  overflow-x: auto;
+  align-items: flex-end;
 }
 
 .slot {
   position: relative;
-  flex: none;
-  transition: transform 0.16s ease;
-  cursor: grab;
-  user-select: none;
-}
-
-/* In discarding mode every tile is tappable, not grabbable. */
-.discarding .slot {
+  will-change: transform;
+  transition: transform 0.12s ease;
   cursor: pointer;
 }
 
 .dragging {
+  z-index: 10;
   transition: none;
-  z-index: 5;
-  cursor: grabbing;
-  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 6px 12px rgba(0,0,0,0.5));
 }
 
-.dragging svg {
-  transform: scale(1.06);
-}
-
-/* Selected tile: lift it up so it looks picked up from the rack. */
+/* Slightly lift selected tile */
 .isSelected {
   transform: translateY(-10px) !important;
-  z-index: 3;
-  transition: transform 0.12s ease;
-  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.5));
 }

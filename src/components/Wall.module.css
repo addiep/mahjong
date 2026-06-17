@@ -9,36 +9,36 @@
 /* The discards live inside the ring, inset clear of the wall stacks. */
 .inner {
   position: absolute;
-  left: 34px;
-  top: 34px;
-  right: 34px;
-  bottom: 34px;
+  left: 42px;
+  top: 42px;
+  right: 42px;
+  bottom: 42px;
 }
 
 .stack {
   position: absolute;
-  width: 19px;
-  height: 26px;
+  width: 26px;
+  height: 44px;
 }
 
 .backTile {
   position: absolute;
   inset: 0;
   box-sizing: border-box;
-  border-radius: 4px;
+  border-radius: 5px;
 }
 
 /* Distinct shades so the two layers read apart: drawing the top tile reveals
    the darker bottom tile, a visible change for every single draw. */
 .backBottom {
   background: #11463d;
-  border: 1px solid #0c322b;
+  border: 1.5px solid #0c322b;
 }
 
 .backTop {
   background: #25856f;
-  border: 1px solid #16564a;
-  transform: translateY(-4px);
+  border: 1.5px solid #16564a;
+  transform: translateY(-6px);
 }
 
 .drawNext {

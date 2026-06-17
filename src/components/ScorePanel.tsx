@@ -1,8 +1,10 @@
 /**
  * Module 2.5 — Score Panel
  *
- * Shown at HAND_OVER. Displays the winning hand's score breakdown,
- * each player's bonus-tile points, and the running cumulative totals.
+ * Shown at HAND_OVER. For a win: displays the winning hand's score breakdown,
+ * each player's bonus-tile points, and running cumulative totals.
+ * For a draw (wall exhausted): shows "Draw" with no score breakdown and no
+ * running total update — the totals are unchanged.
  */
 import type { ScoreResult } from '@mahjong/engine';
 import type { BonusScoreResult } from '@mahjong/engine';
@@ -20,9 +22,9 @@ export interface ScorePanelProps {
   winnerName: string | null;
   /** Full score result for the winning hand; null for draws. */
   result: ScoreResult | null;
-  /** Per-player bonus-tile scores. */
+  /** Per-player bonus-tile scores; empty array for draws. */
   playerBonuses: PlayerBonusInfo[];
-  /** Cumulative per-player totals including this hand. */
+  /** Cumulative per-player totals (unchanged on a draw). */
   runningTotals: { name: string; total: number }[];
   onNewHand: () => void;
 }
@@ -34,6 +36,8 @@ export function ScorePanel({
   runningTotals,
   onNewHand,
 }: ScorePanelProps) {
+  const isDraw = winnerName === null && result === null;
+
   return (
     <div className={styles.overlay}>
       <div className={styles.panel}>
@@ -42,7 +46,11 @@ export function ScorePanel({
           {winnerName ? `${winnerName} wins!` : 'Draw — wall exhausted'}
         </h2>
 
-        {/* Winning hand breakdown */}
+        {isDraw && (
+          <p className={styles.drawNote}>No winner this hand. Scores are unchanged.</p>
+        )}
+
+        {/* Winning hand breakdown (wins only) */}
         {result && (
           <div className={styles.handScore}>
             {result.specialHand && (
@@ -93,7 +101,7 @@ export function ScorePanel({
           </div>
         )}
 
-        {/* Bonus tiles */}
+        {/* Bonus tiles (wins only) */}
         {playerBonuses.some(pb => pb.bonus.count > 0) && (
           <div className={styles.section}>
             <h3 className={styles.sectionTitle}>Bonus tiles</h3>
@@ -121,7 +129,7 @@ export function ScorePanel({
 
         {/* Running totals */}
         <div className={styles.section}>
-          <h3 className={styles.sectionTitle}>Running totals</h3>
+          <h3 className={styles.sectionTitle}>Running totals{isDraw ? ' (unchanged)' : ''}</h3>
           <table className={styles.table}>
             <tbody>
               {runningTotals.map(({ name, total }) => (
