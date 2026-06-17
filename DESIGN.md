@@ -304,11 +304,14 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Status: **complete** — commits `14fe9fb` (config + index), `7be1898` (engine + 18 vitest cases).
 
 #### Module 1.9 — Flower / Season Scoring
-- Bonus tile scoring at end of hand: flat 4 points per flower or season.
+- `scoreBonusTiles(bonusTiles, scoringConfig?)` banks a flat 4 points per flower or season
+  (the `flowerOrSeason` config value) and returns a `{ points, flowerCount, seasonCount, count }`
+  breakdown. Non-bonus tiles are ignored, so a whole hand or just the bonus list can be passed.
+- Applies to every player, not only the winner — anyone holding bonus tiles banks the points.
 - No own-flower distinction and no own-flower doubling (OQ-2 resolved).
-- Note: Module 1.8 already applies the complete-set-of-flowers / complete-set-of-seasons
-  doublings and exposes `bonusTileCount`; 1.9 owns only the flat 4-per-tile points.
-- Status: **not started**
+- Module 1.8 still owns the complete-set-of-flowers / complete-set-of-seasons doublings and
+  exposes `bonusTileCount`; 1.9 owns only the flat 4-per-tile points.
+- Status: **complete** — commit `42e5729` (5 vitest cases passing).
 
 #### Module 2.0 — UI: Board Layout
 - Status: **not started** (React app scaffold — Vite — to be set up here)
@@ -427,6 +430,7 @@ changes needed for Phase 3.
 | 2026-06-17 | Winning tile completes an exposed meld when claimed from a discard or robbed; concealed on a self-draw | Drives the exposed/concealed base-point split and the "all concealed" doubling; conventional HK reading not spelled out in the source |
 | 2026-06-17 | When several special hands tie on score, a priority order awards the label to the more specific hand (e.g. Imperial Jade over All Pungs) | Payout is identical; the name shown should be the more prestigious/specific one |
 | 2026-06-17 | Module 1.8 applies the complete-flower/season-set doublings and reports `bonusTileCount`, but leaves the flat 4-per-tile points to Module 1.9 | Keeps the module boundary clean; 1.9 owns flat bonus-tile points only |
+| 2026-06-17 | Module 1.9 complete: `scoreBonusTiles` banks a flat `flowerOrSeason` (4) per bonus tile for any player; non-bonus tiles ignored; 5 vitest cases | Small standalone module per OQ-2; flat value kept config-driven (commit `42e5729`) |
 
 ---
 
