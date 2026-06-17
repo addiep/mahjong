@@ -185,7 +185,7 @@ a discard.
 ### Frontend
 - **React** with **TypeScript**
 - Rationale: complex game state benefits from TS type safety; React's component model maps naturally onto tiles, hands, and board regions.
-- Styling: TBD (CSS Modules or Tailwind — decide when we start the UI).
+- Styling: **CSS Modules** (decided at Module 2.0 — scoped plain CSS, no utility-class vocabulary or extra build dependency; keeps the "own your code" spirit of the custom-SVG tiles).
 - Tile visuals: custom SVG, drawn in `Tile.tsx` (no external assets). See OQ-6.
 
 ### Backend (Phase 2 only)
@@ -314,7 +314,22 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Status: **complete** — commit `42e5729` (5 vitest cases passing).
 
 #### Module 2.0 — UI: Board Layout
-- Status: **not started** (React app scaffold — Vite — to be set up here)
+- React app scaffold (Vite + React + TypeScript) set up at the repo root. The shared engine
+  is imported as `@mahjong/engine` via a Vite alias + a tsconfig path, both pointing at
+  `engine/src` — the engine stays a pure-TS source package with no build step of its own,
+  and Vite resolves its internal `.js` import specifiers to their `.ts` sources.
+- `Board.tsx`: a pure, presentational component driven entirely by a `GameState` prop. It
+  arranges 3 or 4 seats around a central table (local seat at the bottom, the others placed
+  anticlockwise), with the communal discard pool + a wall/dead-wall indicator in the centre
+  and labelled placeholder regions for the action bar (2.4) and score panel (2.5). Seat
+  panels render real tiles via the Module 2.1 `Tile` component, proving the engine → UI
+  integration. Adapts to 3 players by dropping the opposite (top) seat.
+- Styling: **CSS Modules** (resolves the §2 "CSS Modules or Tailwind" TBD).
+- `fixtures/sampleState.ts`: a fixed, hand-built sample `GameState` so the board renders a
+  recognisable mid-hand arrangement (melds, bonus tiles, a partly-filled discard pool)
+  without the live turn engine — that is wired in the later interactive modules.
+- Verified by `tsc --noEmit` (typecheck against the engine types) and `vite build`.
+- Status: **complete** — commit `b31c071`
 
 #### Module 2.1 — UI: Tile Component
 - `Tile.tsx`: a typed React component rendering any engine `Tile` as self-contained SVG;
@@ -322,7 +337,7 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
   Winds an E/S/W/N letter for readability; Dots/Bamboo are countable. Fixed physical
   colours (identical in light/dark). Props: `size`, `faceDown`, `selected`, `onClick`.
 - Resolves OQ-6 (custom SVG). Lives in `src/components/`; the React app scaffold (Vite)
-  is still to be set up (Module 2.0).
+  is set up in Module 2.0.
 - Status: **complete** — commit `f4a3fc2`
 
 #### Module 2.2 — UI: Player Hand
@@ -431,6 +446,10 @@ changes needed for Phase 3.
 | 2026-06-17 | When several special hands tie on score, a priority order awards the label to the more specific hand (e.g. Imperial Jade over All Pungs) | Payout is identical; the name shown should be the more prestigious/specific one |
 | 2026-06-17 | Module 1.8 applies the complete-flower/season-set doublings and reports `bonusTileCount`, but leaves the flat 4-per-tile points to Module 1.9 | Keeps the module boundary clean; 1.9 owns flat bonus-tile points only |
 | 2026-06-17 | Module 1.9 complete: `scoreBonusTiles` banks a flat `flowerOrSeason` (4) per bonus tile for any player; non-bonus tiles ignored; 5 vitest cases | Small standalone module per OQ-2; flat value kept config-driven (commit `42e5729`) |
+| 2026-06-17 | UI styling: CSS Modules, not Tailwind (resolves the §2 TBD) | Scoped plain CSS with no utility-class vocabulary or extra build dependency; keeps the "own your code" spirit of the custom-SVG tiles; scoping prevents class clashes as modules 2.2–2.5 grow |
+| 2026-06-17 | Module 2.0: React app scaffolded with Vite at the repo root; engine imported as `@mahjong/engine` via a Vite alias + tsconfig path to `engine/src` (no engine build step) | Engine stays a pure-TS source package importable by both the app and (later) the Node server; Vite resolves the engine's internal `.js` specifiers to their `.ts` sources |
+| 2026-06-17 | Board is a pure presentational component driven by a `GameState` prop; adapts to 3 or 4 players (drops the opposite seat for 3); local seat shown at the bottom | Keeps rendering decoupled from game logic; a fixed sample `GameState` drives it until the interactive modules wire the live engine |
+| 2026-06-17 | Module 2.0 complete: board layout with seat / discard / wall regions and placeholders for the action bar (2.4) and score panel (2.5); typecheck + `vite build` green | Commit `b31c071` |
 
 ---
 
