@@ -51,14 +51,14 @@ Two additional special hands, enabled or disabled as a single binary switch set 
 the game begins. If the switch is off, neither hand is legal and neither appears in the
 hand evaluator.
 
-- **Knitting:** seven pairs across exactly two suits, where each pair is the same number
-  taken once from each suit (e.g. bamboo-3 + characters-3). The two suits' per-value
-  counts therefore match. No Winds or Dragons. (14 tiles: 7 cross-suit pairs.)
-- **Crocheting (triple knitting):** four sets of three — one tile of the same number
-  from each of the three suits — plus one pair of two tiles sharing a number (any suits).
-  (14 tiles: 4×3 + 2.)
+- **Knitting:** seven pairs across exactly two suits, where each pair consists of the same
+  number, one tile taken from each suit (e.g. bamboo-3 + characters-3). Numbers may repeat
+  across pairs. No Winds or Dragons. (14 tiles: 7 cross-suit pairs.)
+- **Crocheting (triple knitting):** four sets of three — one tile of the same number from
+  each of the three suits — plus one pair of two tiles sharing a number (any suits).
+  Numbers may repeat across sets and the pair. (14 tiles: 4×3 + 2.)
 
-Both hands score as special/limit hands when enabled.
+Both hands score as half-limit hands when enabled.
 
 ### Dirty Wins
 A binary switch, set before the game begins, controls whether a player may declare
@@ -94,7 +94,7 @@ Special limit hands are an exception (see below).
 ### Turn Sequence
 1. Player draws a tile (or claims a discard).
 2. If a bonus tile is drawn, set aside and draw replacement.
-3. Player may declare a concealed kong, or add a drawn tile to an exposed pung to form a kong (draws replacement from dead wall).
+3. Player may declare a concealed kong, or add a drawn tile to an exposed pung to form a kong (draws replacement from dead wall). A declared concealed kong is placed on the table face-down (four tiles turned face-down); the player may not keep all four tiles in their concealed hand. Concealed kongs cannot be robbed — only an added kong opens the Robbing the Kong window.
 4. Player discards one tile.
 5. Claim window opens for other players (priority: win > pung/kong > chow).
 6. If no claim, turn passes left.
@@ -133,21 +133,19 @@ Minor = simples (2–8 of any suit). Major = terminals (1 or 9) or honours (Wind
 Each qualifying condition doubles the round total once:
 - Pung or Kong of any major tile (1, 9, Wind, or Dragon) — once per qualifying meld
 - Complete set of Flowers or complete set of Seasons (doubles twice)
-- Original Call (declared fishing after the player's very first discard)
 
 #### Additional doublings for the winning player only
 
 - Clean hand (all melds and pair in one suit; Winds and Dragons permitted): ×1
-- All concealed: ×1
-- Winning with a loose tile, last tile of the wall, last discard, original call, or Robbing the Kong: ×1
-- Purity (concealed pungs/kongs of one suit, no Winds/Dragons, no chows): ×3 *(unorthodox — most rulesets treat this as a limit hand)*
+- Purity (clean hand with no Winds or Dragons): ×? *(value TBD — see OQ-16)*
+- Winning with a loose tile, last tile of the wall, last discard, or Robbing the Kong: ×1
 - Winds and Dragons only (all melds are Winds or Dragons): ×3
 - Heads & Tails (all melds are 1s and 9s): ×3
 
 #### Special hand scores
-- All Pairs Honours: 500 points (200 when fishing)
-- Buried Treasure: 1,000 points (400 when fishing)
-- Limit hands: agreed maximum payout, set before play begins
+- All Pairs Honours: 500 points (half-limit)
+- Buried Treasure: 1,000 points (limit)
+- Limit hands: 1,000 points; half-limit hands: 500 points
 
 ### Special / Limit Hands
 These override normal scoring. Hands in the first group require all tiles to be drawn
@@ -158,13 +156,13 @@ a discard.
 
 | Hand | Score | Description |
 |---|---|---|
-| Buried Treasure | 1,000 pts | Concealed pungs/kongs of one suit only + one pair. Winds and Dragons permitted. |
+| Buried Treasure | Limit | Fully concealed hand — all melds formed from self-drawn tiles; no exposed melds from claimed discards. Any tile composition. Winning tile may be a discard. |
 | Heavenly Twins | Limit | Seven pairs, all one suit. No Winds or Dragons. |
 | Clean Pairs | ½ limit | Seven pairs of one suit, Winds and Dragons permitted. |
 | Honour Pairs | Limit | Seven pairs composed only of Winds and Dragons (no 1s or 9s). |
 | All Pairs Honours | 500 pts | Seven pairs composed only of 1s, 9s, Winds, and Dragons. |
-| Knitting | Limit | Seven cross-suit pairs across exactly two suits (each pair = same number, one from each suit). No Winds or Dragons. |
-| Crocheting (Triple Knitting) | ½ limit | Four sets of three same-numbered tiles across all three suits + one pair of two tiles sharing a number (any suits). |
+| Knitting | ½ limit | Seven cross-suit pairs across exactly two suits (each pair = same number, one from each suit). Numbers may repeat across pairs. No Winds or Dragons. |
+| Crocheting (Triple Knitting) | ½ limit | Four sets of three same-numbered tiles across all three suits + one pair of two tiles sharing a number (any suits). Numbers may repeat across sets and the pair. |
 | Gates of Heaven (Nine Chances) | Limit | Waiting hand: concealed pung of 1s + run 2–8 + concealed pung of 9s, all one suit (13 tiles). Any tile 1–9 of that suit completes it. |
 | Wriggling Snake | Limit | Run 1–9 in one suit with one of those numbers paired (any of 1–9) + one of each Wind. (14 tiles: 10 suited + 4 winds.) |
 | 13 Unique Wonders | Limit | One of each Dragon (3) + one of each Wind (4) + 1 and 9 of each suit (6) + any one of those tiles paired. |
@@ -305,8 +303,8 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
   context object the turn engine passes in (winning-tile source, last-wall-tile flag,
   kong-replacement chain); `detectCircumstance` presupposes an otherwise-winning hand.
 - Knitting/Crocheting follow OQ-13 (resolved): Knitting = seven cross-suit number pairs
-  across two suits; the Crocheting pair is any two tiles sharing a number. Gated by
-  `knittingEnabled` (off by default).
+  across two suits; the Crocheting pair is any two tiles sharing a number. Numbers may
+  repeat. Gated by `knittingEnabled` (off by default).
 - Status: **complete** — commits `3b9c7da`, `5a615db` (26 vitest cases passing). Wired into
   Module 1.4's Robbing the Kong validation in `f9cb525`.
 
@@ -317,7 +315,7 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
   scores each, and keeps the highest-paying one (the player is entitled to their best score).
 - Config-driven: the points table lives in `scoring-config.ts` (`DEFAULT_SCORING_CONFIG`),
   not hardcoded in the logic.
-- Doublings are expressed as a *count* of ×2 multipliers, so a "×3" rule (Purity, Winds &
+- Doublings are expressed as a *count* of ×2 multipliers, so a "×3" rule (Winds &
   Dragons only) contributes 3 doublings (×8) and a complete flower/season set contributes 2.
 - The winning tile completes an *exposed* meld when it is claimed from a discard (or robbed);
   on a self-draw the completed meld stays concealed. This drives the exposed/concealed
@@ -331,6 +329,9 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Per-flower/season flat points (4 each) are deferred to Module 1.9; the scorer surfaces the
   bonus-tile count and applies the complete-set doublings, but does not add the flat points.
   Settlement of points between players is out of scope (a higher-level concern).
+- **Pending update:** Buried Treasure definition changed (any fully concealed hand; see
+  2026-06-17 decisions log). Purity doubling value TBD (OQ-16). These affect the scoring
+  config and detector logic; to be addressed when OQ-16 is resolved.
 - Status: **complete** — commits `14fe9fb` (config + index), `7be1898` (engine + 18 vitest cases).
 
 #### Module 1.9 — Flower / Season Scoring
@@ -426,9 +427,9 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - A clean, player-facing write-up of the rules this game uses, drawn mostly from §1 —
   usable as briefing material for new players learning Adam's version.
 - A comparison against standard Hong Kong rules flagging the deliberate departures (e.g.
-  Purity as a ×3 doubling rather than a limit hand, the no-reserve default wall, the added
-  family hands such as Dragonfly / Windy Dragons / Honour Pairs, dirty wins off by default),
-  to check the house rules have not strayed too far.
+  Purity as a clean+no-W/D doubling rather than a limit hand, the no-reserve default wall,
+  the added family hands such as Dragonfly / Windy Dragons / Honour Pairs, dirty wins off
+  by default), to check the house rules have not strayed too far.
 - Status: **not started**
 
 ---
@@ -524,11 +525,12 @@ the time comes.
 | ~~OQ-8~~ | ~~Keep All Pungs, All Kongs, Heavenly Hand, Earthly Hand?~~ | Resolved — all kept |
 | ~~OQ-9~~ | ~~All Honours: include 1s and 9s?~~ | Resolved — yes |
 | ~~OQ-10~~ | ~~Ruby and Emerald: precise tile lists?~~ | Resolved — both hands removed |
-| ~~OQ-11~~ | ~~Purity: limit hand or ×3 doubling?~~ | Resolved — ×3 doubling (unorthodox family rule) |
+| ~~OQ-11~~ | ~~Purity: limit hand or ×3 doubling?~~ | Resolved — Purity redefined as clean hand + no W/D; doubling value TBD (OQ-16) |
 | ~~OQ-12~~ | ~~Robbing the Kong: claim-window interaction when an exposed pung is promoted to a kong~~ | Resolved & implemented (commit `f9cb525`) — added kong only; robbed by a player completing their win on that tile; concealed kongs safe |
-| ~~OQ-13~~ | ~~Knitting / Crocheting: exact tile structure~~ | Resolved — Knitting = seven cross-suit number pairs across two suits; Crocheting pair = any two tiles sharing a number |
+| ~~OQ-13~~ | ~~Knitting / Crocheting: exact tile structure~~ | Resolved — Knitting = seven cross-suit number pairs across two suits, numbers may repeat; Crocheting pair = any two tiles sharing a number, numbers may repeat |
 | ~~OQ-14~~ | ~~Should the dead wall be replenished from the live wall (traditional), or use up the whole wall?~~ | Resolved — added a `deadWall` config switch (default off = the family rule: no reserve, loose tiles from the far end of the wall, play until exhausted; on = traditional 14-tile reserve). Engine commit `afdaa57` |
 | OQ-15 | Intelligence module: inference approach (heuristics, scoring of hypotheses, how confidence is shown) | Phase 4 (Module 5.2); Adam has ideas, to be worked out when the time comes |
+| OQ-16 | Purity (clean hand with no Winds or Dragons): what doubling should it carry? | Scoring engine config (Module 1.8) |
 
 ---
 
@@ -579,7 +581,7 @@ the time comes.
 | 2026-06-16 | Hand evaluator's public result is binary (winning hand or not); enumerating readings to maximise score is the scorer's job | Win detection is all the engine and AI need; the decomposition search is a shared helper both modules call. Supersedes the earlier "returns all decompositions" note |
 | 2026-06-16 | Module 1.7 complete: binary `isWinningHand` + shared `decomposeStandard`; All Pungs (no-chow) bypass keeps mixed-suit limit hands valid with dirtyWin off; 25 vitest cases | Trickiest module; built and tested in isolation per conventions |
 | 2026-06-16 | OQ-12 resolved: only an added kong (promoted pung) can be robbed, by a player completing their win on that tile; concealed kongs safe | Standard HK rule; matches the existing Robbing the Kong doubling |
-| 2026-06-16 | OQ-13a resolved: Knitting = seven cross-suit pairs across two suits (same number from each suit; per-value counts match) | Family rule; `isKnitting` updated in commit `5a615db` (26 vitest cases) |
+| 2026-06-16 | OQ-13a resolved: Knitting = seven cross-suit pairs across two suits (same number from each suit; numbers may repeat across pairs) | Family rule; `isKnitting` updated in commit `5a615db` (26 vitest cases) |
 | 2026-06-16 | OQ-13b resolved: the Crocheting pair is any two tiles sharing a number (any suits) | Consistent with OQ-7 |
 | 2026-06-17 | OQ-6 resolved: tile visuals are custom SVG (Module 2.1), not scraped imagery or Unicode | Full ownership, no licensing risk, crisp at any size, themeable; commercial-site tile images are copyrighted |
 | 2026-06-17 | Characters tiles carry a Latin digit and Winds an E/S/W/N letter | Most players can't read the Chinese numerals or wind characters |
@@ -610,6 +612,12 @@ the time comes.
 | 2026-06-17 | Module 2.3 declared complete — the scatter grid and both-ends wall depletion already satisfied the module goals; the "polished detailing" note in the status was a placeholder with no outstanding work | No additional commits required |
 | 2026-06-17 | Module 2.4 complete: ActionBar shows claim buttons (Mah Jong / Kong / Pung / Chow / Pass) for the first pending seat during CLAIM_WINDOW; Win / Pass only during ROBBING_KONG. App.tsx auto-passes a seat only when it has no legal action; otherwise ActionBar handles the decision. `chowOptions()` helper derives tile-ID pairs locally since `canChow` returns boolean only. Commit `13d82cf` |
 | 2026-06-17 | Module 2.2 complete: live engine wired to the UI for the first time. App.tsx holds a live `GameState`; functional `setState` auto-advances DRAWING/CHECK_BONUS/CLAIM_WINDOW/ROBBING_KONG (phase-guarded, safe under StrictMode). Discard interaction: first tap selects a tile (lifted via `translateY(-10px)`, green border from the existing `Tile.selected` prop); second tap calls `onDiscard`. Tap vs drag distinguished by `|dx| < 5 px`. Selection clears on tile-set change. CLAIM_WINDOW/ROBBING_KONG auto-pass until Module 2.4. HAND_OVER banner with New hand button | Board rotates so the current player is always shown at the bottom; `onDiscard` threaded from App → Board → SeatPanel → PlayerHand, active only during DISCARDING phase. Commit `86b0fed` |
+| 2026-06-17 | Knitting and Crocheting allow repeated numbers: the same number may appear in more than one pair (Knitting) or set (Crocheting). The "once from each suit" wording described each tile in a pair, not uniqueness across pairs | Family rule clarification |
+| 2026-06-17 | Concealed kong must be declared and placed on the table face-down (four tiles turned face-down); the player may not keep all four tiles hidden in hand. Concealed kongs cannot be robbed — only added kongs open the Robbing the Kong window | Standard HK rule |
+| 2026-06-17 | Fishing concept dropped entirely: Original Call doubling removed; no fishing score variants | Too complicated for the family game |
+| 2026-06-17 | Knitting reclassified from Limit to ½ limit (500 points) | Consistent with Crocheting and the half-limit tier |
+| 2026-06-17 | Buried Treasure redefined: any fully concealed hand (all melds self-drawn, any tile composition, winning tile may be a discard) → Limit (1,000 points). Previous narrow definition (one suit only) retired | The defining feature is concealment, not suit purity |
+| 2026-06-17 | Purity redefined as a clean hand (one suit) with no Winds or Dragons — stricter than the general clean-hand doubling (×1, which permits W/D). Doubling value open (OQ-16). Previous Purity (×3, all-concealed, one suit, no W/D, no chows) retired; its concealment aspect is now Buried Treasure | Aligns with the family understanding of "purity" as suit cleanliness, not hand concealment |
 
 ---
 
