@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildWall, drawFromWall, drawReplacement, shuffle } from '../wall.js';
 
-// ─── shuffle ───────────────────────────────────────────────────────────────────
+// ─── shuffle ───────────────────────────────────────────────────────────────
 
 describe('shuffle', () => {
   it('returns the same array reference', () => {
@@ -25,7 +25,7 @@ describe('shuffle', () => {
   });
 });
 
-// ─── buildWall — 4 players ─────────────────────────────────────────────────────
+// ─── buildWall — 4 players ────────────────────────────────────────────────
 
 describe('buildWall (4 players)', () => {
   // Run once and reuse — avoids re-shuffling on every assertion.
@@ -68,7 +68,7 @@ describe('buildWall (4 players)', () => {
   });
 });
 
-// ─── buildWall — 3 players ─────────────────────────────────────────────────────
+// ─── buildWall — 3 players ────────────────────────────────────────────────
 
 describe('buildWall (3 players)', () => {
   const deal = buildWall(3);
@@ -108,7 +108,32 @@ describe('buildWall (3 players)', () => {
   });
 });
 
-// ─── drawFromWall ──────────────────────────────────────────────────────────────
+// ─── buildWall — no dead-wall reserve (family rule) ──────────────────────────
+
+describe('buildWall (no reserve — family rule)', () => {
+  const deal = buildWall(4, false);
+
+  it('reserves no dead wall', () => {
+    expect(deal.wall.dead).toHaveLength(0);
+  });
+
+  it('keeps every undealt tile in the live wall (91 for 4 players)', () => {
+    // 144 − 14 (dealer) − 13 × 3 (others) = 91, none reserved
+    expect(deal.wall.live).toHaveLength(91);
+  });
+
+  it('still deals 14 / 13 / 13 / 13', () => {
+    expect(deal.hands.map(h => h.length)).toEqual([14, 13, 13, 13]);
+  });
+
+  it('accounts for all 144 tiles exactly once', () => {
+    const all = [...deal.hands.flat(), ...deal.wall.live, ...deal.wall.dead];
+    expect(all).toHaveLength(144);
+    expect(new Set(all.map(t => t.id)).size).toBe(144);
+  });
+});
+
+// ─── drawFromWall ────────────────────────────────────────────────────
 
 describe('drawFromWall', () => {
   it('returns the first tile in the live wall', () => {
@@ -146,7 +171,7 @@ describe('drawFromWall', () => {
   });
 });
 
-// ─── drawReplacement ───────────────────────────────────────────────────────────
+// ─── drawReplacement — reserve style ───────────────────────────────────
 
 describe('drawReplacement', () => {
   it('returns the first tile in the dead wall', () => {
@@ -181,5 +206,40 @@ describe('drawReplacement', () => {
     const { tile, wall } = drawReplacement(empty);
     expect(tile).toBeNull();
     expect(wall).toBe(empty);
+  });
+});
+
+// ─── drawReplacement — no reserve: loose tiles from the wall's far end ───────────
+
+describe('drawReplacement (no reserve)', () => {
+  it('draws the last tile of the live wall when there is no dead wall', () => {
+    const deal = buildWall(4, false);
+    const expected = deal.wall.live[deal.wall.live.length - 1];
+    const { tile } = drawReplacement(deal.wall);
+    expect(tile).toBe(expected);
+  });
+
+  it('removes one tile from the back of the live wall; dead stays empty', () => {
+    const deal = buildWall(4, false);
+    const before = deal.wall.live.length;
+    const { wall } = drawReplacement(deal.wall);
+    expect(wall.live).toHaveLength(before - 1);
+    expect(wall.dead).toHaveLength(0);
+  });
+
+  it('normal and loose draws take from opposite ends of the same wall', () => {
+    const deal = buildWall(4, false);
+    const front = deal.wall.live[0];
+    const back = deal.wall.live[deal.wall.live.length - 1];
+    const { tile: normal } = drawFromWall(deal.wall);
+    const { tile: loose } = drawReplacement(deal.wall);
+    expect(normal).toBe(front);
+    expect(loose).toBe(back);
+    expect(normal).not.toBe(loose);
+  });
+
+  it('returns null only when the whole wall is exhausted', () => {
+    const { tile } = drawReplacement({ live: [], dead: [] });
+    expect(tile).toBeNull();
   });
 });

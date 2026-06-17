@@ -15,7 +15,7 @@
 import { Tile, TileId, Wind } from './tiles.js';
 import { Wall, Deal, PlayerCount } from './wall.js';
 
-// ─── Seat ───────────────────────────────────────────────────────────────
+// ─── Seat ──────────────────────────────────────────
 
 /**
  * A player's seat position for a hand.
@@ -27,7 +27,7 @@ export type SeatIndex = 0 | 1 | 2 | 3;
 /** The seat winds in canonical seat order. */
 const SEAT_WINDS: readonly Wind[] = ['east', 'south', 'west', 'north'];
 
-// ─── Game configuration ─────────────────────────────────────────────────
+// ─── Game configuration ────────────────────────────────────
 
 /**
  * Configuration set before the hand begins and immutable during play.
@@ -38,17 +38,29 @@ export interface GameConfig {
   readonly discardsVisible: boolean;
   readonly knittingEnabled: boolean;
   readonly dirtyWinAllowed: boolean;
+  /**
+   * Whether to reserve a 14-tile dead wall for kong / flower replacements.
+   * When false (the family rule, and the default), there is no reserve:
+   * replacement (loose) tiles come from the far end of the live wall and play
+   * continues until the wall is exhausted. Optional for backward compatibility;
+   * absent is treated as false. The game setup passes this to `buildWall`.
+   */
+  readonly deadWall?:       boolean;
 }
 
-/** Sensible defaults: 4-player, face-up discards, no knitting, clean wins only. */
+/**
+ * Sensible defaults: 4-player, face-up discards, no knitting, clean wins only,
+ * and no dead-wall reserve (the family rule — use up the whole wall).
+ */
 export const DEFAULT_CONFIG: GameConfig = {
   playerCount:     4,
   discardsVisible: true,
   knittingEnabled: false,
   dirtyWinAllowed: false,
+  deadWall:        false,
 };
 
-// ─── Declared melds ──────────────────────────────────────────────────────
+// ─── Declared melds ─────────────────────────────────────
 
 /**
  * The type of a declared (face-up) meld.
@@ -72,7 +84,7 @@ export interface DeclaredMeld {
   readonly tiles: readonly Tile[];
 }
 
-// ─── Player state ───────────────────────────────────────────────────────
+// ─── Player state ──────────────────────────────────
 
 export interface PlayerState {
   /** The player's display name. */
@@ -91,7 +103,7 @@ export interface PlayerState {
   readonly score:      number;
 }
 
-// ─── Game phase ────────────────────────────────────────────────────────
+// ─── Game phase ─────────────────────────────────
 
 /**
  * The phase the game is currently in. The turn engine (Module 1.4) drives
@@ -115,7 +127,7 @@ export type GamePhase =
   | 'ROBBING_KONG'
   | 'HAND_OVER';
 
-// ─── Hand result ────────────────────────────────────────────────────────
+// ─── Hand result ──────────────────────────────────
 
 /** Why the hand ended. */
 export type HandEndReason = 'win' | 'draw';
@@ -135,7 +147,7 @@ export interface HandResult {
   readonly selfDraw:   boolean | null;
 }
 
-// ─── Claim window ──────────────────────────────────────────────────────
+// ─── Claim window ───────────────────────────────
 
 /**
  * The type of claim a player may make on a discarded tile.
@@ -183,7 +195,7 @@ export interface RobbingKongState {
   readonly responses:  ReadonlyArray<ClaimDecision | null>;
 }
 
-// ─── Game state ────────────────────────────────────────────────────────
+// ─── Game state ─────────────────────────────────
 
 /**
  * The complete, immutable snapshot of the game at a single point in time.
@@ -216,7 +228,7 @@ export interface GameState {
   readonly robbingKong:    RobbingKongState | null;
 }
 
-// ─── Factory ────────────────────────────────────────────────────────────
+// ─── Factory ───────────────────────────────────
 
 /**
  * Creates the initial GameState for a new hand from a config, a completed deal,

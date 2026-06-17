@@ -9,7 +9,7 @@ import { buildWall } from '../wall.js';
 const NAMES_4 = ['Alice', 'Bob', 'Carol', 'Dave'];
 const NAMES_3 = ['Alice', 'Bob', 'Carol'];
 
-// ─── DEFAULT_CONFIG ────────────────────────────────────────────────────────────
+// ─── DEFAULT_CONFIG ────────────────────────────────────────────────────
 
 describe('DEFAULT_CONFIG', () => {
   it('defaults to 4 players', () => {
@@ -27,9 +27,13 @@ describe('DEFAULT_CONFIG', () => {
   it('defaults dirty wins to disallowed', () => {
     expect(DEFAULT_CONFIG.dirtyWinAllowed).toBe(false);
   });
+
+  it('defaults the dead-wall reserve off (the family rule)', () => {
+    expect(DEFAULT_CONFIG.deadWall).toBe(false);
+  });
 });
 
-// ─── createGameState — 4 players ──────────────────────────────────────────────
+// ─── createGameState — 4 players ──────────────────────────────────────
 
 describe('createGameState (4 players)', () => {
   const deal  = buildWall(4);
@@ -108,7 +112,7 @@ describe('createGameState (4 players)', () => {
   });
 });
 
-// ─── createGameState — 3 players ──────────────────────────────────────────────
+// ─── createGameState — 3 players ──────────────────────────────────────
 
 describe('createGameState (3 players)', () => {
   const config: GameConfig = { ...DEFAULT_CONFIG, playerCount: 3 };
@@ -140,7 +144,7 @@ describe('createGameState (3 players)', () => {
   });
 });
 
-// ─── createGameState — custom config flags ────────────────────────────────────
+// ─── createGameState — custom config flags ────────────────────────────
 
 describe('createGameState honours config flags', () => {
   it('stores a custom config unchanged', () => {
@@ -149,16 +153,18 @@ describe('createGameState honours config flags', () => {
       discardsVisible: false,
       knittingEnabled: true,
       dirtyWinAllowed: true,
+      deadWall:        true,
     };
-    const state = createGameState(config, buildWall(4), NAMES_4);
+    const state = createGameState(config, buildWall(4, true), NAMES_4);
     expect(state.config).toBe(config);
     expect(state.config.discardsVisible).toBe(false);
     expect(state.config.knittingEnabled).toBe(true);
     expect(state.config.dirtyWinAllowed).toBe(true);
+    expect(state.config.deadWall).toBe(true);
   });
 });
 
-// ─── createGameState — name validation ────────────────────────────────────────
+// ─── createGameState — name validation ───────────────────────────────
 
 describe('createGameState name validation', () => {
   it('throws if too few names are supplied', () => {

@@ -2,27 +2,23 @@
  * Module 1.2 — Wall Builder
  *
  * Builds the full 144-tile set, shuffles it, deals initial hands, and
- * partitions the dead wall for kong and bonus-tile replacement draws.
+ * (optionally) partitions a dead wall for kong and bonus-tile replacement draws.
  *
- * Responsibilities of this module:
- *   - Shuffle the tile set (Fisher-Yates).
- *   - Deal the correct number of tiles to each player (14 to the dealer,
- *     13 to everyone else).
- *   - Reserve the last 14 tiles as the dead wall.
- *   - Provide pure functions for drawing from the live wall and dead wall.
- *
- * This module does NOT handle the bonus-tile replacement loop (that belongs
- * in the turn engine, module 1.4) and does NOT pre-filter bonus tiles from
- * initial hands — players reveal and replace them at the start of each hand.
+ * Two wall styles are supported (see `deadWall`):
+ *   - Reserve (traditional): the last 14 tiles are set aside as a dead wall and
+ *     replacement (kong / flower) draws come from it.
+ *   - No reserve (the family rule, the game default): there is no dead wall;
+ *     replacement draws come from the *far end* of the live wall, and play
+ *     continues until the wall is exhausted.
  *
  * All functions are pure and immutable: no input is ever mutated.
  */
 
 import { buildTileSet, Tile } from './tiles.js';
 
-// ─── Constants ─────────────────────────────────────────────────────────────────
+// ─── Constants ───────────────────────────────────────────────────────────────
 
-/** Tiles reserved at the back of the wall for kong/bonus replacements. */
+/** Tiles reserved at the back of the wall for kong/bonus replacements (reserve style). */
 const DEAD_WALL_SIZE = 14;
 
 /** Tiles dealt to the dealer (East). */
@@ -31,7 +27,7 @@ const DEALER_HAND_SIZE = 14;
 /** Tiles dealt to each non-dealer. */
 const NON_DEALER_HAND_SIZE = 13;
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
+// ─── Types ─────────────────────────────────────────────────────────────────
 
 /** Number of players at the table. */
 export type PlayerCount = 3 | 4;
@@ -39,9 +35,10 @@ export type PlayerCount = 3 | 4;
 /**
  * The two portions of the wall that remain after dealing.
  *
- * live — tiles drawn turn by turn, front to back (index 0 = next draw).
- * dead — tiles used only for kong and bonus-tile replacements
- *        (index 0 = next replacement).
+ * live — tiles drawn turn by turn. Normal draws come from the front (index 0);
+ *        in the no-reserve style, replacement draws come from the back.
+ * dead — replacement tiles (reserve style only); empty in the no-reserve style.
+ *        index 0 = next replacement.
  */
 export interface Wall {
   readonly live: readonly Tile[];
@@ -61,7 +58,7 @@ export interface Deal {
   readonly wall:  Wall;
 }
 
-// ─── Shuffle ───────────────────────────────────────────────────────────────────
+// ─── Shuffle ───────────────────────────────────────────────────────────────
 
 /**
  * Fisher-Yates shuffle.
@@ -76,30 +73,37 @@ export function shuffle<T>(arr: T[]): T[] {
   return arr;
 }
 
-// ─── Wall builder ──────────────────────────────────────────────────────────────
+// ─── Wall builder ────────────────────────────────────────────────────────────
 
 /**
  * Builds and shuffles the full 144-tile set, then deals initial hands.
  *
- * Tile allocation:
+ * `deadWall` selects the wall style:
+ *   - true  (the parameter default): reserve the last 14 tiles as a dead wall.
+ *   - false (the family rule): no reserve — every undealt tile is in the live
+ *     wall, and replacements come from its far end.
  *
- *   144 total
- *   − 14  dead wall   (last 14 of the shuffled set)
- *   = 130 live pool
- *     − 14  dealer hand   (seat 0)
- *     − 13  × (playerCount − 1)  non-dealer hands
- *   = remainder → live wall
+ * Note the game-level default rule lives in `DEFAULT_CONFIG.deadWall` (false);
+ * the game setup passes `config.deadWall` here explicitly. The parameter itself
+ * defaults to the traditional reserve so existing low-level callers are unchanged.
  *
- * 4-player breakdown:  53 dealt + 14 dead + 77 live  = 144
- * 3-player breakdown:  40 dealt + 14 dead + 90 live  = 144
+ * Reserve, 4-player:  53 dealt + 14 dead + 77 live  = 144
+ * No reserve, 4-player: 53 dealt + 0 dead + 91 live = 144
  */
-export function buildWall(playerCount: PlayerCount): Deal {
+export function buildWall(playerCount: PlayerCount, deadWall: boolean = true): Deal {
   const tiles = shuffle(buildTileSet());
 
-  // Reserve the last DEAD_WALL_SIZE tiles as the dead wall.
-  const deadStart = tiles.length - DEAD_WALL_SIZE;
-  const pool      = tiles.slice(0, deadStart);  // live pool before dealing
-  const dead      = tiles.slice(deadStart);      // 14 replacement tiles
+  // Reserve the last DEAD_WALL_SIZE tiles as the dead wall, or none.
+  let pool: Tile[];
+  let dead: Tile[];
+  if (deadWall) {
+    const deadStart = tiles.length - DEAD_WALL_SIZE;
+    pool = tiles.slice(0, deadStart);  // live pool before dealing
+    dead = tiles.slice(deadStart);      // 14 replacement tiles
+  } else {
+    pool = tiles;                        // every tile is in play
+    dead = [];
+  }
 
   // Deal hands from the front of the pool.
   const hands: (readonly Tile[])[] = [];
@@ -120,7 +124,7 @@ export function buildWall(playerCount: PlayerCount): Deal {
   };
 }
 
-// ─── Draw functions ────────────────────────────────────────────────────────────
+// ─── Draw functions ──────────────────────────────────────────────────────────
 
 /**
  * Draws the next tile from the live wall.
@@ -138,16 +142,23 @@ export function drawFromWall(wall: Wall): { tile: Tile | null; wall: Wall } {
 }
 
 /**
- * Draws the next replacement tile from the dead wall.
+ * Draws the next replacement (loose) tile.
  *
- * Used after a kong declaration or a bonus tile draw.
- * In normal play the dead wall should never be fully exhausted, but null
- * is returned defensively if it is.
+ * Reserve style: takes from the front of the dead wall.
+ * No-reserve style (dead wall empty): takes from the *far end* of the live wall
+ *   — the loose tiles simply come from the other end of the same wall.
+ *
+ * Returns null (and the same wall) only when there are no tiles left at all.
  */
 export function drawReplacement(wall: Wall): { tile: Tile | null; wall: Wall } {
-  if (wall.dead.length === 0) {
-    return { tile: null, wall };
+  if (wall.dead.length > 0) {
+    const [tile, ...dead] = wall.dead as Tile[];
+    return { tile, wall: { ...wall, dead } };
   }
-  const [tile, ...dead] = wall.dead as Tile[];
-  return { tile, wall: { ...wall, dead } };
+  if (wall.live.length > 0) {
+    const live = wall.live.slice(0, -1);
+    const tile = wall.live[wall.live.length - 1]!;
+    return { tile, wall: { ...wall, live } };
+  }
+  return { tile: null, wall };
 }
