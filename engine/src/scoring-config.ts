@@ -28,6 +28,8 @@ export interface ScoringConfig {
   readonly concealedKong:  MeldPoints;   // 16 / 32
   /** Pair of a Dragon, the prevailing Wind, or the player's seat Wind. */
   readonly scoringPair:    number;       // 2
+  /** Flat points per flower or season bonus tile (Module 1.9). */
+  readonly flowerOrSeason: number;       // 4
 
   // ── Going Mah-Jong bonuses (winner only, flat, added before doublings) ──
   readonly goingMahjong:     number;     // 20
@@ -57,6 +59,7 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   exposedKong:    { minor: 8,  major: 16 },
   concealedKong:  { minor: 16, major: 32 },
   scoringPair:    2,
+  flowerOrSeason: 4,
 
   goingMahjong:     20,
   winFromLiveWall:  2,
