@@ -341,7 +341,15 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Status: **complete** — commit `f4a3fc2`
 
 #### Module 2.2 — UI: Player Hand
-- Status: **not started**
+- The local seat's concealed hand is interactive: tiles can be dragged to
+  rearrange (group pungs/runs, as with real tiles) and a one-tap Sort orders
+  them by suit then number. Drag is custom (pointer events; mouse + touch, no
+  library); reordering is view-only via `useHandOrder`, which reconciles the
+  arrangement when the engine's `concealed` array changes — the engine is never
+  touched, since tile order has no rules meaning.
+- Still to come under 2.2: tile selection and the discard interaction (wired
+  with the live turn engine).
+- Status: **in progress** — drag-reorder + sort done (commit `8379f47`)
 
 #### Module 2.3 — UI: Discard Pool
 - Status: **not started**
@@ -450,6 +458,7 @@ changes needed for Phase 3.
 | 2026-06-17 | Module 2.0: React app scaffolded with Vite at the repo root; engine imported as `@mahjong/engine` via a Vite alias + tsconfig path to `engine/src` (no engine build step) | Engine stays a pure-TS source package importable by both the app and (later) the Node server; Vite resolves the engine's internal `.js` specifiers to their `.ts` sources |
 | 2026-06-17 | Board is a pure presentational component driven by a `GameState` prop; adapts to 3 or 4 players (drops the opposite seat for 3); local seat shown at the bottom | Keeps rendering decoupled from game logic; a fixed sample `GameState` drives it until the interactive modules wire the live engine |
 | 2026-06-17 | Module 2.0 complete: board layout with seat / discard / wall regions and placeholders for the action bar (2.4) and score panel (2.5); typecheck + `vite build` green | Commit `b31c071` |
+| 2026-06-17 | Hand tile order is a view-only concern (`useHandOrder`): the player drags to rearrange their own hand and the engine is never reordered | Tile order has no bearing on the rules; keeps the engine pure and lets the arrangement survive draws/discards via reconciliation. Drag is custom pointer events (mouse + touch, no dependency), per the lean-on-deps ethos — first slice of Module 2.2 (commit `8379f47`) |
 
 ---
 
