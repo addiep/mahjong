@@ -1,4 +1,4 @@
-/* Module 2.2 — interactive local hand (drag to reorder). */
+/* Module 2.2 — interactive local hand (drag to reorder; tap to select + discard). */
 
 .wrap {
   display: flex;
@@ -46,6 +46,11 @@
   user-select: none;
 }
 
+/* In discarding mode every tile is tappable, not grabbable. */
+.discarding .slot {
+  cursor: pointer;
+}
+
 .dragging {
   transition: none;
   z-index: 5;
@@ -55,4 +60,12 @@
 
 .dragging svg {
   transform: scale(1.06);
+}
+
+/* Selected tile: lift it up so it looks picked up from the rack. */
+.isSelected {
+  transform: translateY(-10px) !important;
+  z-index: 3;
+  transition: transform 0.12s ease;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.5));
 }

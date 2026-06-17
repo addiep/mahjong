@@ -1,21 +1,29 @@
 /**
  * Module 2.2 — UI: Player Hand (interactive, local seat)
  *
- * The local player's concealed tiles, which they can drag to reorder — exactly
- * as you shuffle real tiles into pungs and runs in front of you. Reordering is
- * a view-only concern (see useHandOrder); the engine is never touched.
+ * The local player's concealed tiles. Two interactions:
  *
- * Drag is built on pointer events (works with mouse and touch alike — no
- * library). The tiles form a single equal-width row, so the maths is 1-D: the
- * dragged tile follows the pointer via a translate from its grab point (no
- * array mutation mid-drag, so it never drifts), and the tiles it passes shift
- * by one slot to open a gap. The new order is committed on release.
+ * 1. Drag to reorder — exactly as you shuffle real tiles into pungs and runs.
+ *    Drag is built on pointer events (works with mouse and touch alike — no
+ *    library). The tiles form a single equal-width row, so the maths is 1-D:
+ *    the dragged tile follows the pointer via a translate from its grab point,
+ *    and the tiles it passes shift by one slot to open a gap. The new order is
+ *    committed on release. Reordering is view-only (useHandOrder); the engine
+ *    is never touched, since tile order has no rules meaning.
+ *
+ * 2. Tap to select / tap again to discard — active only when isDiscarding is
+ *    true (i.e. the engine is in DISCARDING phase for this seat). A single tap
+ *    lifts the tile (translateY + green border); a second tap on the same tile
+ *    calls onDiscard with its ID. Tapping a different tile switches selection.
+ *    Selection is cleared whenever the tile set changes (draw / claim / discard).
+ *
+ * Tap vs drag distinguished by |dx| < 5 px at pointer-up.
  *
  * A one-tap Sort arranges the hand by suit then number as a tidy baseline.
  */
 
-import { useRef, useState } from 'react';
-import type { Tile, Suit, Wind, Dragon } from '@mahjong/engine';
+import { useEffect, useRef, useState } from 'react';
+import type { Tile, TileId, Suit, Wind, Dragon } from '@mahjong/engine';
 import { Tile as TileView } from './Tile';
 import { useHandOrder } from '../hooks/useHandOrder';
 import styles from './PlayerHand.module.css';
@@ -51,18 +59,47 @@ export interface PlayerHandProps {
   readonly tiles: readonly Tile[];
   /** Tile height in px. Default 56. */
   readonly size?: number;
+  /**
+   * When true, tiles are selectable for discard: first tap selects (lifts
+   * the tile), second tap on the same tile calls onDiscard.
+   */
+  readonly isDiscarding?: boolean;
+  /** Called with the chosen tile's ID when the player confirms a discard. */
+  readonly onDiscard?: (tileId: TileId) => void;
 }
 
-export function PlayerHand({ tiles, size = 56 }: PlayerHandProps) {
+export function PlayerHand({ tiles, size = 56, isDiscarding = false, onDiscard }: PlayerHandProps) {
   const { ordered, setOrder, moveTile } = useHandOrder(tiles);
   const rowRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [selectedId, setSelectedId] = useState<TileId | null>(null);
 
   const n = ordered.length;
+
+  // Clear selection whenever the set of tiles changes (a tile drawn, claimed,
+  // or discarded by the engine). Uses the same id-signature trick as useHandOrder.
+  const tilesSignature = tiles.map(t => t.id).join(',');
+  useEffect(() => {
+    setSelectedId(null);
+    // tilesSignature captures the dependency on the tile-id set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tilesSignature]);
 
   const sortHand = () => {
     const ids = [...ordered].sort((a, b) => compareKey(sortKey(a), sortKey(b))).map((t) => t.id);
     setOrder(ids);
+  };
+
+  const handleTap = (tileId: TileId) => {
+    if (!isDiscarding) return;
+    if (tileId === selectedId) {
+      // Second tap on the selected tile: confirm discard.
+      onDiscard?.(tileId);
+      setSelectedId(null);
+    } else {
+      // First tap (or switching selection): lift this tile.
+      setSelectedId(tileId);
+    }
   };
 
   const onPointerDown = (e: React.PointerEvent, index: number) => {
@@ -91,7 +128,15 @@ export function PlayerHand({ tiles, size = 56 }: PlayerHandProps) {
 
   const endDrag = (e: React.PointerEvent) => {
     if (drag) {
-      moveTile(drag.from, drag.target);
+      const wasTap = Math.abs(drag.dx) < 5;
+      if (wasTap) {
+        // Treat as a tap: select / confirm discard.
+        const tile = ordered[drag.from];
+        if (tile) handleTap(tile.id);
+      } else {
+        // Genuine drag: reorder.
+        moveTile(drag.from, drag.target);
+      }
       try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ }
     }
     setDrag(null);
@@ -106,31 +151,36 @@ export function PlayerHand({ tiles, size = 56 }: PlayerHandProps) {
     return undefined;
   };
 
+  const hint = isDiscarding
+    ? (selectedId ? 'tap again to discard' : 'tap a tile to select')
+    : 'drag tiles to rearrange';
+
   return (
-    <div className={styles.wrap}>
+    <div className={`${styles.wrap} ${isDiscarding ? styles.discarding : ''}`}>
       <div className={styles.toolbar}>
         <button type="button" className={styles.sortBtn} onClick={sortHand} title="Sort by suit then number">
           Sort
         </button>
-        <span className={styles.hint}>drag tiles to rearrange</span>
+        <span className={styles.hint}>{hint}</span>
       </div>
 
       <div ref={rowRef} className={styles.row} role="list" aria-label="Your hand (drag to rearrange)">
         {ordered.map((tile, i) => {
           const isDragged = drag?.id === tile.id;
+          const isSelected = tile.id === selectedId;
           return (
             <div
               key={tile.id}
               data-tile
               role="listitem"
-              className={`${styles.slot} ${isDragged ? styles.dragging : ''}`}
+              className={`${styles.slot} ${isDragged ? styles.dragging : ''} ${isSelected && !isDragged ? styles.isSelected : ''}`}
               style={{ transform: tileTransform(i), touchAction: 'none' }}
               onPointerDown={(e) => onPointerDown(e, i)}
               onPointerMove={onPointerMove}
               onPointerUp={endDrag}
               onPointerCancel={endDrag}
             >
-              <TileView tile={tile} size={size} />
+              <TileView tile={tile} size={size} selected={isSelected} />
             </div>
           );
         })}

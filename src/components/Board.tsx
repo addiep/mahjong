@@ -20,12 +20,15 @@
  * three players the seat opposite is dropped. The local seat (the player to
  * show at the bottom) defaults to whoever's turn it is.
  *
+ * Updated Module 2.2: accepts onDiscard and threads isDiscarding + onDiscard
+ * into the interactive seat's PlayerHand.
+ *
  * Dependencies: @mahjong/engine (types only), Tile (Module 2.1), PlayerHand
  * (Module 2.2), WallFrame (Module 2.3). No engine logic and no game mutation here.
  */
 
 import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState } from 'react';
-import type { GameState, PlayerState, SeatIndex, Wind, DeclaredMeld } from '@mahjong/engine';
+import type { GameState, PlayerState, SeatIndex, Wind, DeclaredMeld, TileId } from '@mahjong/engine';
 import { Tile } from './Tile';
 import { PlayerHand } from './PlayerHand';
 import { WallFrame } from './Wall';
@@ -53,10 +56,15 @@ export interface BoardProps {
    * When false, only the local seat's hand is face-up. Defaults to true.
    */
   readonly revealAll?: boolean;
+  /**
+   * Called with the tile ID to discard. Provided by App only during the
+   * DISCARDING phase; undefined otherwise so the hand is not interactive.
+   */
+  readonly onDiscard?: (tileId: TileId) => void;
 }
 
-export function Board({ state, localSeat, revealAll = true }: BoardProps) {
-  const { players, config, currentSeat } = state;
+export function Board({ state, localSeat, revealAll = true, onDiscard }: BoardProps) {
+  const { players, config, currentSeat, phase } = state;
   const base = localSeat ?? currentSeat;
   const positions = seatPositions(config.playerCount);
 
@@ -71,13 +79,19 @@ export function Board({ state, localSeat, revealAll = true }: BoardProps) {
   const renderSeat = (position: SeatPosition) => {
     const player = seatByPosition.get(position);
     if (!player) return <div className={styles.seatEmpty} aria-hidden="true" />;
+    const isInteractive = player.seat === base;
+    // isDiscarding: it's this player's turn, they're the interactive (bottom)
+    // seat, and the engine is waiting for a discard.
+    const isDiscarding = isInteractive && phase === 'DISCARDING' && player.seat === currentSeat;
     return (
       <SeatPanel
         player={player}
         position={position}
         isCurrent={player.seat === currentSeat}
         faceDown={!revealAll && player.seat !== base}
-        interactive={player.seat === base}
+        interactive={isInteractive}
+        isDiscarding={isDiscarding}
+        onDiscard={isInteractive ? onDiscard : undefined}
       />
     );
   };
@@ -110,19 +124,26 @@ export function Board({ state, localSeat, revealAll = true }: BoardProps) {
 // ─── Seat panel ─────────────────────────────────────────────────────────────────
 
 function SeatPanel({
-  player, position, isCurrent, faceDown, interactive,
+  player, position, isCurrent, faceDown, interactive, isDiscarding, onDiscard,
 }: {
   player: PlayerState;
   position: SeatPosition;
   isCurrent: boolean;
   faceDown: boolean;
   interactive: boolean;
+  isDiscarding?: boolean;
+  onDiscard?: (tileId: TileId) => void;
 }) {
   const vertical = position === 'left' || position === 'right';
   const handSize = position === 'bottom' ? 56 : 40;
 
   const handBlock = interactive && !faceDown ? (
-    <PlayerHand tiles={player.concealed} size={handSize} />
+    <PlayerHand
+      tiles={player.concealed}
+      size={handSize}
+      isDiscarding={isDiscarding}
+      onDiscard={onDiscard}
+    />
   ) : (
     <div className={`${styles.hand} ${vertical ? styles.handVertical : ''}`}>
       {player.concealed.map((tile) => (
