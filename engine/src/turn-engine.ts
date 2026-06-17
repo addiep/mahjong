@@ -25,6 +25,13 @@
  * wired only where a structural win is required — the Robbing the Kong window,
  * where a rob must be a genuine winning hand on the added tile.
  *
+ * Discard log: the turn engine is the only place state advances, so it owns the
+ * private `discardLog` (Module 1.3). It appends an entry on every DISCARD and
+ * annotates `claimedBy` when a discard is claimed (pung/kong/chow/win). The log
+ * is provenance for the intelligence module and the AI; it is never shown to
+ * players. Robbing the Kong does not touch the log (the robbed tile is a kong
+ * tile, not a discard).
+ *
  * Dependencies: game-state.ts, tiles.ts, wall.ts, claim-window.ts, hand-evaluator.ts
  */
 
@@ -36,6 +43,7 @@ import {
   DeclaredMeld,
   MeldType,
   ClaimDecision,
+  DiscardLogEntry,
 } from './game-state.js';
 import { drawFromWall, drawReplacement } from './wall.js';
 import { validateClaimDecision, selectWinClaimant } from './claim-window.js';
@@ -138,6 +146,7 @@ function handleDiscarding(state: GameState, action: Action): GameState {
       return {
         ...replacePlayer(state, updatedPlayer),
         discardPool: [...state.discardPool, tile],
+        discardLog:  appendDiscard(state.discardLog, state.currentSeat, tile),
         phase:       'CLAIM_WINDOW',
         claimWindow: { responses },
       };
@@ -280,8 +289,15 @@ function resolveClaimWindow(state: GameState): GameState {
     .map(({ seat }) => seat);
 
   if (winSeats.length > 0) {
-    const winner = selectWinClaimant(winSeats, state.currentSeat, state.config.playerCount);
-    return { ...state, claimWindow: null, phase: 'HAND_OVER', handResult: { reason: 'win', winnerSeat: winner, selfDraw: false } };
+    const winner    = selectWinClaimant(winSeats, state.currentSeat, state.config.playerCount);
+    const discarded = state.discardPool[state.discardPool.length - 1]!;
+    return {
+      ...state,
+      claimWindow: null,
+      phase:       'HAND_OVER',
+      handResult:  { reason: 'win', winnerSeat: winner, selfDraw: false },
+      discardLog:  markClaimed(state.discardLog, discarded.id, winner),
+    };
   }
 
   const pungKong = responses
@@ -316,6 +332,7 @@ function resolvePungOrKong(state: GameState, claimerSeat: SeatIndex, decision: C
     ...replacePlayer(state, updatedClaimer),
     currentSeat: claimerSeat,
     discardPool: state.discardPool.slice(0, -1),
+    discardLog:  markClaimed(state.discardLog, discarded.id, claimerSeat),
     claimWindow: null,
     phase: isPung ? 'DISCARDING' : 'CHECK_BONUS',
   };
@@ -337,9 +354,40 @@ function resolveChow(state: GameState, claimerSeat: SeatIndex, decision: ClaimDe
     ...replacePlayer(state, updatedClaimer),
     currentSeat: claimerSeat,
     discardPool: state.discardPool.slice(0, -1),
+    discardLog:  markClaimed(state.discardLog, discarded.id, claimerSeat),
     claimWindow: null,
     phase:       'DISCARDING',
   };
+}
+
+// ─── Discard log helpers ────────────────────────────────────────────────
+
+/**
+ * Append a new (unclaimed) discard entry to the log. `moveIndex` is the
+ * discard ordinal within the hand (its stage), derived from the log length so
+ * the sequence is stable and gap-free. An absent log is treated as empty.
+ */
+function appendDiscard(
+  log:  readonly DiscardLogEntry[] | undefined,
+  seat: SeatIndex,
+  tile: Tile,
+): readonly DiscardLogEntry[] {
+  const base = log ?? [];
+  return [...base, { seat, tile, moveIndex: base.length, claimedBy: null }];
+}
+
+/**
+ * Annotate the log entry for `tileId` as claimed by `claimerSeat`. Matching is
+ * by physical tile id, so it is unambiguous. The claimed tile leaves the
+ * communal pool but its log entry is preserved (append-only history).
+ */
+function markClaimed(
+  log:         readonly DiscardLogEntry[] | undefined,
+  tileId:      TileId,
+  claimerSeat: SeatIndex,
+): readonly DiscardLogEntry[] {
+  const base = log ?? [];
+  return base.map(e => (e.tile.id === tileId ? { ...e, claimedBy: claimerSeat } : e));
 }
 
 // ─── Internal helpers ───────────────────────────────────────────────────

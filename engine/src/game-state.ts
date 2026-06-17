@@ -195,6 +195,32 @@ export interface RobbingKongState {
   readonly responses:  ReadonlyArray<ClaimDecision | null>;
 }
 
+// ─── Discard log (private provenance) ───────────────────────────────
+
+/**
+ * A single record in the private discard log.
+ *
+ * Unlike the communal `discardPool` (which is authorless, unordered for
+ * display, and shrinks when a tile is claimed), the discard log is an
+ * append-only history that records who discarded each tile, in what order,
+ * and whether it was subsequently claimed and by whom.
+ *
+ * This is never shown to players in normal play. It exists for the
+ * intelligence module (opponent modelling, Phase 4) and the AI, which are
+ * entitled to reason from the same public information a human tracks from
+ * memory — just more reliably. Concealed tiles are never recorded here.
+ */
+export interface DiscardLogEntry {
+  /** The seat that discarded this tile. */
+  readonly seat:      SeatIndex;
+  /** The physical tile discarded. */
+  readonly tile:      Tile;
+  /** 0-based ordinal of this discard within the hand (its stage). */
+  readonly moveIndex: number;
+  /** Seat that claimed this discard (pung/kong/chow/win), or null if unclaimed. */
+  readonly claimedBy: SeatIndex | null;
+}
+
 // ─── Game state ─────────────────────────────────
 
 /**
@@ -226,6 +252,19 @@ export interface GameState {
   readonly claimWindow:    ClaimWindowState | null;
   /** Set only during ROBBING_KONG phase; null otherwise. */
   readonly robbingKong:    RobbingKongState | null;
+  /**
+   * Private, append-only provenance record of every discard this hand.
+   *
+   * Distinct from `discardPool`: the pool is what players see (authorless,
+   * and tiles leave it when claimed), whereas this log retains who discarded
+   * what, in what order, and whether it was claimed — the raw material for the
+   * intelligence module and the AI. Never rendered to players in normal play.
+   *
+   * Optional for backward compatibility with state literals that predate it;
+   * `createGameState` always initialises it to an empty array, and the turn
+   * engine treats an absent log as empty.
+   */
+  readonly discardLog?:    readonly DiscardLogEntry[];
 }
 
 // ─── Factory ───────────────────────────────────
@@ -270,5 +309,6 @@ export function createGameState(
     handResult:     null,
     claimWindow:    null,
     robbingKong:    null,
+    discardLog:     [],
   };
 }
