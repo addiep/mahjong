@@ -7,9 +7,10 @@
  * later UI modules fill in.
  *
  * Region ownership:
- *   - Seat panels (name, wind, score, melds, bonus, hand). The local seat's
- *     concealed hand is the interactive, reorderable PlayerHand (Module 2.2);
- *     other seats render a static strip.
+ *   - Seat panels (name, wind, score, exposed melds + bonus, concealed hand).
+ *     The local seat's concealed hand is the interactive, reorderable
+ *     PlayerHand (Module 2.2); other seats render a static strip. Exposed melds
+ *     sit towards the centre (above the hand for the bottom/top seats).
  *   - Central discard pool + wall indicator — refined in Module 2.3.
  *   - Action bar (below the local seat) — Module 2.4 (placeholder here).
  *   - Score panel (corner) — Module 2.5 (placeholder here).
@@ -22,6 +23,7 @@
  * (Module 2.2). No engine logic and no game mutation happen here.
  */
 
+import type { CSSProperties } from 'react';
 import type { GameState, PlayerState, SeatIndex, Wind, DeclaredMeld } from '@mahjong/engine';
 import { Tile } from './Tile';
 import { PlayerHand } from './PlayerHand';
@@ -117,6 +119,35 @@ function SeatPanel({
   const vertical = position === 'left' || position === 'right';
   const handSize = position === 'bottom' ? 56 : 40;
 
+  const handBlock = interactive && !faceDown ? (
+    <PlayerHand tiles={player.concealed} size={handSize} />
+  ) : (
+    <div className={`${styles.hand} ${vertical ? styles.handVertical : ''}`}>
+      {player.concealed.map((tile) => (
+        <Tile key={tile.id} tile={tile} size={handSize} faceDown={faceDown} />
+      ))}
+    </div>
+  );
+
+  const exposedBlock = (player.melds.length > 0 || player.bonusTiles.length > 0) ? (
+    <div className={styles.melds}>
+      {player.melds.map((meld, i) => (
+        <MeldGroup key={i} meld={meld} size={handSize - 8} />
+      ))}
+      {player.bonusTiles.length > 0 && (
+        <div className={styles.bonus} title="Flowers and seasons">
+          {player.bonusTiles.map((tile) => (
+            <Tile key={tile.id} tile={tile} size={handSize - 8} />
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  // Exposed melds sit on the table in front of the player (towards the centre),
+  // so for the bottom seat they render above the concealed hand.
+  const exposedAbove = position === 'bottom' || position === 'top';
+
   return (
     <section
       className={`${styles.seat} ${styles[`seat_${position}`]} ${isCurrent ? styles.seatActive : ''}`}
@@ -128,30 +159,9 @@ function SeatPanel({
         <span className={styles.seatScore}>{player.score}</span>
       </header>
 
-      {interactive && !faceDown ? (
-        <PlayerHand tiles={player.concealed} size={handSize} />
-      ) : (
-        <div className={`${styles.hand} ${vertical ? styles.handVertical : ''}`}>
-          {player.concealed.map((tile) => (
-            <Tile key={tile.id} tile={tile} size={handSize} faceDown={faceDown} />
-          ))}
-        </div>
-      )}
-
-      {(player.melds.length > 0 || player.bonusTiles.length > 0) && (
-        <div className={styles.melds}>
-          {player.melds.map((meld, i) => (
-            <MeldGroup key={i} meld={meld} size={handSize - 8} />
-          ))}
-          {player.bonusTiles.length > 0 && (
-            <div className={styles.bonus} title="Flowers and seasons">
-              {player.bonusTiles.map((tile) => (
-                <Tile key={tile.id} tile={tile} size={handSize - 8} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {exposedAbove
+        ? (<>{exposedBlock}{handBlock}</>)
+        : (<>{handBlock}{exposedBlock}</>)}
     </section>
   );
 }
@@ -175,6 +185,27 @@ function MeldGroup({ meld, size }: { meld: DeclaredMeld; size: number }) {
 
 // ─── Central discard pool + wall indicator (refined in Module 2.3) ──────────────
 
+/** Stable pseudo-random in [0, 1) from a string and a salt (FNV-1a based). */
+function hashFloat(str: string, salt: number): number {
+  let h = (2166136261 ^ salt) >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 16777619);
+  }
+  return ((h >>> 0) % 100000) / 100000;
+}
+
+/**
+ * Scatters discards around the centre, as they land haphazardly on a real
+ * table. Positions are derived from the tile id, so they are stable across
+ * renders (a tile never jumps once it has landed).
+ */
+function discardStyle(id: string): CSSProperties {
+  const left = 7 + hashFloat(id, 1) * 80;
+  const top = 12 + hashFloat(id, 2) * 70;
+  const rot = (hashFloat(id, 3) * 2 - 1) * 22;
+  return { left: `${left}%`, top: `${top}%`, ['--rot' as string]: `${rot}deg` } as CSSProperties;
+}
+
 function DiscardArea({ state }: { state: GameState }) {
   const { discardPool, wall, phase } = state;
   const current = state.players.find((p) => p.seat === state.currentSeat);
@@ -190,7 +221,9 @@ function DiscardArea({ state }: { state: GameState }) {
 
       <div className={styles.discardPool} aria-label={`${discardPool.length} tiles discarded`}>
         {discardPool.map((tile) => (
-          <Tile key={tile.id} tile={tile} size={34} />
+          <div key={tile.id} className={styles.discardTile} style={discardStyle(tile.id)}>
+            <Tile tile={tile} size={46} />
+          </div>
         ))}
       </div>
     </div>

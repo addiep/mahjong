@@ -121,14 +121,16 @@
 .turnInfo { margin-left: auto; color: var(--accent); text-transform: capitalize; }
 
 .discardPool {
+  position: relative;
   flex: 1;
-  min-height: 0;
-  overflow: auto;
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 4px;
-  padding: 4px;
+  min-height: 150px;
+  overflow: hidden;
+}
+
+.discardTile {
+  position: absolute;
+  transform: translate(-50%, -50%) rotate(var(--rot, 0deg));
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
 }
 
 /* ── Score panel placeholder (Module 2.5 refines) ── */
