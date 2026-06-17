@@ -1,0 +1,189 @@
+/* Module 2.0 — Board layout. Scoped via CSS Modules. */
+
+.board {
+  position: relative;
+  height: 100%;
+  display: grid;
+  gap: var(--gap);
+  padding: var(--gap);
+  grid-template-columns: minmax(150px, 0.85fr) minmax(0, 2.3fr) minmax(150px, 0.85fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    ".      top     ."
+    "left   centre  right"
+    "bottom bottom  bottom";
+}
+
+.slotTop    { grid-area: top;    display: flex; justify-content: center; }
+.slotLeft   { grid-area: left;   display: flex; align-items: center; }
+.slotRight  { grid-area: right;  display: flex; align-items: center; justify-content: flex-end; }
+.slotCentre { grid-area: centre; display: flex; min-height: 0; }
+.slotBottom { grid-area: bottom; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+
+.seatEmpty { width: 100%; }
+
+/* ── Seat panel ── */
+
+.seat {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.seat_bottom { width: 100%; align-items: center; }
+.seat_top    { align-items: center; }
+.seat_left   { align-items: flex-start; }
+.seat_right  { align-items: flex-end; }
+
+.seatActive {
+  background: var(--panel-bg-active);
+  border-color: var(--panel-border-active);
+  box-shadow: 0 0 0 1px var(--panel-border-active), 0 6px 22px rgba(0, 0, 0, 0.28);
+}
+
+.seatHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font-size: 13px;
+}
+
+.windBadge {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: #20140a;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.seatName { font-weight: 600; }
+.seatScore { margin-left: auto; color: var(--accent); font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.handVertical { max-width: 132px; }
+
+.melds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+  opacity: 0.95;
+}
+
+.meld { display: flex; gap: 2px; }
+
+.bonus {
+  display: flex;
+  gap: 2px;
+  padding-left: 8px;
+  border-left: 1px dashed var(--panel-border);
+}
+
+/* ── Centre: discard pool + wall info (Module 2.3 refines) ── */
+
+.centre {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+
+.wallInfo {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.wallInfo strong { color: var(--text); font-size: 14px; }
+.turnInfo { margin-left: auto; color: var(--accent); text-transform: capitalize; }
+
+.discardPool {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 4px;
+  padding: 4px;
+}
+
+/* ── Score panel placeholder (Module 2.5 refines) ── */
+
+.scorePanel {
+  position: absolute;
+  top: var(--gap);
+  left: var(--gap);
+  z-index: 2;
+  width: 150px;
+  background: var(--placeholder-bg);
+  border: 1px dashed var(--placeholder-border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scoreHead { display: flex; justify-content: space-between; color: var(--accent); font-weight: 600; }
+.scoreList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.scoreList li { display: flex; justify-content: space-between; gap: 8px; }
+.scoreList li span:last-child { color: var(--accent); font-variant-numeric: tabular-nums; }
+
+.placeholderTag { color: var(--text-dim); font-size: 10px; text-align: center; }
+
+/* ── Shared placeholder block ── */
+
+.placeholder {
+  display: grid;
+  place-items: center;
+  background: var(--placeholder-bg);
+  border: 1px dashed var(--placeholder-border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 10px;
+}
+
+.actionBar { width: 100%; max-width: 560px; min-height: 44px; }
+
+/* ── Narrow screens ── */
+
+@media (max-width: 720px) {
+  .board {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto auto auto;
+    grid-template-areas:
+      "top"
+      "left"
+      "centre"
+      "right"
+      "bottom";
+  }
+  .slotLeft, .slotRight { justify-content: center; }
+  .scorePanel { position: static; width: auto; }
+}

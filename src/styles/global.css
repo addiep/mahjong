@@ -1,0 +1,45 @@
+/*
+ * Global theme tokens and reset for the Mah Jong web app.
+ *
+ * Tile faces use their own fixed physical colours (defined in Tile.tsx) and are
+ * deliberately identical in light and dark mode. Everything around the tiles —
+ * the table, panels, and text — is themed here with CSS custom properties.
+ */
+
+:root {
+  --felt-1: #1f6f5c;
+  --felt-2: #185a4a;
+  --felt-edge: #123f34;
+
+  --panel-bg: rgba(255, 255, 255, 0.08);
+  --panel-bg-active: rgba(255, 221, 128, 0.16);
+  --panel-border: rgba(255, 255, 255, 0.18);
+  --panel-border-active: #f2cf6b;
+
+  --placeholder-bg: rgba(0, 0, 0, 0.16);
+  --placeholder-border: rgba(255, 255, 255, 0.22);
+
+  --text: #f4f1e8;
+  --text-dim: rgba(244, 241, 232, 0.66);
+  --accent: #f2cf6b;
+
+  --radius: 12px;
+  --gap: 12px;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  background: radial-gradient(circle at 50% 35%, var(--felt-1), var(--felt-2) 70%, var(--felt-edge));
+}

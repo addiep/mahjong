@@ -1,0 +1,32 @@
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.22);
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.title { font-weight: 700; letter-spacing: 0.5px; }
+
+.controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+}
+
+.controls label { display: inline-flex; align-items: center; gap: 6px; }
+.controls select { background: rgba(0,0,0,0.3); color: var(--text); border: 1px solid var(--panel-border); border-radius: 6px; padding: 2px 6px; }
+
+.tableArea {
+  flex: 1;
+  min-height: 0;
+}
