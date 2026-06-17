@@ -16,7 +16,7 @@
 
 import { buildTileSet, Tile } from './tiles.js';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ─── Constants ─────────────────────────────────────────────
 
 /** Tiles reserved at the back of the wall for kong/bonus replacements (reserve style). */
 const DEAD_WALL_SIZE = 14;
@@ -27,7 +27,7 @@ const DEALER_HAND_SIZE = 14;
 /** Tiles dealt to each non-dealer. */
 const NON_DEALER_HAND_SIZE = 13;
 
-// ─── Types ─────────────────────────────────────────────────────────────────
+// ─── Types ─────────────────────────────────────────────
 
 /** Number of players at the table. */
 export type PlayerCount = 3 | 4;
@@ -58,7 +58,7 @@ export interface Deal {
   readonly wall:  Wall;
 }
 
-// ─── Shuffle ───────────────────────────────────────────────────────────────
+// ─── Shuffle ─────────────────────────────────────────────
 
 /**
  * Fisher-Yates shuffle.
@@ -68,12 +68,14 @@ export interface Deal {
 export function shuffle<T>(arr: T[]): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    const tmp = arr[i]!;
+    arr[i] = arr[j]!;
+    arr[j] = tmp;
   }
   return arr;
 }
 
-// ─── Wall builder ────────────────────────────────────────────────────────────
+// ─── Wall builder ────────────────────────────────────────────
 
 /**
  * Builds and shuffles the full 144-tile set, then deals initial hands.
@@ -124,7 +126,7 @@ export function buildWall(playerCount: PlayerCount, deadWall: boolean = true): D
   };
 }
 
-// ─── Draw functions ──────────────────────────────────────────────────────────
+// ─── Draw functions ───────────────────────────────────────────
 
 /**
  * Draws the next tile from the live wall.
@@ -137,7 +139,8 @@ export function drawFromWall(wall: Wall): { tile: Tile | null; wall: Wall } {
   if (wall.live.length === 0) {
     return { tile: null, wall };
   }
-  const [tile, ...live] = wall.live as Tile[];
+  const tile = wall.live[0]!;
+  const live = wall.live.slice(1);
   return { tile, wall: { ...wall, live } };
 }
 
@@ -152,7 +155,8 @@ export function drawFromWall(wall: Wall): { tile: Tile | null; wall: Wall } {
  */
 export function drawReplacement(wall: Wall): { tile: Tile | null; wall: Wall } {
   if (wall.dead.length > 0) {
-    const [tile, ...dead] = wall.dead as Tile[];
+    const tile = wall.dead[0]!;
+    const dead = wall.dead.slice(1);
     return { tile, wall: { ...wall, dead } };
   }
   if (wall.live.length > 0) {

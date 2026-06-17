@@ -26,7 +26,7 @@ import { Tile, SuitedTile, isSuited, tileKey } from './tiles.js';
 import { isChow } from './meld-validator.js';
 import { ClaimDecision, SeatIndex } from './game-state.js';
 
-// ─── Capability helpers ────────────────────────────────────────────────────────
+// ─── Capability helpers ────────────────────────────────────────────
 
 /**
  * Returns true if the concealed hand contains at least two tiles matching the
@@ -90,7 +90,7 @@ export function canChow(concealed: readonly Tile[], discard: Tile): boolean {
   return false;
 }
 
-// ─── Claim validation ─────────────────────────────────────────────────────────
+// ─── Claim validation ──────────────────────────────────────────
 
 /**
  * Validates a player's ClaimDecision during CLAIM_WINDOW.
@@ -173,13 +173,13 @@ export function validateClaimDecision(
     }
 
     default: {
-      const _exhaustive: never = decision;
+      const _exhaustive: never = decision.type;
       return `unknown claim type "${(decision as { type: string }).type}"`;
     }
   }
 }
 
-// ─── Simultaneous win resolution (OQ-3) ───────────────────────────────────────
+// ─── Simultaneous win resolution (OQ-3) ──────────────────────────────────
 
 /**
  * Given multiple simultaneous win claims on the same discard, returns the seat

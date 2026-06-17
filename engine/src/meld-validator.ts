@@ -25,7 +25,7 @@
 
 import { Tile, SuitedTile, isSuited, tileKey } from './tiles.js';
 
-// ─── MeldKind ──────────────────────────────────────────────────────────────────────
+// ─── MeldKind ───────────────────────────────────────────────
 
 /**
  * The shape of a complete meld (or pair).
@@ -36,7 +36,7 @@ import { Tile, SuitedTile, isSuited, tileKey } from './tiles.js';
  */
 export type MeldKind = 'pair' | 'pung' | 'kong' | 'chow';
 
-// ─── Predicates ──────────────────────────────────────────────────────────────────
+// ─── Predicates ────────────────────────────────────────────
 
 /**
  * Returns true if the tiles form a valid pair: exactly two tiles of the same
@@ -44,7 +44,7 @@ export type MeldKind = 'pair' | 'pung' | 'kong' | 'chow';
  */
 export function isPair(tiles: readonly Tile[]): boolean {
   if (tiles.length !== 2) return false;
-  return tileKey(tiles[0]) === tileKey(tiles[1]);
+  return tileKey(tiles[0]!) === tileKey(tiles[1]!);
 }
 
 /**
@@ -53,7 +53,7 @@ export function isPair(tiles: readonly Tile[]): boolean {
  */
 export function isPung(tiles: readonly Tile[]): boolean {
   if (tiles.length !== 3) return false;
-  const key = tileKey(tiles[0]);
+  const key = tileKey(tiles[0]!);
   return tiles[1] !== undefined && tiles[2] !== undefined
     && tileKey(tiles[1]) === key
     && tileKey(tiles[2]) === key;
@@ -65,7 +65,7 @@ export function isPung(tiles: readonly Tile[]): boolean {
  */
 export function isKong(tiles: readonly Tile[]): boolean {
   if (tiles.length !== 4) return false;
-  const key = tileKey(tiles[0]);
+  const key = tileKey(tiles[0]!);
   return tiles.every(t => tileKey(t) === key);
 }
 
@@ -81,14 +81,14 @@ export function isChow(tiles: readonly Tile[]): boolean {
   if (!tiles.every(isSuited)) return false;
 
   const suited = tiles as readonly SuitedTile[];
-  const suit   = suited[0].suit;
+  const suit   = suited[0]!.suit;
   if (!suited.every(t => t.suit === suit)) return false;
 
   const values = suited.map(t => t.value).sort((a, b) => a - b) as number[];
-  return values[1] === values[0] + 1 && values[2] === values[1] + 1;
+  return values[1]! === values[0]! + 1 && values[2]! === values[1]! + 1;
 }
 
-// ─── Convenience ─────────────────────────────────────────────────────────────────
+// ─── Convenience ────────────────────────────────────────────
 
 /**
  * Returns the MeldKind of the given tiles, or null if they do not form any
