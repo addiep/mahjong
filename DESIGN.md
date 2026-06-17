@@ -351,8 +351,23 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
   with the live turn engine).
 - Status: **in progress** — drag-reorder + sort done (commit `8379f47`)
 
-#### Module 2.3 — UI: Discard Pool
-- Status: **not started**
+#### Module 2.3 — UI: Discard Pool + Wall
+- Discards scatter across the central table without overlapping: the area is a
+  measured grid of non-overlapping cells, each discard dropped into a spread,
+  shuffled cell with a small jitter and tilt, stable across renders.
+- The wall (undrawn tiles) frames the discards as a square ring of face-down
+  stacks two tiles high (`Wall.tsx`). It is drawn clockwise (HK mahjong: turns
+  pass anticlockwise but tiles leave the wall clockwise — see Decisions Log),
+  the next-to-draw stack is highlighted with a ↻ marker, and the ring is bound
+  to the live-wall count so it recedes as tiles are drawn. The two stack layers
+  carry distinct shades and an odd remainder renders as a single bottom tile, so
+  every individual draw is visible.
+- The dead wall (reserved kong / flower replacements) and the two loose tiles
+  are shown as a tray at the top, bound to `wall.dead.length`; the loose pair is
+  kept topped up to two from the reserve.
+- Status: **in progress** — discard scatter + wall + dead wall / loose tiles done
+  (commits `04f2ccc`, `82111ce`, `03a9179`). Polished discard-pool detailing is
+  the remaining 2.3 work.
 
 #### Module 2.4 — UI: Action Bar
 - Status: **not started**
@@ -393,6 +408,7 @@ changes needed for Phase 3.
 | ~~OQ-11~~ | ~~Purity: limit hand or ×3 doubling?~~ | Resolved — ×3 doubling (unorthodox family rule) |
 | ~~OQ-12~~ | ~~Robbing the Kong: claim-window interaction when an exposed pung is promoted to a kong~~ | Resolved & implemented (commit `f9cb525`) — added kong only; robbed by a player completing their win on that tile; concealed kongs safe |
 | ~~OQ-13~~ | ~~Knitting / Crocheting: exact tile structure~~ | Resolved — Knitting = seven cross-suit number pairs across two suits; Crocheting pair = any two tiles sharing a number |
+| OQ-14 | Should the dead wall be replenished from the live wall to stay at 14 (traditional rule), or simply deplete as the engine currently does? | UI shows loose tiles topping up from the reserve; engine does not replenish. Possible future engine change (Module 1.2 / 1.4) |
 
 ---
 
@@ -459,6 +475,9 @@ changes needed for Phase 3.
 | 2026-06-17 | Board is a pure presentational component driven by a `GameState` prop; adapts to 3 or 4 players (drops the opposite seat for 3); local seat shown at the bottom | Keeps rendering decoupled from game logic; a fixed sample `GameState` drives it until the interactive modules wire the live engine |
 | 2026-06-17 | Module 2.0 complete: board layout with seat / discard / wall regions and placeholders for the action bar (2.4) and score panel (2.5); typecheck + `vite build` green | Commit `b31c071` |
 | 2026-06-17 | Hand tile order is a view-only concern (`useHandOrder`): the player drags to rearrange their own hand and the engine is never reordered | Tile order has no bearing on the rules; keeps the engine pure and lets the arrangement survive draws/discards via reconciliation. Drag is custom pointer events (mouse + touch, no dependency), per the lean-on-deps ethos — first slice of Module 2.2 (commit `8379f47`) |
+| 2026-06-17 | Wall draw direction: tiles leave the wall clockwise while turns pass anticlockwise; the UI portrays clockwise depletion | Confirmed by research (Mahjong Wiki HK Old Style; sloperama MJ FAQ): two directions run at once — players take turns anticlockwise, tiles are drawn from the wall clockwise. Clarifies the §1 "wall built clockwise" note |
+| 2026-06-17 | Wall shown as a two-high ring of face-down stacks framing the discards, bound to the live count; odd remainder drawn as a single, distinctly shaded bottom tile | Makes every single draw visibly reduce the wall, not just every second one; perimeter measured via ResizeObserver. Part of Module 2.3 |
+| 2026-06-17 | Dead wall + two loose tiles shown as a tray, bound to `wall.dead.length`; loose pair topped up to two from the reserve | Portrays kong/flower replacements. NOTE: the engine takes replacements from the reserved 14-tile dead wall (which depletes) and does NOT replenish it from the live wall to keep it at 14 (the traditional rule) — flagged as a possible future engine change (Module 1.2 / 1.4), see OQ-14 |
 
 ---
 
