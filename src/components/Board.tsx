@@ -1,22 +1,18 @@
 /**
  * Module 2.0 — UI: Board Layout
  *
- * The structural shell for a pass-and-play table. `Board` is a pure,
- * presentational component driven entirely by a `GameState` prop.
+ * Playtesting round 3 (2026-06-18):
+ * - scores prop: live running totals passed from App and shown in the score
+ *   sidebar and each seat's name badge (was: always showing the engine's
+ *   player.score which starts at 0 and is never updated).
  *
- * Updated for playtesting round 2:
+ * Playtesting round 2 (2026-06-17):
  * - lastEvent prop: last notable game event shown under the score sidebar.
- * - lastDiscardId: always highlights the most recent discard in red (was:
- *   only during CLAIM_WINDOW / ROBBING_KONG).
+ * - lastDiscardId: always highlights the most recent discard in red.
  *
- * Updated for playtest fixes:
- * - Threads drawnTileId (gold border on newly drawn tile) and lastDiscardId
- *   (red border on last discard during claim window) down to PlayerHand /
- *   DiscardArea.
- * - Threads onDeclareWin (self-draw Mah Jong button) to the interactive seat.
- * - Threads savedOrder / onOrderChange (per-seat hand order persistence).
- * - Bigger tile sizes: bottom seat 68px, other seats 50px.
- * - "Drawn clockwise" label removed from the centre info bar.
+ * Phase 1 playtest fixes:
+ * - drawnTileId, onDeclareWin, savedOrder/onOrderChange, bigger tiles.
+ * - "Drawn clockwise" label removed.
  */
 
 import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState } from 'react';
@@ -35,7 +31,6 @@ const WIND_LABEL: Record<Wind, string> = {
   east: 'East', south: 'South', west: 'West', north: 'North',
 };
 
-/** Where each seat sits on screen, by its offset (anticlockwise) from the local seat. */
 function seatPositions(playerCount: number): SeatPosition[] {
   return playerCount === 3
     ? ['bottom', 'right', 'left']
@@ -44,30 +39,17 @@ function seatPositions(playerCount: number): SeatPosition[] {
 
 export interface BoardProps {
   readonly state: GameState;
-  /** Which seat to show at the bottom of the board. Defaults to the current turn. */
   readonly localSeat?: SeatIndex;
-  /**
-   * Reveal every player's concealed tiles (pass-and-play on one screen).
-   * When false, only the local seat's hand is face-up. Defaults to true.
-   */
   readonly revealAll?: boolean;
-  /** Called with the tile ID to discard. Provided by App only during DISCARDING. */
   readonly onDiscard?: (tileId: TileId) => void;
-  /** Called when the current player declares a self-draw win. */
   readonly onDeclareWin?: () => void;
-  /**
-   * Called when a player responds to a claim window (CLAIM_WINDOW or
-   * ROBBING_KONG phase). Provided by App; the ActionBar component uses it.
-   */
   readonly onClaimResponse?: (seat: SeatIndex, decision: ClaimDecision) => void;
-  /** ID of the tile just drawn from the wall (shown with gold border). */
   readonly drawnTileId?: TileId | null;
-  /** Saved display order for the interactive (bottom) seat. */
   readonly savedOrder?: string[];
-  /** Fires when the interactive seat changes their display order. */
   readonly onOrderChange?: (ids: string[]) => void;
-  /** Last notable game event to show under the score sidebar. */
   readonly lastEvent?: string | null;
+  /** Running totals from App — indexed by seat number. Used instead of player.score. */
+  readonly scores?: readonly number[];
 }
 
 export function Board({
@@ -81,6 +63,7 @@ export function Board({
   savedOrder,
   onOrderChange,
   lastEvent,
+  scores,
 }: BoardProps) {
   const { players, config, currentSeat, phase } = state;
   const base = localSeat ?? currentSeat;
@@ -98,6 +81,8 @@ export function Board({
     if (!player) return <div className={styles.seatEmpty} aria-hidden="true" />;
     const isInteractive = player.seat === base;
     const isDiscarding = isInteractive && phase === 'DISCARDING' && player.seat === currentSeat;
+    // Use the running total from App if available, otherwise fall back to engine score.
+    const displayScore = scores?.[player.seat] ?? player.score;
     return (
       <SeatPanel
         player={player}
@@ -111,6 +96,7 @@ export function Board({
         drawnTileId={isInteractive ? drawnTileId : undefined}
         savedOrder={isInteractive ? savedOrder : undefined}
         onOrderChange={isInteractive ? onOrderChange : undefined}
+        score={displayScore}
       />
     );
   };
@@ -122,7 +108,13 @@ export function Board({
       role="group"
       aria-label={`Mah Jong table, ${config.playerCount} players`}
     >
-      <ScoreSidebar players={players} prevailingWind={state.prevailingWind} handNumber={state.handNumber} lastEvent={lastEvent} />
+      <ScoreSidebar
+        players={players}
+        prevailingWind={state.prevailingWind}
+        handNumber={state.handNumber}
+        lastEvent={lastEvent}
+        scores={scores}
+      />
 
       <div className={styles.slotTop}>{renderSeat('top')}</div>
       <div className={styles.slotLeft}>{renderSeat('left')}</div>
@@ -142,11 +134,11 @@ export function Board({
   );
 }
 
-// ─── Seat panel ─────────────────────────────────────────────────────────────────
+// ─── Seat panel ───────────────────────────────────────────────────────────────
 
 function SeatPanel({
   player, position, isCurrent, faceDown, interactive, isDiscarding,
-  onDiscard, onDeclareWin, drawnTileId, savedOrder, onOrderChange,
+  onDiscard, onDeclareWin, drawnTileId, savedOrder, onOrderChange, score,
 }: {
   player: PlayerState;
   position: SeatPosition;
@@ -159,6 +151,7 @@ function SeatPanel({
   drawnTileId?: TileId | null;
   savedOrder?: string[];
   onOrderChange?: (ids: string[]) => void;
+  score: number;
 }) {
   const vertical = position === 'left' || position === 'right';
   const handSize = position === 'bottom' ? 68 : 50;
@@ -207,7 +200,7 @@ function SeatPanel({
       <header className={styles.seatHeader}>
         <span className={styles.windBadge}>{WIND_LABEL[player.seatWind][0]}</span>
         <span className={styles.seatName}>{player.name}</span>
-        <span className={styles.seatScore}>{player.score}</span>
+        <span className={styles.seatScore}>{score}</span>
       </header>
 
       {exposedAbove
@@ -235,7 +228,6 @@ function MeldGroup({ meld, size }: { meld: DeclaredMeld; size: number }) {
 
 // ─── Central table: wall + discard pool (Module 2.3) ─────────────────────────
 
-/** Stable pseudo-random in [0, 1) from a string and a salt (FNV-1a based). */
 function hashFloat(str: string, salt: number): number {
   let h = (2166136261 ^ salt) >>> 0;
   for (let i = 0; i < str.length; i++) {
@@ -291,8 +283,6 @@ function DiscardArea({ state }: { state: GameState }) {
   const rows = Math.max(1, Math.floor(h / CELL_H));
   const current = state.players.find((p) => p.seat === state.currentSeat);
 
-  // Always highlight the most recently discarded tile in red so players can
-  // easily see what was just thrown. Stays visible until the next discard.
   const lastDiscardId = discardPool[discardPool.length - 1]?.id;
 
   return (
@@ -317,15 +307,16 @@ function DiscardArea({ state }: { state: GameState }) {
   );
 }
 
-// ─── Score sidebar (Module 2.5) ───────────────────────────────────────────────
+// ─── Score sidebar ────────────────────────────────────────────────────────────
 
 function ScoreSidebar({
-  players, prevailingWind, handNumber, lastEvent,
+  players, prevailingWind, handNumber, lastEvent, scores,
 }: {
   players: readonly PlayerState[];
   prevailingWind: Wind;
   handNumber: number;
   lastEvent?: string | null;
+  scores?: readonly number[];
 }) {
   return (
     <aside className={styles.scorePanel}>
@@ -337,7 +328,7 @@ function ScoreSidebar({
         {players.map((p) => (
           <li key={p.seat}>
             <span>{p.name}</span>
-            <span>{p.score}</span>
+            <span>{scores?.[p.seat] ?? p.score}</span>
           </li>
         ))}
       </ul>

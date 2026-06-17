@@ -1,14 +1,38 @@
 /**
  * Module 2.5 — Score Panel
  *
- * Shown at HAND_OVER. For a win: displays the winning hand's score breakdown,
- * non-winners' exposed meld scores, each player's bonus-tile points, and
- * running cumulative totals.
- * For a draw (wall exhausted): shows "Draw" with no score breakdown and no
- * running total update — the totals are unchanged.
+ * Shown at HAND_OVER. For a win: displays the winner's full hand (tiles +
+ * declared melds + bonus tiles), the hand score breakdown, non-winners'
+ * exposed meld scores, each player's bonus-tile points, and running totals.
+ * For a draw: shows "Draw" with no score breakdown and unchanged totals.
+ *
+ * Playtesting round 3 (2026-06-18):
+ *  - winnerHand prop: winner's tiles rendered at the top of the overlay.
  */
-import type { ScoreResult, BonusScoreResult, SeatIndex, ExposedMeldScoreResult } from '@mahjong/engine';
+import type {
+  ScoreResult,
+  BonusScoreResult,
+  SeatIndex,
+  ExposedMeldScoreResult,
+  Tile as TileData,
+  DeclaredMeld,
+  TileId,
+} from '@mahjong/engine';
+import { Tile as TileView } from './Tile';
 import styles from './ScorePanel.module.css';
+
+// ─── Exported interfaces ──────────────────────────────────────────────────────
+
+export interface WinnerHandInfo {
+  /** All concealed tiles (includes the winning tile). */
+  readonly concealed: readonly TileData[];
+  /** Declared melds. */
+  readonly melds: readonly DeclaredMeld[];
+  /** Flowers and seasons set aside. */
+  readonly bonusTiles: readonly TileData[];
+  /** ID of the tile that completed the hand, highlighted gold. */
+  readonly winningTileId: TileId | null;
+}
 
 export interface PlayerBonusInfo {
   name: string;
@@ -19,22 +43,25 @@ export interface PlayerBonusInfo {
 }
 
 export interface ScorePanelProps {
-  /** Name of the winner, or null for a draw. */
   winnerName: string | null;
-  /** Full score result for the winning hand; null for draws. */
   result: ScoreResult | null;
-  /** Per-player bonus-tile scores; empty array for draws. */
   playerBonuses: PlayerBonusInfo[];
-  /** Cumulative per-player totals (unchanged on a draw). */
   runningTotals: { name: string; total: number }[];
+  /** Winner's hand tiles for display; null for a draw. */
+  winnerHand: WinnerHandInfo | null;
   onNewHand: () => void;
 }
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+const TILE_SIZE = 40;
 
 export function ScorePanel({
   winnerName,
   result,
   playerBonuses,
   runningTotals,
+  winnerHand,
   onNewHand,
 }: ScorePanelProps) {
   const isDraw = winnerName === null && result === null;
@@ -46,7 +73,8 @@ export function ScorePanel({
   return (
     <div className={styles.overlay}>
       <div className={styles.panel}>
-        {/* Header */}
+
+        {/* Title */}
         <h2 className={styles.title}>
           {winnerName ? `${winnerName} wins!` : 'Draw — wall exhausted'}
         </h2>
@@ -55,7 +83,49 @@ export function ScorePanel({
           <p className={styles.drawNote}>No winner this hand. Scores are unchanged.</p>
         )}
 
-        {/* Winning hand breakdown (wins only) */}
+        {/* ── Winner's hand display ── */}
+        {winnerHand && (
+          <div className={styles.winnerHandSection}>
+            <div className={styles.winnerHandTiles}>
+              {/* Declared melds first */}
+              {winnerHand.melds.map((meld, i) => (
+                <div key={i} className={styles.winnerMeld}>
+                  {meld.tiles.map((tile) => (
+                    <TileView
+                      key={tile.id}
+                      tile={tile}
+                      size={TILE_SIZE}
+                      highlight={tile.id === winnerHand.winningTileId ? 'gold' : undefined}
+                    />
+                  ))}
+                </div>
+              ))}
+              {/* Concealed portion (face-up for everyone to see) */}
+              {winnerHand.concealed.length > 0 && (
+                <div className={styles.winnerMeld}>
+                  {winnerHand.concealed.map((tile) => (
+                    <TileView
+                      key={tile.id}
+                      tile={tile}
+                      size={TILE_SIZE}
+                      highlight={tile.id === winnerHand.winningTileId ? 'gold' : undefined}
+                    />
+                  ))}
+                </div>
+              )}
+              {/* Bonus tiles */}
+              {winnerHand.bonusTiles.length > 0 && (
+                <div className={`${styles.winnerMeld} ${styles.winnerBonus}`}>
+                  {winnerHand.bonusTiles.map((tile) => (
+                    <TileView key={tile.id} tile={tile} size={TILE_SIZE - 4} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Winning hand score breakdown ── */}
         {result && (
           <div className={styles.handScore}>
             {result.specialHand && (
@@ -106,7 +176,7 @@ export function ScorePanel({
           </div>
         )}
 
-        {/* Non-winner exposed meld scores */}
+        {/* ── Non-winner exposed meld scores ── */}
         {nonWinnersWithMelds.length > 0 && (
           <div className={styles.section}>
             <h3 className={styles.sectionTitle}>Exposed melds</h3>
@@ -123,7 +193,7 @@ export function ScorePanel({
           </div>
         )}
 
-        {/* Bonus tiles (wins only) */}
+        {/* ── Bonus tiles ── */}
         {playerBonuses.some(pb => pb.bonus.count > 0) && (
           <div className={styles.section}>
             <h3 className={styles.sectionTitle}>Bonus tiles</h3>
@@ -149,7 +219,7 @@ export function ScorePanel({
           </div>
         )}
 
-        {/* Running totals */}
+        {/* ── Running totals ── */}
         <div className={styles.section}>
           <h3 className={styles.sectionTitle}>Running totals{isDraw ? ' (unchanged)' : ''}</h3>
           <table className={styles.table}>

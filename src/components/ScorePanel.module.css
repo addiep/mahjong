@@ -14,18 +14,56 @@
   border-radius: 10px;
   padding: 24px 28px;
   min-width: 320px;
-  max-width: 480px;
+  max-width: min(92vw, 600px);
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
 }
 
 .title {
-  margin: 0 0 16px;
+  margin: 0 0 14px;
   font-size: 1.4rem;
   text-align: center;
   color: #f0c060;
 }
+
+/* ── Winner's hand display ── */
+
+.winnerHandSection {
+  margin-bottom: 18px;
+}
+
+.winnerHandTiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid #3a3020;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+/* Each meld/group separated by a faint divider */
+.winnerMeld {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+  padding-right: 8px;
+  border-right: 1px solid #3a3020;
+}
+
+.winnerMeld:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+
+/* Bonus tiles slightly smaller and dimmer */
+.winnerBonus {
+  opacity: 0.75;
+}
+
+/* ── Winning hand score ── */
 
 .specialHand {
   text-align: center;

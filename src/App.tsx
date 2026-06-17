@@ -1,6 +1,10 @@
 /**
  * App shell — wired to the live turn engine.
  *
+ * Playtesting round 3 fixes (2026-06-18):
+ *  #1/#5  scores prop passed to Board so the sidebar and seat badges show real totals.
+ *  #4     Winner's hand captured at HAND_OVER and passed to ScorePanel for display.
+ *
  * Playtesting round 2 fixes (2026-06-17):
  *  #1  All players' exposed melds scored at HAND_OVER (scoreExposedMelds).
  *  #5  Red border on last discard stays visible until next discard.
@@ -22,7 +26,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Board } from './components/Board';
 import { ScorePanel } from './components/ScorePanel';
-import type { PlayerBonusInfo } from './components/ScorePanel';
+import type { PlayerBonusInfo, WinnerHandInfo } from './components/ScorePanel';
 import { GameSetup } from './components/GameSetup';
 import {
   buildWall,
@@ -92,6 +96,8 @@ interface HandScoreInfo {
   winnerName: string | null;
   result: ScoreResult | null;
   playerBonuses: PlayerBonusInfo[];
+  /** Winner's full hand for display; null on a draw. */
+  winnerHand: WinnerHandInfo | null;
 }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
@@ -123,7 +129,7 @@ export function App() {
   const prevPhaseRef = useRef<string | null>(null);
   const prevSeatRef = useRef<number | null>(null);
 
-  // ── Start / new hand ───────────────────────────────────────────────────────
+  // ── Start / new hand ──────────────────────────────────────────────────────
 
   const startGame = (config: GameConfig) => {
     setGameConfig(config);
@@ -146,7 +152,7 @@ export function App() {
     setState(makeInitialState(gameConfig));
   };
 
-  // ── Auto-advance non-interactive phases ────────────────────────────────────
+  // ── Auto-advance non-interactive phases ───────────────────────────────────
 
   useEffect(() => {
     if (!state) return;
@@ -214,7 +220,7 @@ export function App() {
     });
   }, [state]);
 
-  // ── Track drawn tile (gold border) ─────────────────────────────────────────
+  // ── Track drawn tile (gold border) ────────────────────────────────────────
 
   useEffect(() => {
     if (!state) return;
@@ -236,7 +242,7 @@ export function App() {
     }
   }, [state]);
 
-  // ── Auto-sort tiles when active seat changes ────────────────────────────────
+  // ── Auto-sort tiles when active seat changes ──────────────────────────────
   // During testing: tiles are sorted each time a seat becomes active so that
   // a freshly rotated hand is always in a readable order.
 
@@ -251,7 +257,7 @@ export function App() {
     setCurrentSeatOrder(sortedIds);
   }, [state?.currentSeat]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Score HAND_OVER ────────────────────────────────────────────────────────
+  // ── Score HAND_OVER ───────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!state) return;
@@ -264,7 +270,7 @@ export function App() {
 
     // Draw: no scoring, no running total update.
     if (hr.reason === 'draw') {
-      setHandScore({ winnerName: null, result: null, playerBonuses: [] });
+      setHandScore({ winnerName: null, result: null, playerBonuses: [], winnerHand: null });
       return;
     }
 
@@ -305,8 +311,22 @@ export function App() {
       }
     }
 
-    // Build per-player bonus + meld info. Non-winners get their exposed melds scored;
-    // the winner's melds are already included in scoreWinningHand.
+    // Build winner hand info for display in the score overlay.
+    const winnerPlayer = hr.winnerSeat !== null ? state.players[hr.winnerSeat] : null;
+    const winnerHand: WinnerHandInfo | null = (winnerPlayer && hr.winnerSeat !== null)
+      ? {
+          concealed: hr.selfDraw
+            ? winnerPlayer.concealed
+            : hr.winningTile
+              ? [...winnerPlayer.concealed, hr.winningTile]
+              : winnerPlayer.concealed,
+          melds: winnerPlayer.melds,
+          bonusTiles: winnerPlayer.bonusTiles,
+          winningTileId: hr.winningTile?.id ?? null,
+        }
+      : null;
+
+    // Build per-player bonus + meld info.
     const playerBonuses: PlayerBonusInfo[] = state.players.map(p => ({
       name: p.name,
       seat: p.seat,
@@ -332,10 +352,11 @@ export function App() {
       winnerName: hr.winnerSeat !== null ? (state.players[hr.winnerSeat]?.name ?? null) : null,
       result,
       playerBonuses,
+      winnerHand,
     });
   }, [state]);
 
-  // ── Event handlers ─────────────────────────────────────────────────────────
+  // ── Event handlers ────────────────────────────────────────────────────────
 
   const handleDiscard = (tileId: TileId) => {
     if (state) {
@@ -376,7 +397,7 @@ export function App() {
     handOrdersRef.current.set(state.currentSeat, ids);
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
   // Setup screen.
   if (appPhase === 'setup' || !state) {
@@ -420,6 +441,7 @@ export function App() {
           savedOrder={currentSeatOrder}
           onOrderChange={handleOrderChange}
           lastEvent={lastEvent}
+          scores={runningTotals}
         />
       </div>
 
@@ -428,6 +450,7 @@ export function App() {
           winnerName={handScore.winnerName}
           result={handScore.result}
           playerBonuses={handScore.playerBonuses}
+          winnerHand={handScore.winnerHand}
           runningTotals={state.players.map((p, i) => ({
             name: p.name,
             total: runningTotals[i] ?? 0,

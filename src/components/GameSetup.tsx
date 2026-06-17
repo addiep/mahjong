@@ -3,8 +3,11 @@
  *
  * Collects:
  *  - Player count (3 or 4)
- *  - Dirty wins allowed (off by default)
+ *  - Knitting / crocheting allowed (off by default)
  *  - Dead wall (off by default)
+ *
+ * Dirty wins (mixed-suit melds) are always allowed — the switch was removed
+ * because the description was wrong and the family rule is to allow them.
  */
 
 import { useState } from 'react';
@@ -20,15 +23,15 @@ export function GameSetup({ defaultConfig, onStart }: Props) {
   const [playerCount, setPlayerCount] = useState<3 | 4>(
     (defaultConfig.playerCount as 3 | 4) ?? 4,
   );
-  const [dirtyWin, setDirtyWin] = useState(defaultConfig.dirtyWinAllowed ?? false);
+  const [knitting, setKnitting] = useState(defaultConfig.knittingEnabled ?? false);
   const [deadWall, setDeadWall] = useState(defaultConfig.deadWall ?? false);
 
   const handleStart = () => {
     onStart({
       playerCount,
       discardsVisible: true,
-      knittingEnabled: false,
-      dirtyWinAllowed: dirtyWin,
+      knittingEnabled: knitting,
+      dirtyWinAllowed: true,
       deadWall,
     });
   };
@@ -63,13 +66,13 @@ export function GameSetup({ defaultConfig, onStart }: Props) {
           <label className={styles.checkLabel}>
             <input
               type="checkbox"
-              checked={dirtyWin}
-              onChange={e => setDirtyWin(e.target.checked)}
+              checked={knitting}
+              onChange={e => setKnitting(e.target.checked)}
             />
             <span>
-              <strong>Dirty wins allowed</strong>
+              <strong>Knitting &amp; crocheting</strong>
               <span className={styles.hint}>
-                &nbsp;— winner may have an unpaired bonus tile
+                &nbsp;— allow the knitting and crocheting special hands
               </span>
             </span>
           </label>
