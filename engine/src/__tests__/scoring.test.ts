@@ -60,8 +60,8 @@ describe('normal scoring — base points and doublings', () => {
     const self = score({ declaredMelds: declared, concealed, winningTile: concealed[0]! });
     // base: B5 exp 2 + B7 exp 2 + B2 concealed 4 + chow 0 + pair 0 + going 20 + live wall 2 = 30
     expect(self.basePoints).toBe(30);
-    expect(self.doublings).toBe(1); // clean only
-    expect(self.total).toBe(60);
+    expect(self.doublings).toBe(4); // clean ×1 + purity ×3
+    expect(self.total).toBe(480);
 
     // discard: pung B2 exposed (2) and no live-wall bonus
     const disc = score({
@@ -70,7 +70,7 @@ describe('normal scoring — base points and doublings', () => {
     });
     // base: 2 + 2 + 2 + 0 + going 20 = 26
     expect(disc.basePoints).toBe(26);
-    expect(disc.total).toBe(52);
+    expect(disc.total).toBe(416);
   });
 
   it('adds complete-set-of-flowers doubling but NOT flat per-flower points', () => {
@@ -83,9 +83,9 @@ describe('normal scoring — base points and doublings', () => {
     });
     expect(r.basePoints).toBe(26);                 // flat flower points excluded (Module 1.9)
     expect(r.bonusTileCount).toBe(4);
-    expect(r.doublings).toBe(3);                    // clean 1 + complete set of flowers 2
+    expect(r.doublings).toBe(6);                    // clean 1 + flowers 2 + purity 3
     expect(r.doublingLines.some(l => l.label === 'complete set of flowers')).toBe(true);
-    expect(r.total).toBe(208);
+    expect(r.total).toBe(1000);                     // 26 × 64 = 1664, capped at limit
   });
 
   it('scores a seat-wind pair and the only-possible-tile bonus', () => {

@@ -106,7 +106,7 @@ function handleDrawing(state: GameState, action: Action): GameState {
     if (tile === null) {
       return { ...state, wall, phase: 'HAND_OVER', handResult: { reason: 'draw', winnerSeat: null, selfDraw: null } };
     }
-    next = { ...replacePlayer(state, withConcealed(player, tile)), wall };
+    next = { ...replacePlayer(state, withConcealed(player, tile)), wall, lastDrawSource: 'live-wall' as const };
   }
   return transitionToDiscard(next);
 }
@@ -122,7 +122,7 @@ function handleCheckBonus(state: GameState, action: Action): GameState {
     return { ...state, wall, phase: 'HAND_OVER', handResult: { reason: 'draw', winnerSeat: null, selfDraw: null } };
   }
   const player = state.players[state.currentSeat]!;
-  const next   = { ...state, wall };
+  const next   = { ...state, wall, lastDrawSource: 'dead-wall' as const };
 
   if (isBonus(tile)) {
     return { ...replacePlayer(next, { ...player, bonusTiles: [...player.bonusTiles, tile] }), phase: 'CHECK_BONUS' };
@@ -198,7 +198,14 @@ function handleDiscarding(state: GameState, action: Action): GameState {
     }
 
     case 'DECLARE_WIN': {
-      return { ...state, phase: 'HAND_OVER', handResult: { reason: 'win', winnerSeat: state.currentSeat, selfDraw: true } };
+      const wp = state.players[state.currentSeat]!;
+      const winningTile = wp.concealed[wp.concealed.length - 1];
+      const isLastWallTile = state.wall.live.length === 0;
+      const winSource = state.lastDrawSource === 'dead-wall' ? 'dead-wall-replacement' as const : 'self-draw-wall' as const;
+      return {
+        ...state, phase: 'HAND_OVER',
+        handResult: { reason: 'win', winnerSeat: state.currentSeat, selfDraw: true, winningTile, winSource, isLastWallTile },
+      };
     }
 
     default:
@@ -272,7 +279,7 @@ function resolveRobbingKong(state: GameState): GameState {
   if (winSeats.length > 0) {
     // Closest in turn order from the melder wins the robbed kong.
     const winner = selectWinClaimant(winSeats, rk.melderSeat, state.config.playerCount);
-    return { ...state, robbingKong: null, phase: 'HAND_OVER', handResult: { reason: 'win', winnerSeat: winner, selfDraw: false } };
+    return { ...state, robbingKong: null, phase: 'HAND_OVER', handResult: { reason: 'win', winnerSeat: winner, selfDraw: false, winningTile: rk.tile, winSource: 'discard' as const, robbedKong: true } };
   }
   // Nobody robbed — the melder draws the kong replacement and continues their turn.
   return { ...state, robbingKong: null, phase: 'CHECK_BONUS' };
@@ -295,7 +302,7 @@ function resolveClaimWindow(state: GameState): GameState {
       ...state,
       claimWindow: null,
       phase:       'HAND_OVER',
-      handResult:  { reason: 'win', winnerSeat: winner, selfDraw: false },
+      handResult:  { reason: 'win', winnerSeat: winner, selfDraw: false, winningTile: discarded, winSource: 'discard' as const },
       discardLog:  markClaimed(state.discardLog, discarded.id, winner),
     };
   }

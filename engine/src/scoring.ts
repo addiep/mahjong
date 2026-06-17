@@ -261,8 +261,9 @@ function scoreNormalReading(hand: FullHand, input: ScoreInput, cfg: ScoringConfi
     addDouble('special winning circumstance', 1);
   }
 
-  // Purity: concealed pungs/kongs of one suit, no honours, no chows (×3).
-  if (noChows && hasSuited && !hasHonour && suits.size === 1 && hand.groups.every(g => g.concealed)) {
+  // Purity: clean hand in one suit, no Winds or Dragons (×3).
+  // Stricter than the ×1 clean-hand doubling (which permits W/D); a purity hand earns both.
+  if (hasSuited && !hasHonour && suits.size === 1) {
     addDouble('purity', 3);
   }
 
@@ -329,10 +330,10 @@ function detectGroupSpecials(hand: FullHand, input: ScoreInput, cfg: ScoringConf
     // Imperial Jade: all tiles green.
     if (all.every(isGreenTile)) hits.push({ name: 'Imperial Jade', score: cfg.limit, priority: PRIORITY.bespokePungHand });
 
-    // Buried Treasure: fully concealed pungs/kongs, suited tiles one suit, +pair.
+    // Buried Treasure: any fully concealed pung/kong hand (any tile composition).
     const fullyConcealed = groups.every(g => g.concealed);
-    if (fullyConcealed && suitedSuits(all).size <= 1) {
-      hits.push({ name: 'Buried Treasure', score: cfg.buriedTreasure, priority: PRIORITY.buriedTreasure });
+    if (fullyConcealed) {
+      hits.push({ name: 'Buried Treasure', score: cfg.limit, priority: PRIORITY.buriedTreasure });
     }
   }
   void pair;

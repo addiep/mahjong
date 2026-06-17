@@ -145,6 +145,14 @@ export interface HandResult {
    * null  = not applicable (draw game).
    */
   readonly selfDraw:   boolean | null;
+  /** The specific tile that completed the hand. Present for wins; absent for draws. */
+  readonly winningTile?: Tile;
+  /** How the winning tile was obtained. Present for wins; absent for draws. */
+  readonly winSource?: 'self-draw-wall' | 'dead-wall-replacement' | 'discard';
+  /** True when the winning tile was the very last tile of the live wall. */
+  readonly isLastWallTile?: boolean;
+  /** True when the hand was won by robbing an added kong. */
+  readonly robbedKong?: boolean;
 }
 
 // ─── Claim window ───────────────────────────────
@@ -265,6 +273,12 @@ export interface GameState {
    * engine treats an absent log as empty.
    */
   readonly discardLog?:    readonly DiscardLogEntry[];
+  /**
+   * Source of the most recent tile drawn (live wall or dead-wall replacement).
+   * Used by the turn engine to set HandResult.winSource when DECLARE_WIN fires.
+   * Absent before the first draw.
+   */
+  readonly lastDrawSource?: 'live-wall' | 'dead-wall';
 }
 
 // ─── Factory ───────────────────────────────────

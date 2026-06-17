@@ -10,10 +10,15 @@
  *
  * The DISCARDING phase is interactive: the current player taps a tile to
  * select it (lifted, green border), then taps again to confirm the discard.
+ *
+ * Module 2.5: when HAND_OVER is reached, scores are computed and shown in
+ * the ScorePanel overlay.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Board } from './components/Board';
+import { ScorePanel } from './components/ScorePanel';
+import type { PlayerBonusInfo } from './components/ScorePanel';
 import {
   buildWall,
   createGameState,
@@ -21,11 +26,15 @@ import {
   dispatch as engineDispatch,
   isWinningHand,
   canPung, canKong, canChow,
+  scoreWinningHand,
+  scoreBonusTiles,
   type GameState,
   type GameConfig,
   type SeatIndex,
   type TileId,
   type ClaimDecision,
+  type ScoreResult,
+  type WinContext,
 } from '@mahjong/engine';
 import styles from './App.module.css';
 
@@ -39,19 +48,25 @@ function makeInitialState(playerCount: 3 | 4): GameState {
   return createGameState(config, deal, names);
 }
 
+interface HandScoreInfo {
+  winnerName: string | null;
+  result: ScoreResult | null;
+  playerBonuses: PlayerBonusInfo[];
+}
+
 export function App() {
   const [playerCount, setPlayerCount] = useState<3 | 4>(4);
   const [revealAll, setRevealAll] = useState(true);
   const [state, setState] = useState<GameState>(() => makeInitialState(4));
+  const [handScore, setHandScore] = useState<HandScoreInfo | null>(null);
+  const [runningTotals, setRunningTotals] = useState<number[]>([0, 0, 0, 0]);
+
+  // Guard against computing the score twice for the same HAND_OVER state
+  // (React StrictMode double-invokes effects; the ref persists through cleanup).
+  const scoredStateRef = useRef<GameState | null>(null);
 
   /**
-   * Auto-advance non-interactive phases. CLAIM_WINDOW and ROBBING_KONG are
-   * only auto-passed when the pending seat has no legal action — otherwise
-   * the ActionBar shows and the player decides.
-   *
-   * Using a functional setState so each dispatch sees the latest state and
-   * is safe under React 18 StrictMode double-invocation (phase guards ensure
-   * the switch case won't fire again once the phase has already advanced).
+   * Auto-advance non-interactive phases.
    */
   useEffect(() => {
     setState(s => {
@@ -70,14 +85,13 @@ export function App() {
             if (pending < 0) return s;
             const claimer = s.players[pending];
             if (!claimer) return s;
-            // Auto-pass only when this seat has no legal action available.
             const leftSeat = (s.currentSeat + 1) % s.config.playerCount;
             const hasLegal =
               isWinningHand([...claimer.concealed, discard], claimer.melds, s.config) ||
               canPung(claimer.concealed, discard) ||
               canKong(claimer.concealed, discard) ||
               (pending === leftSeat && canChow(claimer.concealed, discard));
-            if (hasLegal) return s; // ActionBar handles it
+            if (hasLegal) return s;
             return engineDispatch(s, {
               type: 'CLAIM_RESPONSE',
               seat: pending as SeatIndex,
@@ -91,9 +105,8 @@ export function App() {
             const tile = s.robbingKong?.tile;
             const claimer = s.players[pending];
             if (!claimer || !tile) return s;
-            // Auto-pass only when this seat cannot win on the robbed tile.
             const canWin = isWinningHand([...claimer.concealed, tile], claimer.melds, s.config);
-            if (canWin) return s; // ActionBar handles it
+            if (canWin) return s;
             return engineDispatch(s, {
               type: 'CLAIM_RESPONSE',
               seat: pending as SeatIndex,
@@ -102,12 +115,88 @@ export function App() {
           }
 
           default:
-            return s; // DISCARDING or HAND_OVER — no auto-advance
+            return s;
         }
       } catch (err) {
         console.error('Engine error during auto-advance:', err);
         return s;
       }
+    });
+  }, [state]);
+
+  /**
+   * Compute and store the hand score when HAND_OVER is reached.
+   * The scoredStateRef guard ensures this runs exactly once per hand end,
+   * even under React 18 StrictMode double-invocation.
+   */
+  useEffect(() => {
+    if (state.phase !== 'HAND_OVER') return;
+    if (scoredStateRef.current === state) return;
+    scoredStateRef.current = state;
+
+    const hr = state.handResult;
+    if (!hr) return;
+
+    let result: ScoreResult | null = null;
+
+    if (hr.reason === 'win' && hr.winnerSeat !== null && hr.winningTile) {
+      const winner = state.players[hr.winnerSeat];
+      if (winner) {
+        // For discard/robbing-kong wins, the winning tile is in the discard pool,
+        // not yet in the winner's concealed hand — add it for scoring.
+        const concealed = hr.selfDraw
+          ? winner.concealed
+          : [...winner.concealed, hr.winningTile];
+
+        const winContext: WinContext = {
+          source: hr.winSource ?? 'self-draw-wall',
+          isLastWallTile: hr.isLastWallTile ?? false,
+        };
+
+        const scoreInput: Parameters<typeof scoreWinningHand>[0] = {
+          concealed,
+          declaredMelds: winner.melds,
+          bonusTiles: winner.bonusTiles,
+          winningTile: hr.winningTile,
+          winContext,
+          seatWind: winner.seatWind,
+          prevailingWind: state.prevailingWind,
+          seat: winner.seat,
+          gameConfig: state.config,
+          wonByDiscard: !hr.selfDraw,
+          robbingKong: hr.robbedKong ?? false,
+        };
+
+        try {
+          result = scoreWinningHand(scoreInput);
+        } catch (err) {
+          console.error('Scoring error:', err);
+        }
+      }
+    }
+
+    // Bonus tiles for all players (applies whether win or draw).
+    const playerBonuses: PlayerBonusInfo[] = state.players.map(p => ({
+      name: p.name,
+      seat: p.seat,
+      bonus: scoreBonusTiles(p.bonusTiles),
+    }));
+
+    // Update running totals.
+    setRunningTotals(prev =>
+      prev.map((t, i) => {
+        const player = state.players[i];
+        if (!player) return t;
+        const bonusPts = playerBonuses[i]?.bonus.points ?? 0;
+        const handPts = i === hr.winnerSeat && result ? result.total : 0;
+        return t + bonusPts + handPts;
+      }),
+    );
+
+    setHandScore({
+      winnerName: hr.winnerSeat !== null ? (state.players[hr.winnerSeat]?.name ?? null) : null,
+      result,
+      playerBonuses,
     });
   }, [state]);
 
@@ -120,6 +209,10 @@ export function App() {
   };
 
   const startNewHand = (count: 3 | 4 = playerCount) => {
+    if (count !== playerCount) {
+      setRunningTotals([0, 0, 0, 0]);
+    }
+    setHandScore(null);
     setState(makeInitialState(count));
   };
 
@@ -165,17 +258,17 @@ export function App() {
         />
       </div>
 
-      {state.phase === 'HAND_OVER' && (
-        <div className={styles.handOverBanner}>
-          <span>
-            {state.handResult?.reason === 'win'
-              ? `${state.players[state.handResult.winnerSeat ?? 0]?.name ?? '?'} wins!`
-              : 'Draw — wall exhausted.'}
-          </span>
-          <button type="button" className={styles.newHandBtn} onClick={() => startNewHand()}>
-            New hand
-          </button>
-        </div>
+      {state.phase === 'HAND_OVER' && handScore && (
+        <ScorePanel
+          winnerName={handScore.winnerName}
+          result={handScore.result}
+          playerBonuses={handScore.playerBonuses}
+          runningTotals={state.players.map((p, i) => ({
+            name: p.name,
+            total: runningTotals[i] ?? 0,
+          }))}
+          onNewHand={() => startNewHand()}
+        />
       )}
     </div>
   );
