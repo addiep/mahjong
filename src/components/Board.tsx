@@ -11,8 +11,8 @@
  *     The local seat's concealed hand is the interactive, reorderable
  *     PlayerHand (Module 2.2); other seats render a static strip. Exposed melds
  *     sit towards the centre (above the hand for the bottom/top seats).
- *   - Central table: the wall (face-down ring, Module 2.3) frames the discards,
- *     which scatter across the area without overlapping.
+ *   - Central table: the wall (face-down ring + dead wall / loose tiles,
+ *     Module 2.3) frames the discards, which scatter without overlapping.
  *   - Action bar (below the local seat) — Module 2.4 (placeholder here).
  *   - Score panel (corner) — Module 2.5 (placeholder here).
  *
@@ -262,7 +262,7 @@ function DiscardArea({ state }: { state: GameState }) {
         </span>
       </div>
 
-      <WallFrame liveCount={wall.live.length}>
+      <WallFrame liveCount={wall.live.length} deadCount={wall.dead.length}>
         <div ref={poolRef} className={styles.discardPool} aria-label={`${discardPool.length} tiles discarded`}>
           {w > 0 && discardPool.map((tile, i) => (
             <div key={tile.id} className={styles.discardTile} style={discardStyle(tile.id, i, cols, rows, w, h)}>

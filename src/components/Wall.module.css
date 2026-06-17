@@ -21,19 +21,24 @@
   height: 26px;
 }
 
-/* Two layers, slightly offset, to read as a stack two tiles high. */
 .backTile {
   position: absolute;
   inset: 0;
   box-sizing: border-box;
   border-radius: 4px;
-  background: #1f6f5c;
-  border: 1px solid #15523f;
 }
 
-.back2 {
-  transform: translate(2px, -3px);
-  filter: brightness(0.82);
+/* Distinct shades so the two layers read apart: drawing the top tile reveals
+   the darker bottom tile, a visible change for every single draw. */
+.backBottom {
+  background: #11463d;
+  border: 1px solid #0c322b;
+}
+
+.backTop {
+  background: #25856f;
+  border: 1px solid #16564a;
+  transform: translateY(-4px);
 }
 
 .drawNext {
@@ -47,4 +52,51 @@
   font-size: 15px;
   line-height: 1;
   pointer-events: none;
+}
+
+/* ── Dead wall + loose tiles (kong / flower replacements) ── */
+
+.kongBox {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  background: rgba(0, 0, 0, 0.34);
+  border: 1px solid var(--panel-border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.kongLabel {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.kongRun {
+  display: flex;
+  gap: 2px;
+}
+
+.deadMini {
+  width: 11px;
+  height: 17px;
+  border-radius: 3px;
+  background: #6a5a23;
+  border: 1px solid #4a3f18;
+}
+
+.looseTile {
+  width: 13px;
+  height: 19px;
+  border-radius: 3px;
+  background: #25856f;
+  border: 1px solid #16564a;
+  box-shadow: 0 0 0 1.5px var(--accent);
 }
