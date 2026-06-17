@@ -1,8 +1,9 @@
 // Dev-only: renders an INTERACTIVE standalone preview of the board using the
 // REAL stylesheets (whose source selectors are plain class names) and a port of
-// Tile.tsx's SVG. The bottom hand has working drag-to-reorder + sort, ported to
-// vanilla JS from PlayerHand.tsx, so the feature can be tried by just opening
-// the file. Not part of the app build. Run with: npm run preview:static
+// Tile.tsx's SVG. The bottom hand has working drag-to-reorder + sort, and the
+// centre has the wall ring with a Draw button, all ported to vanilla JS, so the
+// board can be tried by just opening the file. Not part of the app build.
+// Run with: npm run preview:static
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +14,7 @@ const css = [
   'src/styles/global.css',
   'src/components/Board.module.css',
   'src/components/PlayerHand.module.css',
+  'src/components/Wall.module.css',
   'src/App.module.css',
 ].map((p) => readFileSync(join(root, p), 'utf8')).join('\n');
 
@@ -146,8 +148,8 @@ const board = `<div class="app">
       <div class="slotLeft">${seatPanel(players[3],'left')}</div>
       <div class="slotRight">${seatPanel(players[1],'right')}</div>
       <div class="slotCentre"><div class="centre">
-        <div class="wallInfo"><span><strong>42</strong> wall</span><span><strong>14</strong> dead</span><span class="turnInfo">You (East) · discarding</span></div>
-        <div class="discardPool">${scatteredDiscards()}</div>
+        <div class="wallInfo"><span><strong id="liveCount">42</strong> in wall</span><span><strong>14</strong> dead</span><span class="turnInfo">You (East) · discarding · drawn clockwise ↻</span><button type="button" id="drawBtn" class="sortBtn">Draw</button></div>
+        <div class="frame" id="wallFrame"><div class="inner"><div class="discardPool">${scatteredDiscards()}</div></div></div>
       </div></div>
       <div class="slotBottom">${seatPanel(players[0],'bottom')}<div class="placeholder actionBar">Action bar — Module 2.4</div></div>
     </div>
@@ -221,6 +223,49 @@ function layoutDiscards() {
 }
 layoutDiscards();
 new ResizeObserver(layoutDiscards).observe(pool);
+
+const frame = document.getElementById('wallFrame');
+let live = 42;
+const PITCH = 22, MARGIN = 16;
+function perimeterSlots(w, h) {
+  const slots = [], m = MARGIN;
+  for (let x = m; x <= w - m; x += PITCH) slots.push({ x, y: m, vertical: false });
+  for (let y = m + PITCH; y <= h - m; y += PITCH) slots.push({ x: w - m, y, vertical: true });
+  for (let x = w - m - PITCH; x >= m; x -= PITCH) slots.push({ x, y: h - m, vertical: false });
+  for (let y = h - m - PITCH; y >= m + PITCH; y -= PITCH) slots.push({ x: m, y, vertical: true });
+  return slots;
+}
+function stackEl(s, isHead) {
+  const d = document.createElement('div');
+  d.className = 'stack';
+  d.style.left = s.x + 'px'; d.style.top = s.y + 'px';
+  d.style.transform = 'translate(-50%, -50%) rotate(' + (s.vertical ? 90 : 0) + 'deg)';
+  const b2 = document.createElement('span'); b2.className = 'backTile back2';
+  const b1 = document.createElement('span'); b1.className = 'backTile' + (isHead ? ' drawNext' : '');
+  d.appendChild(b2); d.appendChild(b1);
+  return d;
+}
+function layoutWall() {
+  const w = frame.clientWidth, h = frame.clientHeight;
+  frame.querySelectorAll('.stack, .drawArrow').forEach((e) => e.remove());
+  if (!w || !h) return;
+  const slots = perimeterSlots(w, h);
+  const n = Math.min(slots.length, Math.ceil(live / 2));
+  for (let i = 0; i < n; i++) frame.appendChild(stackEl(slots[i], i === 0));
+  if (n > 0) {
+    const a = document.createElement('span');
+    a.className = 'drawArrow'; a.textContent = '↻';
+    a.style.left = (slots[0].x + 14) + 'px'; a.style.top = Math.max(8, slots[0].y) + 'px';
+    frame.appendChild(a);
+  }
+}
+document.getElementById('drawBtn').addEventListener('click', () => {
+  live = Math.max(0, live - 1);
+  document.getElementById('liveCount').textContent = live;
+  layoutWall();
+});
+layoutWall();
+new ResizeObserver(layoutWall).observe(frame);
 `;
 
 const full = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${css}</style></head><body>${board}<script>${script}</script></body></html>`;
