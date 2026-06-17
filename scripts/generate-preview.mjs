@@ -1,8 +1,8 @@
 // Dev-only: renders an INTERACTIVE standalone preview of the board using the
 // REAL stylesheets (whose source selectors are plain class names) and a port of
 // Tile.tsx's SVG. The bottom hand has working drag-to-reorder + sort, and the
-// centre has the wall ring with a Draw button, all ported to vanilla JS, so the
-// board can be tried by just opening the file. Not part of the app build.
+// centre has the wall ring with Draw / Kong buttons, all ported to vanilla JS,
+// so the board can be tried by just opening the file. Not part of the app build.
 // Run with: npm run preview:static
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -148,8 +148,8 @@ const board = `<div class="app">
       <div class="slotLeft">${seatPanel(players[3],'left')}</div>
       <div class="slotRight">${seatPanel(players[1],'right')}</div>
       <div class="slotCentre"><div class="centre">
-        <div class="wallInfo"><span><strong id="liveCount">42</strong> in wall</span><span><strong>14</strong> dead</span><span class="turnInfo">You (East) · discarding · drawn clockwise ↻</span><button type="button" id="drawBtn" class="sortBtn">Draw</button></div>
-        <div class="frame" id="wallFrame"><div class="inner"><div class="discardPool">${scatteredDiscards()}</div></div></div>
+        <div class="wallInfo"><span><strong id="liveCount">42</strong> in wall</span><span><strong id="deadCount">14</strong> dead</span><span class="turnInfo">You (East) · discarding · drawn clockwise ↻</span><button type="button" id="drawBtn" class="sortBtn">Draw</button><button type="button" id="kongBtn" class="sortBtn">Kong</button></div>
+        <div class="frame" id="wallFrame"><div class="kongBox" id="kongBox"></div><div class="inner"><div class="discardPool">${scatteredDiscards()}</div></div></div>
       </div></div>
       <div class="slotBottom">${seatPanel(players[0],'bottom')}<div class="placeholder actionBar">Action bar — Module 2.4</div></div>
     </div>
@@ -235,14 +235,19 @@ function perimeterSlots(w, h) {
   for (let y = h - m - PITCH; y >= m + PITCH; y -= PITCH) slots.push({ x: m, y, vertical: true });
   return slots;
 }
-function stackEl(s, isHead) {
+function stackEl(s, isHead, isHalf) {
   const d = document.createElement('div');
   d.className = 'stack';
   d.style.left = s.x + 'px'; d.style.top = s.y + 'px';
   d.style.transform = 'translate(-50%, -50%) rotate(' + (s.vertical ? 90 : 0) + 'deg)';
-  const b2 = document.createElement('span'); b2.className = 'backTile back2';
-  const b1 = document.createElement('span'); b1.className = 'backTile' + (isHead ? ' drawNext' : '');
-  d.appendChild(b2); d.appendChild(b1);
+  const bottom = document.createElement('span');
+  bottom.className = 'backTile backBottom' + (isHead && isHalf ? ' drawNext' : '');
+  d.appendChild(bottom);
+  if (!isHalf) {
+    const top = document.createElement('span');
+    top.className = 'backTile backTop' + (isHead ? ' drawNext' : '');
+    d.appendChild(top);
+  }
   return d;
 }
 function layoutWall() {
@@ -250,8 +255,9 @@ function layoutWall() {
   frame.querySelectorAll('.stack, .drawArrow').forEach((e) => e.remove());
   if (!w || !h) return;
   const slots = perimeterSlots(w, h);
+  const odd = live % 2 === 1;
   const n = Math.min(slots.length, Math.ceil(live / 2));
-  for (let i = 0; i < n; i++) frame.appendChild(stackEl(slots[i], i === 0));
+  for (let i = 0; i < n; i++) frame.appendChild(stackEl(slots[i], i === 0, odd && i === 0));
   if (n > 0) {
     const a = document.createElement('span');
     a.className = 'drawArrow'; a.textContent = '↻';
@@ -266,6 +272,25 @@ document.getElementById('drawBtn').addEventListener('click', () => {
 });
 layoutWall();
 new ResizeObserver(layoutWall).observe(frame);
+
+const kongBox = document.getElementById('kongBox');
+let dead = 14;
+function renderKong() {
+  const looseCount = Math.max(0, Math.min(2, dead));
+  const deadStacks = Math.max(0, Math.ceil((dead - looseCount) / 2));
+  let html = '<span class="kongLabel">dead</span><div class="kongRun">';
+  for (let i = 0; i < deadStacks; i++) html += '<span class="deadMini"></span>';
+  html += '</div><span class="kongLabel">loose</span><div class="kongRun">';
+  for (let i = 0; i < looseCount; i++) html += '<span class="looseTile"></span>';
+  html += '</div>';
+  kongBox.innerHTML = html;
+}
+document.getElementById('kongBtn').addEventListener('click', () => {
+  dead = Math.max(0, dead - 1);
+  document.getElementById('deadCount').textContent = dead;
+  renderKong();
+});
+renderKong();
 `;
 
 const full = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${css}</style></head><body>${board}<script>${script}</script></body></html>`;
