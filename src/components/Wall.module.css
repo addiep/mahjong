@@ -1,0 +1,50 @@
+/* Module 2.3 (part) — the wall: a two-tile-high ring of face-down stacks. */
+
+.frame {
+  position: relative;
+  flex: 1;
+  min-height: 240px;
+}
+
+/* The discards live inside the ring, inset clear of the wall stacks. */
+.inner {
+  position: absolute;
+  left: 34px;
+  top: 34px;
+  right: 34px;
+  bottom: 34px;
+}
+
+.stack {
+  position: absolute;
+  width: 19px;
+  height: 26px;
+}
+
+/* Two layers, slightly offset, to read as a stack two tiles high. */
+.backTile {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border-radius: 4px;
+  background: #1f6f5c;
+  border: 1px solid #15523f;
+}
+
+.back2 {
+  transform: translate(2px, -3px);
+  filter: brightness(0.82);
+}
+
+.drawNext {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.drawArrow {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  color: var(--accent);
+  font-size: 15px;
+  line-height: 1;
+  pointer-events: none;
+}

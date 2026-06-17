@@ -95,7 +95,7 @@
   border-left: 1px dashed var(--panel-border);
 }
 
-/* ── Centre: discard pool + wall info (Module 2.3 refines) ── */
+/* ── Centre: wall + discard pool ── */
 
 .centre {
   flex: 1;
@@ -122,8 +122,8 @@
 
 .discardPool {
   position: relative;
-  flex: 1;
-  min-height: 180px;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
 }
 

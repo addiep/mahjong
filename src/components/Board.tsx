@@ -11,8 +11,8 @@
  *     The local seat's concealed hand is the interactive, reorderable
  *     PlayerHand (Module 2.2); other seats render a static strip. Exposed melds
  *     sit towards the centre (above the hand for the bottom/top seats).
- *   - Central discard pool + wall indicator — discards scatter across the area
- *     without overlapping; refined further in Module 2.3.
+ *   - Central table: the wall (face-down ring, Module 2.3) frames the discards,
+ *     which scatter across the area without overlapping.
  *   - Action bar (below the local seat) — Module 2.4 (placeholder here).
  *   - Score panel (corner) — Module 2.5 (placeholder here).
  *
@@ -21,13 +21,14 @@
  * show at the bottom) defaults to whoever's turn it is.
  *
  * Dependencies: @mahjong/engine (types only), Tile (Module 2.1), PlayerHand
- * (Module 2.2). No engine logic and no game mutation happen here.
+ * (Module 2.2), WallFrame (Module 2.3). No engine logic and no game mutation here.
  */
 
 import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState } from 'react';
 import type { GameState, PlayerState, SeatIndex, Wind, DeclaredMeld } from '@mahjong/engine';
 import { Tile } from './Tile';
 import { PlayerHand } from './PlayerHand';
+import { WallFrame } from './Wall';
 import styles from './Board.module.css';
 
 type SeatPosition = 'bottom' | 'right' | 'top' | 'left';
@@ -184,7 +185,7 @@ function MeldGroup({ meld, size }: { meld: DeclaredMeld; size: number }) {
   );
 }
 
-// ─── Central discard pool + wall indicator (refined in Module 2.3) ──────────────
+// ─── Central table: wall + discard pool (Module 2.3) ─────────────────────────
 
 /** Stable pseudo-random in [0, 1) from a string and a salt (FNV-1a based). */
 function hashFloat(str: string, salt: number): number {
@@ -254,20 +255,22 @@ function DiscardArea({ state }: { state: GameState }) {
   return (
     <div className={styles.centre}>
       <div className={styles.wallInfo}>
-        <span><strong>{wall.live.length}</strong> wall</span>
+        <span><strong>{wall.live.length}</strong> in wall</span>
         <span><strong>{wall.dead.length}</strong> dead</span>
         <span className={styles.turnInfo}>
-          {current ? `${current.name}` : '—'} · {phase.toLowerCase().replace('_', ' ')}
+          {current ? `${current.name}` : '—'} · {phase.toLowerCase().replace('_', ' ')} · drawn clockwise ↻
         </span>
       </div>
 
-      <div ref={poolRef} className={styles.discardPool} aria-label={`${discardPool.length} tiles discarded`}>
-        {w > 0 && discardPool.map((tile, i) => (
-          <div key={tile.id} className={styles.discardTile} style={discardStyle(tile.id, i, cols, rows, w, h)}>
-            <Tile tile={tile} size={DISCARD_TILE} />
-          </div>
-        ))}
-      </div>
+      <WallFrame liveCount={wall.live.length}>
+        <div ref={poolRef} className={styles.discardPool} aria-label={`${discardPool.length} tiles discarded`}>
+          {w > 0 && discardPool.map((tile, i) => (
+            <div key={tile.id} className={styles.discardTile} style={discardStyle(tile.id, i, cols, rows, w, h)}>
+              <Tile tile={tile} size={DISCARD_TILE} />
+            </div>
+          ))}
+        </div>
+      </WallFrame>
     </div>
   );
 }
