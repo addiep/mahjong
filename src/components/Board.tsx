@@ -195,15 +195,20 @@ function hashFloat(str: string, salt: number): number {
 }
 
 /**
- * Scatters discards around the centre, as they land haphazardly on a real
- * table. Positions are derived from the tile id, so they are stable across
- * renders (a tile never jumps once it has landed).
+ * Gives each discard a small jitter and tilt so the pool looks casually dotted
+ * around rather than lined up — but the nudge stays inside the tile's own slot,
+ * so tiles never overlap and every tile stays fully visible. Values derive from
+ * the tile id, so they are stable across renders (a tile never jumps once placed).
  */
 function discardStyle(id: string): CSSProperties {
-  const left = 7 + hashFloat(id, 1) * 80;
-  const top = 12 + hashFloat(id, 2) * 70;
-  const rot = (hashFloat(id, 3) * 2 - 1) * 22;
-  return { left: `${left}%`, top: `${top}%`, ['--rot' as string]: `${rot}deg` } as CSSProperties;
+  const jx = (hashFloat(id, 1) * 2 - 1) * 4;
+  const jy = (hashFloat(id, 2) * 2 - 1) * 4;
+  const rot = (hashFloat(id, 3) * 2 - 1) * 12;
+  return {
+    ['--jx' as string]: `${jx}px`,
+    ['--jy' as string]: `${jy}px`,
+    ['--rot' as string]: `${rot}deg`,
+  } as CSSProperties;
 }
 
 function DiscardArea({ state }: { state: GameState }) {
