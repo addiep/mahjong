@@ -68,9 +68,10 @@ permitted as honours in any clean hand). When the switch is off, special hands a
 unaffected — their own definitions govern whether they are clean or dirty.
 
 ### Discard Visibility
-All discards go into a single communal pool. There is no record of who discarded which
+All discards go into a single communal pool. Players see no record of who discarded which
 tile, and a player may discard a tile and later win by claiming the same kind of tile
-from the pool (no "fish back" rule).
+from the pool (no "fish back" rule). (Internally the engine does retain discard provenance
+for the intelligence module; see "Private discard provenance" below.)
 
 - **Default:** the communal discard pool is face-up. All players can see every tile
   that has been discarded. This is strategically important (e.g. knowing a tile is
@@ -79,6 +80,12 @@ from the pool (no "fish back" rule).
   discards. The tile just played is visible during the claim window so players can
   decide whether to claim it, but once the window closes it joins the face-down pool.
   This is a configurable game option set before the hand begins, not a mid-game toggle.
+
+**Private discard provenance (for the intelligence module):** although the player-facing
+pool records no authorship, the engine privately retains who discarded which tile and when
+(an append-only `discardLog`; see Modules 1.3 and 1.4). This is never shown to players in
+normal play; it feeds the intelligence module (Phase 4) and, later, the AI. A skilled human
+tracks the same information from memory, less reliably.
 
 ### Winning Hand
 Standard structure: four melds (pung, kong, or chow) + one pair.
@@ -228,6 +235,10 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 #### Module 1.3 — Game State Model
 - `GameConfig.deadWall?` (optional, default false) carries the wall-style switch; the game
   setup passes it to `buildWall`.
+- Planned extension (2026-06-17): add a private, append-only `discardLog` to `GameState`
+  recording `{ seat, tile, moveIndex, claimedBy? }` per discard. Kept separate from the
+  player-facing communal pool (which stays unordered and authorless). Read only by the
+  intelligence module (Phase 4) and the AI, never rendered in normal play. Not yet built.
 - Status: **complete** — commit `7f799e3`; extended in `d59a21` (claimWindow), `f9cb525` (robbingKong + ROBBING_KONG phase), and `afdaa57` (`deadWall` config flag).
 
 #### Module 1.4 — Turn Engine (State Machine)
@@ -241,6 +252,9 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
   a drawn tile, then opens a `ROBBING_KONG` window. Only that tile may be robbed, only for
   a win (validated via Module 1.7), and only an added kong is robbable — concealed kongs
   are safe. If nobody robs, the melder proceeds to the kong replacement draw.
+- Planned extension (2026-06-17): populate the Module 1.3 `discardLog` here, since the turn
+  engine is the only place state advances — append a record when a `DISCARD` action is
+  dispatched and mark it claimed when a claim resolves. Not yet built.
 - Status: **complete** — commits `d59a21`, `dd8d003` (claim-window), `f9cb525` (added kong + Robbing the Kong).
 
 #### Module 1.4b — Game Runner
@@ -391,11 +405,52 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 #### Module 2.5 — UI: Score Panel
 - Status: **not started**
 
+#### Deliverable — Rules Write-up + HK Diff (when Phase 1 is playable)
+- A clean, player-facing write-up of the rules this game uses, drawn mostly from §1 —
+  usable as briefing material for new players learning Adam's version.
+- A comparison against standard Hong Kong rules flagging the deliberate departures (e.g.
+  Purity as a ×3 doubling rather than a limit hand, the no-reserve default wall, the added
+  family hands such as Dragonfly / Windy Dragons / Honour Pairs, dirty wins off by default),
+  to check the house rules have not strayed too far.
+- Status: **not started**
+
 ---
 
 ### Phase 2 — Online Multiplayer (future)
 
-> Details to be fleshed out when Phase 1 is complete.
+Authoritative Node + Socket.io server (see §2). Clients send actions; the server runs the
+shared engine, validates, and broadcasts the resulting `GameState`. Each client renders its
+own seat at the bottom (the Board already supports this), so the same state is shown from
+three or four perspectives.
+
+#### Module 3.1 — Server Scaffold + Shared Engine Import
+- Node server importing `@mahjong/engine`; reuses `dispatch` and `GameRunner` so the rules
+  are never duplicated between client and server.
+- Status: **not started**
+
+#### Module 3.2 — Lobby + Game Session
+- Create / join a game by room code; seat assignment; start when 3 or 4 players are ready.
+- Status: **not started**
+
+#### Module 3.3 — Authoritative State Sync
+- Clients send actions over Socket.io; the server validates via the engine and broadcasts
+  the new state.
+- Per-seat state filtering: a client only receives its own concealed tiles; opponents'
+  concealed hands are never sent over the wire (anti-cheat). The discard log (Modules
+  1.3/1.4) likewise stays server-side, exposed only to the intelligence module.
+- Status: **not started**
+
+#### Module 3.4 — Reconnection + Resilience
+- Handle drop / rejoin, turn timeouts, and a player leaving mid-hand.
+- Status: **not started**
+
+#### Module 3.5 — Voice Chat (optional, WebRTC)
+- Browser-to-browser audio via WebRTC; a three/four-player peer-to-peer mesh. The signalling
+  handshake rides the existing Socket.io connection. STUN for NAT traversal (free public
+  servers); a TURN server as the fallback for restrictive networks (self-hosted or paid).
+- Chosen over an external FaceTime window so voice lives in the same app and ties into the
+  game session. Optional, so it never blocks the core online game.
+- Status: **not started**
 
 ---
 
@@ -403,7 +458,37 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 
 Rule-based heuristic AI. The `PlayerController` interface (Module 1.4b) is the
 integration point — the AI implements it and lives in `engine/src/ai/`. No engine
-changes needed for Phase 3.
+changes needed for Phase 3. A strong AI would consume the Phase 4 intelligence inference.
+
+---
+
+### Phase 4 — Intelligence (Opponent Modelling, future)
+
+A module that infers each opponent's likely strategy from public information only: their
+exposed melds and kongs, their claim behaviour, and the discard log (who threw what, and
+when). It cannot see concealed tiles — exactly like a human at the table — though it can
+track the history more reliably than memory allows.
+
+During the Phase 1 test build it can be displayed live on screen: a read-out per opponent of
+what the module thinks they are collecting, as a way to develop and sanity-check it.
+
+Distinct from the Phase 3 AI player (which chooses its own moves), though a strong AI would
+consume the same inference. Adam has ideas on the inference approach, to be worked out when
+the time comes.
+
+#### Module 5.1 — Discard Provenance Plumbing
+- Depends on the Module 1.3 / 1.4 `discardLog` extension specified above (private record of
+  seat, tile, moveIndex, and whether/by whom claimed).
+- Status: **not started**
+
+#### Module 5.2 — Inference Engine
+- Reads public state (exposed melds, claim history, discard log) and produces a per-opponent
+  hypothesis about their target hand / suits / honours. Approach TBD.
+- Status: **not started**
+
+#### Module 5.3 — Live Debug Display
+- Renders the per-opponent inference on screen during the test build.
+- Status: **not started**
 
 ---
 
@@ -425,6 +510,7 @@ changes needed for Phase 3.
 | ~~OQ-12~~ | ~~Robbing the Kong: claim-window interaction when an exposed pung is promoted to a kong~~ | Resolved & implemented (commit `f9cb525`) — added kong only; robbed by a player completing their win on that tile; concealed kongs safe |
 | ~~OQ-13~~ | ~~Knitting / Crocheting: exact tile structure~~ | Resolved — Knitting = seven cross-suit number pairs across two suits; Crocheting pair = any two tiles sharing a number |
 | ~~OQ-14~~ | ~~Should the dead wall be replenished from the live wall (traditional), or use up the whole wall?~~ | Resolved — added a `deadWall` config switch (default off = the family rule: no reserve, loose tiles from the far end of the wall, play until exhausted; on = traditional 14-tile reserve). Engine commit `afdaa57` |
+| OQ-15 | Intelligence module: inference approach (heuristics, scoring of hypotheses, how confidence is shown) | Phase 4 (Module 5.2); Adam has ideas, to be worked out when the time comes |
 
 ---
 
@@ -495,6 +581,12 @@ changes needed for Phase 3.
 | 2026-06-17 | Wall shown as a two-high ring of face-down stacks framing the discards, bound to the live count; odd remainder drawn as a single, distinctly shaded bottom tile | Makes every single draw visibly reduce the wall, not just every second one; perimeter measured via ResizeObserver. Part of Module 2.3 |
 | 2026-06-17 | Wall shown as one continuous wall drawn from BOTH ends: normal tiles off the live end (recedes tile-by-tile from the most-clockwise point, nothing shifts), loose (kong/flower) tiles off the other end. No separate dead-wall tray and no "dead"/"loose" labels; each end is anchored at the end it is not drawn from | Matches how the table works — loose tiles are just the far end of the same wall, nothing special about them. Supersedes the earlier "dead wall + loose tray" framing. (The engine still draws replacements from `wall.dead` without replenishing from the live wall — see OQ-14) |
 | 2026-06-17 | Added a `deadWall` config switch (Module 1.3 `GameConfig`, optional, default false). False = the family rule (no 14-tile reserve; loose tiles come from the far end of the live wall; play until the wall is exhausted). True = the traditional reserve. `buildWall` branches on it; `drawReplacement` falls back to the wall's far end when there is no reserve | Resolves OQ-14. The family doesn't use a reserve; the switch keeps the traditional style available, with the family rule as the default. 64 vitest cases pass (incl. new no-reserve cases). Engine commit `afdaa57` |
+| 2026-06-17 | Engine privately tracks discard provenance (a `discardLog`: seat, tile, moveIndex, claimedBy) while the player-facing pool stays unordered and authorless | The intelligence module (Phase 4) and the AI need to know who discarded what and when; a human tracks the same from memory, less reliably. Refines the internal effect of the 2026-06-13 "no per-player tracking" note — that still governs what players see, not internal state |
+| 2026-06-17 | The discard log lives on the Module 1.3 `GameState` and is populated by the Module 1.4 turn engine (append on `DISCARD`, mark on claim) | The state model owns the data; the turn engine is the only place state advances, so it is where each discard / claim is recorded. Not yet built |
+| 2026-06-17 | Phase 2 fleshed into modules: server scaffold (3.1), lobby/session (3.2), authoritative per-seat state sync (3.3), reconnection (3.4), optional WebRTC voice (3.5) | Replaces the one-line placeholder now the architecture is agreed; per-seat filtering keeps opponents' concealed tiles and the discard log server-side |
+| 2026-06-17 | Voice chat via WebRTC peer-to-peer mesh (signalling over Socket.io, STUN + fallback TURN), optional; preferred over an external FaceTime window | Keeps voice in the same app and tied to the session; open-source, no per-seat licensing; optional so it never blocks the core game |
+| 2026-06-17 | Added Phase 4 — Intelligence (opponent modelling) from public info only (exposed melds, claims, discard log); displayable live during the Phase 1 test build; distinct from the Phase 3 AI player | Reads only what a human could; cannot see concealed tiles. Modules 5.1 (provenance plumbing), 5.2 (inference engine, approach TBD — OQ-15), 5.3 (live debug display) |
+| 2026-06-17 | Planned deliverable: a player-facing rules write-up + a diff against standard HK rules, once Phase 1 is playable | Doubles as new-player briefing and a check that the house rules have not strayed too far |
 
 ---
 
