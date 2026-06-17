@@ -1,0 +1,93 @@
+/* Module 2.4 — Action Bar */
+
+.bar {
+  width: 100%;
+  max-width: 560px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+}
+
+.prompt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  white-space: nowrap;
+}
+
+.name {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.promptText {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.btn {
+  border-radius: 8px;
+  padding: 5px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+/* Mah Jong — green, prominent */
+.win {
+  background: #1a4d2e;
+  border-color: #2e7d32;
+  color: #81c784;
+}
+.win:hover { background: #2e7d32; }
+
+/* Kong — amber */
+.kong {
+  background: rgba(0, 0, 0, 0.2);
+  border-color: #9c6500;
+  color: #ffb74d;
+}
+.kong:hover { background: rgba(156, 101, 0, 0.2); }
+
+/* Pung — accent colour */
+.pung {
+  background: rgba(0, 0, 0, 0.2);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.pung:hover { background: rgba(0, 0, 0, 0.35); }
+
+/* Chow — blue */
+.chow {
+  background: rgba(0, 0, 0, 0.2);
+  border-color: #1565c0;
+  color: #64b5f6;
+}
+.chow:hover { background: rgba(21, 101, 192, 0.2); }
+
+/* Pass — muted */
+.pass {
+  background: rgba(0, 0, 0, 0.1);
+  border-color: var(--panel-border);
+  color: var(--text-dim);
+}
+.pass:hover {
+  border-color: var(--text-dim);
+  color: var(--text);
+}

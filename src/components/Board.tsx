@@ -13,7 +13,7 @@
  *     sit towards the centre (above the hand for the bottom/top seats).
  *   - Central table: the wall (face-down ring drawn from both ends, Module 2.3)
  *     frames the discards, which scatter without overlapping.
- *   - Action bar (below the local seat) — Module 2.4 (placeholder here).
+ *   - Action bar (below the local seat) — Module 2.4.
  *   - Score panel (corner) — Module 2.5 (placeholder here).
  *
  * The board adapts to 3- or 4-player games (the engine supports both): with
@@ -22,16 +22,21 @@
  *
  * Updated Module 2.2: accepts onDiscard and threads isDiscarding + onDiscard
  * into the interactive seat's PlayerHand.
+ * Updated Module 2.4: accepts onClaimResponse and renders ActionBar.
  *
  * Dependencies: @mahjong/engine (types only), Tile (Module 2.1), PlayerHand
- * (Module 2.2), WallFrame (Module 2.3). No engine logic and no game mutation here.
+ * (Module 2.2), WallFrame (Module 2.3), ActionBar (Module 2.4).
+ * No engine logic and no game mutation here.
  */
 
 import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState } from 'react';
-import type { GameState, PlayerState, SeatIndex, Wind, DeclaredMeld, TileId } from '@mahjong/engine';
+import type {
+  GameState, PlayerState, SeatIndex, Wind, DeclaredMeld, TileId, ClaimDecision,
+} from '@mahjong/engine';
 import { Tile } from './Tile';
 import { PlayerHand } from './PlayerHand';
 import { WallFrame } from './Wall';
+import { ActionBar } from './ActionBar';
 import styles from './Board.module.css';
 
 type SeatPosition = 'bottom' | 'right' | 'top' | 'left';
@@ -61,9 +66,14 @@ export interface BoardProps {
    * DISCARDING phase; undefined otherwise so the hand is not interactive.
    */
   readonly onDiscard?: (tileId: TileId) => void;
+  /**
+   * Called when a player responds to a claim window (CLAIM_WINDOW or
+   * ROBBING_KONG phase). Provided by App; the ActionBar component uses it.
+   */
+  readonly onClaimResponse?: (seat: SeatIndex, decision: ClaimDecision) => void;
 }
 
-export function Board({ state, localSeat, revealAll = true, onDiscard }: BoardProps) {
+export function Board({ state, localSeat, revealAll = true, onDiscard, onClaimResponse }: BoardProps) {
   const { players, config, currentSeat, phase } = state;
   const base = localSeat ?? currentSeat;
   const positions = seatPositions(config.playerCount);
@@ -115,7 +125,9 @@ export function Board({ state, localSeat, revealAll = true, onDiscard }: BoardPr
 
       <div className={styles.slotBottom}>
         {renderSeat('bottom')}
-        <Placeholder label="Action bar — Module 2.4" className={styles.actionBar} />
+        {onClaimResponse && (
+          <ActionBar state={state} onClaim={onClaimResponse} />
+        )}
       </div>
     </div>
   );
@@ -321,12 +333,6 @@ function ScorePanel({
       <span className={styles.placeholderTag}>Score panel — Module 2.5</span>
     </aside>
   );
-}
-
-// ─── Shared placeholder block ───────────────────────────────────────────────────
-
-function Placeholder({ label, className = '' }: { label: string; className?: string }) {
-  return <div className={`${styles.placeholder} ${className}`}>{label}</div>;
 }
 
 export default Board;
