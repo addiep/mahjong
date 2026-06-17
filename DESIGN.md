@@ -137,7 +137,7 @@ Each qualifying condition doubles the round total once:
 #### Additional doublings for the winning player only
 
 - Clean hand (all melds and pair in one suit; Winds and Dragons permitted): ×1
-- Purity (clean hand with no Winds or Dragons): ×? *(value TBD — see OQ-16)*
+- Purity (clean hand with no Winds or Dragons): ×3
 - Winning with a loose tile, last tile of the wall, last discard, or Robbing the Kong: ×1
 - Winds and Dragons only (all melds are Winds or Dragons): ×3
 - Heads & Tails (all melds are 1s and 9s): ×3
@@ -330,8 +330,8 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
   bonus-tile count and applies the complete-set doublings, but does not add the flat points.
   Settlement of points between players is out of scope (a higher-level concern).
 - **Pending update:** Buried Treasure definition changed (any fully concealed hand; see
-  2026-06-17 decisions log). Purity doubling value TBD (OQ-16). These affect the scoring
-  config and detector logic; to be addressed when OQ-16 is resolved.
+  2026-06-17 decisions log). Purity is now ×3 (clean hand, no W/D). These affect the scoring
+  config and detector logic; to be addressed when Module 2.5 begins.
 - Status: **complete** — commits `14fe9fb` (config + index), `7be1898` (engine + 18 vitest cases).
 
 #### Module 1.9 — Flower / Season Scoring
@@ -427,9 +427,9 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - A clean, player-facing write-up of the rules this game uses, drawn mostly from §1 —
   usable as briefing material for new players learning Adam's version.
 - A comparison against standard Hong Kong rules flagging the deliberate departures (e.g.
-  Purity as a clean+no-W/D doubling rather than a limit hand, the no-reserve default wall,
-  the added family hands such as Dragonfly / Windy Dragons / Honour Pairs, dirty wins off
-  by default), to check the house rules have not strayed too far.
+  Purity as a clean+no-W/D ×3 doubling, the no-reserve default wall, the added family
+  hands such as Dragonfly / Windy Dragons / Honour Pairs, dirty wins off by default), to
+  check the house rules have not strayed too far.
 - Status: **not started**
 
 ---
@@ -525,12 +525,12 @@ the time comes.
 | ~~OQ-8~~ | ~~Keep All Pungs, All Kongs, Heavenly Hand, Earthly Hand?~~ | Resolved — all kept |
 | ~~OQ-9~~ | ~~All Honours: include 1s and 9s?~~ | Resolved — yes |
 | ~~OQ-10~~ | ~~Ruby and Emerald: precise tile lists?~~ | Resolved — both hands removed |
-| ~~OQ-11~~ | ~~Purity: limit hand or ×3 doubling?~~ | Resolved — Purity redefined as clean hand + no W/D; doubling value TBD (OQ-16) |
+| ~~OQ-11~~ | ~~Purity: limit hand or ×3 doubling?~~ | Resolved — Purity redefined as clean hand + no W/D; doubling ×3 (OQ-16) |
 | ~~OQ-12~~ | ~~Robbing the Kong: claim-window interaction when an exposed pung is promoted to a kong~~ | Resolved & implemented (commit `f9cb525`) — added kong only; robbed by a player completing their win on that tile; concealed kongs safe |
 | ~~OQ-13~~ | ~~Knitting / Crocheting: exact tile structure~~ | Resolved — Knitting = seven cross-suit number pairs across two suits, numbers may repeat; Crocheting pair = any two tiles sharing a number, numbers may repeat |
 | ~~OQ-14~~ | ~~Should the dead wall be replenished from the live wall (traditional), or use up the whole wall?~~ | Resolved — added a `deadWall` config switch (default off = the family rule: no reserve, loose tiles from the far end of the wall, play until exhausted; on = traditional 14-tile reserve). Engine commit `afdaa57` |
 | OQ-15 | Intelligence module: inference approach (heuristics, scoring of hypotheses, how confidence is shown) | Phase 4 (Module 5.2); Adam has ideas, to be worked out when the time comes |
-| OQ-16 | Purity (clean hand with no Winds or Dragons): what doubling should it carry? | Scoring engine config (Module 1.8) |
+| ~~OQ-16~~ | ~~Purity (clean hand with no Winds or Dragons): what doubling should it carry?~~ | Resolved — ×3 |
 
 ---
 
@@ -618,6 +618,7 @@ the time comes.
 | 2026-06-17 | Knitting reclassified from Limit to ½ limit (500 points) | Consistent with Crocheting and the half-limit tier |
 | 2026-06-17 | Buried Treasure redefined: any fully concealed hand (all melds self-drawn, any tile composition, winning tile may be a discard) → Limit (1,000 points). Previous narrow definition (one suit only) retired | The defining feature is concealment, not suit purity |
 | 2026-06-17 | Purity redefined as a clean hand (one suit) with no Winds or Dragons — stricter than the general clean-hand doubling (×1, which permits W/D). Doubling value open (OQ-16). Previous Purity (×3, all-concealed, one suit, no W/D, no chows) retired; its concealment aspect is now Buried Treasure | Aligns with the family understanding of "purity" as suit cleanliness, not hand concealment |
+| 2026-06-17 | OQ-16 resolved: Purity carries ×3 (three doublings, i.e. ×8 multiplier) | Family rule |
 
 ---
 
