@@ -38,6 +38,14 @@ Play passes anticlockwise. The wall is built clockwise.
 - This replacement draw can itself be a bonus tile, triggering another replacement.
 - Bonus tiles are held in a separate list, never in the playing hand; the hand stays at 14 (+ one per declared kong).
 
+### Dead Wall / Wall Reserve
+Controlled by the `deadWall` config switch (see §3 Module 1.2 and the Decisions Log).
+- **Off (default — the family rule):** no reserve. Replacement (loose) tiles come from
+  the far end of the live wall, and play continues until the wall is exhausted (a draw;
+  nobody wins).
+- **On (traditional):** the last 14 tiles are reserved as a dead wall and replacements
+  come from it.
+
 ### Knitting & Crocheting
 Two additional special hands, enabled or disabled as a single binary switch set before
 the game begins. If the switch is off, neither hand is legal and neither appears in the
@@ -211,10 +219,16 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Status: **complete** — commit `60684e4`
 
 #### Module 1.2 — Wall Builder
-- Status: **complete** — commit `f40e1a6`
+- `deadWall` switch (resolves OQ-14): `buildWall(playerCount, deadWall)` either reserves
+  a 14-tile dead wall (traditional) or, when off (the family rule, the default), keeps the
+  whole wall in play. `drawReplacement` draws loose tiles from the dead wall when present,
+  otherwise from the far end of the live wall; the hand ends when the wall is exhausted.
+- Status: **complete** — commit `f40e1a6`; `deadWall` wall-style switch added in `afdaa57` (OQ-14).
 
 #### Module 1.3 — Game State Model
-- Status: **complete** — commit `7f799e3`; extended in `d59a21` (claimWindow) and `f9cb525` (robbingKong + ROBBING_KONG phase)
+- `GameConfig.deadWall?` (optional, default false) carries the wall-style switch; the game
+  setup passes it to `buildWall`.
+- Status: **complete** — commit `7f799e3`; extended in `d59a21` (claimWindow), `f9cb525` (robbingKong + ROBBING_KONG phase), and `afdaa57` (`deadWall` config flag).
 
 #### Module 1.4 — Turn Engine (State Machine)
 - Pure `dispatch(state, action): GameState` function — the only way to advance state.
@@ -410,7 +424,7 @@ changes needed for Phase 3.
 | ~~OQ-11~~ | ~~Purity: limit hand or ×3 doubling?~~ | Resolved — ×3 doubling (unorthodox family rule) |
 | ~~OQ-12~~ | ~~Robbing the Kong: claim-window interaction when an exposed pung is promoted to a kong~~ | Resolved & implemented (commit `f9cb525`) — added kong only; robbed by a player completing their win on that tile; concealed kongs safe |
 | ~~OQ-13~~ | ~~Knitting / Crocheting: exact tile structure~~ | Resolved — Knitting = seven cross-suit number pairs across two suits; Crocheting pair = any two tiles sharing a number |
-| OQ-14 | Should the dead wall be replenished from the live wall to stay at 14 (traditional rule), or simply deplete as the engine currently does? | The UI shows one wall drawn from both ends (loose tiles off the far end); the engine still depletes `wall.dead` without replenishing. Possible future engine change (Module 1.2 / 1.4) |
+| ~~OQ-14~~ | ~~Should the dead wall be replenished from the live wall (traditional), or use up the whole wall?~~ | Resolved — added a `deadWall` config switch (default off = the family rule: no reserve, loose tiles from the far end of the wall, play until exhausted; on = traditional 14-tile reserve). Engine commit `afdaa57` |
 
 ---
 
@@ -480,6 +494,7 @@ changes needed for Phase 3.
 | 2026-06-17 | Wall draw direction: tiles leave the wall clockwise while turns pass anticlockwise; the UI portrays clockwise depletion | Confirmed by research (Mahjong Wiki HK Old Style; sloperama MJ FAQ): two directions run at once — players take turns anticlockwise, tiles are drawn from the wall clockwise. Clarifies the §1 "wall built clockwise" note |
 | 2026-06-17 | Wall shown as a two-high ring of face-down stacks framing the discards, bound to the live count; odd remainder drawn as a single, distinctly shaded bottom tile | Makes every single draw visibly reduce the wall, not just every second one; perimeter measured via ResizeObserver. Part of Module 2.3 |
 | 2026-06-17 | Wall shown as one continuous wall drawn from BOTH ends: normal tiles off the live end (recedes tile-by-tile from the most-clockwise point, nothing shifts), loose (kong/flower) tiles off the other end. No separate dead-wall tray and no "dead"/"loose" labels; each end is anchored at the end it is not drawn from | Matches how the table works — loose tiles are just the far end of the same wall, nothing special about them. Supersedes the earlier "dead wall + loose tray" framing. (The engine still draws replacements from `wall.dead` without replenishing from the live wall — see OQ-14) |
+| 2026-06-17 | Added a `deadWall` config switch (Module 1.3 `GameConfig`, optional, default false). False = the family rule (no 14-tile reserve; loose tiles come from the far end of the live wall; play until the wall is exhausted). True = the traditional reserve. `buildWall` branches on it; `drawReplacement` falls back to the wall's far end when there is no reserve | Resolves OQ-14. The family doesn't use a reserve; the switch keeps the traditional style available, with the family rule as the default. 64 vitest cases pass (incl. new no-reserve cases). Engine commit `afdaa57` |
 
 ---
 
