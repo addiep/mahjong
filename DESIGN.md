@@ -409,7 +409,15 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 - Status: **complete** — commits `04f2ccc`, `82111ce`, `03a9179`, `5345236`.
 
 #### Module 2.4 — UI: Action Bar
-- Status: **not started**
+- `ActionBar` component: shown during CLAIM_WINDOW and ROBBING_KONG for the first seat still
+  awaiting a response. Renders Mah Jong / Kong / Pung / Chow / Pass buttons based on legal
+  actions; multiple chow sequences get separate buttons labelled with all three tile values
+  (e.g. "Chow 3-4-5"). Returns null outside those phases.
+- App.tsx: smarter auto-advance — CLAIM_WINDOW and ROBBING_KONG auto-pass a seat only when
+  it has no legal action; otherwise the ActionBar shows and the player decides.
+- `chowOptions()` helper: derives the `[TileId, TileId]` pairs from the concealed hand;
+  needed because `canChow()` returns boolean only, not tile IDs.
+- Status: **complete** — commit `13d82cf`
 
 #### Module 2.5 — UI: Score Panel
 - Status: **not started**
@@ -600,6 +608,7 @@ the time comes.
 | 2026-06-17 | Made `engine/src` type-clean under the strict tsconfig (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`): asserted array access in meld-validator after length guards, switched wall draws to index+slice (and the shuffle swap to a temp var), and fixed claim-window's exhaustiveness guard to assign `decision.type` (the discriminant narrows to `never`, the object does not). Behaviour unchanged | These were pre-existing errors on `main`, surfaced while building the discard log. Production code now passes `tsc --noEmit` clean. Commit `971707c` |
 | 2026-06-17 | Test files type-checked under a dedicated `engine/tsconfig.test.json` (extends the base, relaxes only `noUncheckedIndexedAccess` + enables `skipLibCheck`); production code stays fully strict. `npm run typecheck` now runs both projects. Fixed a latent branded-`TileId` cast in `claim-window.test.ts` (`chowTiles` was cast to `[string, string]`) | Index access on known tile fixtures is noise in test code; relaxing only that one flag keeps the rest of the test type-checking as strict as production. Whole engine now tsc-clean (src + tests); full suite green at 302 vitest cases. Commit `b766f03` |
 | 2026-06-17 | Module 2.3 declared complete — the scatter grid and both-ends wall depletion already satisfied the module goals; the "polished detailing" note in the status was a placeholder with no outstanding work | No additional commits required |
+| 2026-06-17 | Module 2.4 complete: ActionBar shows claim buttons (Mah Jong / Kong / Pung / Chow / Pass) for the first pending seat during CLAIM_WINDOW; Win / Pass only during ROBBING_KONG. App.tsx auto-passes a seat only when it has no legal action; otherwise ActionBar handles the decision. `chowOptions()` helper derives tile-ID pairs locally since `canChow` returns boolean only. Commit `13d82cf` |
 | 2026-06-17 | Module 2.2 complete: live engine wired to the UI for the first time. App.tsx holds a live `GameState`; functional `setState` auto-advances DRAWING/CHECK_BONUS/CLAIM_WINDOW/ROBBING_KONG (phase-guarded, safe under StrictMode). Discard interaction: first tap selects a tile (lifted via `translateY(-10px)`, green border from the existing `Tile.selected` prop); second tap calls `onDiscard`. Tap vs drag distinguished by `|dx| < 5 px`. Selection clears on tile-set change. CLAIM_WINDOW/ROBBING_KONG auto-pass until Module 2.4. HAND_OVER banner with New hand button | Board rotates so the current player is always shown at the bottom; `onDiscard` threaded from App → Board → SeatPanel → PlayerHand, active only during DISCARDING phase. Commit `86b0fed` |
 
 ---
