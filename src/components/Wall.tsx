@@ -3,23 +3,24 @@
  *
  * Renders the undrawn tiles as a square ring of face-down stacks around the
  * central table, two tiles high, exactly as the wall sits between the players
- * and the discards in a real game (four rows of stacks pushed into a square).
+ * and the discards in a real game.
  *
- * In Hong Kong mahjong two directions run at once: players take turns
- * anticlockwise, but tiles are drawn from the wall *clockwise*. So the ring is
- * laid out clockwise from the top-left, the next-to-draw stack is highlighted,
- * and a ↻ marks the draw direction.
+ * It is one continuous wall drawn from both ends. Normal draws come off the
+ * "live" end and the wall recedes from there, one tile at a time, starting at
+ * the most-clockwise point — every remaining tile stays exactly where it is
+ * (nothing shifts). Loose tiles (kong / flower replacements) simply come off
+ * the *other* end of the same wall; there is nothing special about them beyond
+ * that, so they are drawn identically and recede from the far end.
  *
- * Each stack is two tiles: a darker bottom tile and a lighter top tile raised to
- * sit on it. The stack count is bound to the live wall, and an odd remainder is
- * drawn as a single bottom tile at the front — so every individual draw produces
- * a visible change (top tile gone, then the bottom).
+ * In Hong Kong mahjong players take turns anticlockwise but tiles leave the wall
+ * clockwise, so a ↻ marks the live (normal) draw point.
  *
- * The dead wall (reserved kong / flower replacements) is shown as a small tray
- * at the top, with the two "loose" tiles kept topped up from the reserve.
+ * Each stack is two tiles: a darker bottom and a lighter top raised onto it. An
+ * odd remaining count renders the front stack as a single bottom tile, so every
+ * individual draw is visible (the top goes, then the bottom).
  *
- * Presentational only: it reads counts from the GameState wall and renders; the
- * discards are passed as children and sit inset within the ring.
+ * Presentational only: it reads counts from the GameState wall; the discards are
+ * passed as children and sit inset within the ring.
  */
 
 import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react';
@@ -55,10 +56,23 @@ function useElementSize<T extends HTMLElement>(ref: RefObject<T>): { w: number; 
   return size;
 }
 
+/** Renders one stack at a slot: a darker bottom tile and (unless half) a lighter top. */
+function Stack({ slot, half, front }: { slot: Slot; half: boolean; front: boolean }) {
+  return (
+    <div
+      className={styles.stack}
+      style={{ left: `${slot.x}px`, top: `${slot.y}px`, transform: `translate(-50%, -50%) rotate(${slot.vertical ? 90 : 0}deg)` }}
+    >
+      <span className={`${styles.backTile} ${styles.backBottom} ${front && half ? styles.drawNext : ''}`} />
+      {!half && <span className={`${styles.backTile} ${styles.backTop} ${front ? styles.drawNext : ''}`} />}
+    </div>
+  );
+}
+
 export interface WallFrameProps {
-  /** Number of live (drawable) tiles remaining; two tiles per stack. */
+  /** Live (normally drawable) tiles remaining; two tiles per stack. */
   readonly liveCount: number;
-  /** Number of tiles reserved in the dead wall (kong / flower replacements). */
+  /** Tiles remaining at the far end (the loose / kong-replacement end). */
   readonly deadCount: number;
   /** The discard pool, rendered inset within the ring. */
   readonly children: ReactNode;
@@ -68,55 +82,38 @@ export function WallFrame({ liveCount, deadCount, children }: WallFrameProps) {
   const ref = useRef<HTMLDivElement>(null);
   const { w, h } = useElementSize(ref);
   const slots = w > 0 && h > 0 ? perimeterSlots(w, h) : [];
+  const cap = slots.length;
 
-  const odd = liveCount % 2 === 1;
-  const nStacks = Math.min(slots.length, Math.ceil(liveCount / 2));
-
-  // The two loose tiles are kept topped up from the dead-wall reserve.
-  const looseCount = Math.max(0, Math.min(2, deadCount));
-  const deadStacks = Math.max(0, Math.ceil((deadCount - looseCount) / 2));
+  // Live wall fills from the start (slot 0) and is drawn from its far, most-
+  // clockwise end. The loose end fills from the last slot inward and is drawn
+  // from its inner end. Each is anchored at the end it is NOT drawn from, so
+  // remaining tiles never move.
+  const liveStacks = Math.min(cap, Math.ceil(liveCount / 2));
+  const deadStacks = Math.min(Math.max(0, cap - liveStacks), Math.ceil(deadCount / 2));
+  const liveFront = liveStacks - 1;
+  const liveArrow = slots[liveFront];
 
   return (
     <div
       ref={ref}
       className={styles.frame}
-      aria-label={`Wall: ${liveCount} live tiles, ${deadCount} in the dead wall, drawn clockwise`}
+      aria-label={`Wall: ${liveCount + deadCount} tiles remaining, drawn clockwise`}
     >
-      {slots.slice(0, nStacks).map((s, i) => {
-        const isHalf = odd && i === 0; // front stack: its top tile has been drawn
-        return (
-          <div
-            key={i}
-            className={styles.stack}
-            style={{ left: `${s.x}px`, top: `${s.y}px`, transform: `translate(-50%, -50%) rotate(${s.vertical ? 90 : 0}deg)` }}
-          >
-            <span className={`${styles.backTile} ${styles.backBottom} ${i === 0 && isHalf ? styles.drawNext : ''}`} />
-            {!isHalf && <span className={`${styles.backTile} ${styles.backTop} ${i === 0 ? styles.drawNext : ''}`} />}
-          </div>
-        );
-      })}
+      {slots.slice(0, liveStacks).map((slot, i) => (
+        <Stack key={`L${i}`} slot={slot} half={liveCount % 2 === 1 && i === liveFront} front={i === liveFront} />
+      ))}
 
-      {nStacks > 0 && slots[0] && (
+      {deadStacks > 0 && slots.slice(cap - deadStacks).map((slot, j) => (
+        <Stack key={`D${cap - deadStacks + j}`} slot={slot} half={deadCount % 2 === 1 && j === 0} front={j === 0} />
+      ))}
+
+      {liveStacks > 0 && liveArrow && (
         <span
           className={styles.drawArrow}
-          style={{ left: `${slots[0].x + 14}px`, top: `${Math.max(8, slots[0].y)}px` }}
+          style={{ left: `${liveArrow.x + 14}px`, top: `${Math.max(8, liveArrow.y)}px` }}
           aria-hidden="true"
         >↻</span>
       )}
-
-      <div
-        className={styles.kongBox}
-        title="Dead wall — kong and flower replacements. The two loose tiles are topped up from the dead wall."
-      >
-        <span className={styles.kongLabel}>dead</span>
-        <div className={styles.kongRun}>
-          {Array.from({ length: deadStacks }).map((_, i) => <span key={i} className={styles.deadMini} />)}
-        </div>
-        <span className={styles.kongLabel}>loose</span>
-        <div className={styles.kongRun}>
-          {Array.from({ length: looseCount }).map((_, i) => <span key={i} className={styles.looseTile} />)}
-        </div>
-      </div>
 
       <div className={styles.inner}>{children}</div>
     </div>
