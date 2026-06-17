@@ -7,9 +7,9 @@
  * later UI modules fill in.
  *
  * Region ownership:
- *   - Seat panels (name, wind, score, melds, bonus, hand strip) — refined in
- *     Module 2.2 (Player Hand). Here they render a basic tile strip so the
- *     layout is meaningful and the engine -> Tile integration is proven.
+ *   - Seat panels (name, wind, score, melds, bonus, hand). The local seat's
+ *     concealed hand is the interactive, reorderable PlayerHand (Module 2.2);
+ *     other seats render a static strip.
  *   - Central discard pool + wall indicator — refined in Module 2.3.
  *   - Action bar (below the local seat) — Module 2.4 (placeholder here).
  *   - Score panel (corner) — Module 2.5 (placeholder here).
@@ -18,12 +18,13 @@
  * three players the seat opposite is dropped. The local seat (the player to
  * show at the bottom) defaults to whoever's turn it is.
  *
- * Dependencies: @mahjong/engine (types only), Tile (Module 2.1). No engine
- * logic and no game mutation happen here.
+ * Dependencies: @mahjong/engine (types only), Tile (Module 2.1), PlayerHand
+ * (Module 2.2). No engine logic and no game mutation happen here.
  */
 
 import type { GameState, PlayerState, SeatIndex, Wind, DeclaredMeld } from '@mahjong/engine';
 import { Tile } from './Tile';
+import { PlayerHand } from './PlayerHand';
 import styles from './Board.module.css';
 
 type SeatPosition = 'bottom' | 'right' | 'top' | 'left';
@@ -72,6 +73,7 @@ export function Board({ state, localSeat, revealAll = true }: BoardProps) {
         position={position}
         isCurrent={player.seat === currentSeat}
         faceDown={!revealAll && player.seat !== base}
+        interactive={player.seat === base}
       />
     );
   };
@@ -104,12 +106,13 @@ export function Board({ state, localSeat, revealAll = true }: BoardProps) {
 // ─── Seat panel ─────────────────────────────────────────────────────────────────
 
 function SeatPanel({
-  player, position, isCurrent, faceDown,
+  player, position, isCurrent, faceDown, interactive,
 }: {
   player: PlayerState;
   position: SeatPosition;
   isCurrent: boolean;
   faceDown: boolean;
+  interactive: boolean;
 }) {
   const vertical = position === 'left' || position === 'right';
   const handSize = position === 'bottom' ? 56 : 40;
@@ -125,11 +128,15 @@ function SeatPanel({
         <span className={styles.seatScore}>{player.score}</span>
       </header>
 
-      <div className={`${styles.hand} ${vertical ? styles.handVertical : ''}`}>
-        {player.concealed.map((tile) => (
-          <Tile key={tile.id} tile={tile} size={handSize} faceDown={faceDown} />
-        ))}
-      </div>
+      {interactive && !faceDown ? (
+        <PlayerHand tiles={player.concealed} size={handSize} />
+      ) : (
+        <div className={`${styles.hand} ${vertical ? styles.handVertical : ''}`}>
+          {player.concealed.map((tile) => (
+            <Tile key={tile.id} tile={tile} size={handSize} faceDown={faceDown} />
+          ))}
+        </div>
+      )}
 
       {(player.melds.length > 0 || player.bonusTiles.length > 0) && (
         <div className={styles.melds}>
