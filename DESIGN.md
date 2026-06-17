@@ -235,11 +235,12 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
 #### Module 1.3 — Game State Model
 - `GameConfig.deadWall?` (optional, default false) carries the wall-style switch; the game
   setup passes it to `buildWall`.
-- Planned extension (2026-06-17): add a private, append-only `discardLog` to `GameState`
-  recording `{ seat, tile, moveIndex, claimedBy? }` per discard. Kept separate from the
+- `discardLog` (built 2026-06-17): a private, append-only `DiscardLogEntry[]` on `GameState`
+  recording `{ seat, tile, moveIndex, claimedBy }` per discard. Optional for backward
+  compatibility; `createGameState` initialises it to `[]`. Kept separate from the
   player-facing communal pool (which stays unordered and authorless). Read only by the
-  intelligence module (Phase 4) and the AI, never rendered in normal play. Not yet built.
-- Status: **complete** — commit `7f799e3`; extended in `d59a21` (claimWindow), `f9cb525` (robbingKong + ROBBING_KONG phase), and `afdaa57` (`deadWall` config flag).
+  intelligence module (Phase 4) and the AI, never rendered in normal play.
+- Status: **complete** — commit `7f799e3`; extended in `d59a21` (claimWindow), `f9cb525` (robbingKong + ROBBING_KONG phase), `afdaa57` (`deadWall` config flag), and `7018f4a` (`discardLog`).
 
 #### Module 1.4 — Turn Engine (State Machine)
 - Pure `dispatch(state, action): GameState` function — the only way to advance state.
@@ -252,10 +253,11 @@ pass-and-play game (all four hands visible on one screen) that correctly enforce
   a drawn tile, then opens a `ROBBING_KONG` window. Only that tile may be robbed, only for
   a win (validated via Module 1.7), and only an added kong is robbable — concealed kongs
   are safe. If nobody robs, the melder proceeds to the kong replacement draw.
-- Planned extension (2026-06-17): populate the Module 1.3 `discardLog` here, since the turn
-  engine is the only place state advances — append a record when a `DISCARD` action is
-  dispatched and mark it claimed when a claim resolves. Not yet built.
-- Status: **complete** — commits `d59a21`, `dd8d003` (claim-window), `f9cb525` (added kong + Robbing the Kong).
+- `discardLog` (built 2026-06-17): populated here, since the turn engine is the only place
+  state advances — appends an entry on `DISCARD` and annotates `claimedBy` (matched by tile
+  id) when a discard is claimed via pung/kong/chow/win. Robbing the Kong does not touch the
+  log (the robbed tile is a kong tile, not a discard). An absent log is treated as empty.
+- Status: **complete** — commits `d59a21`, `dd8d003` (claim-window), `f9cb525` (added kong + Robbing the Kong), `7018f4a` (`discardLog`).
 
 #### Module 1.4b — Game Runner
 - `PlayerController` interface: `getDiscardAction` + `getClaimDecision`.
@@ -477,8 +479,9 @@ consume the same inference. Adam has ideas on the inference approach, to be work
 the time comes.
 
 #### Module 5.1 — Discard Provenance Plumbing
-- Depends on the Module 1.3 / 1.4 `discardLog` extension specified above (private record of
-  seat, tile, moveIndex, and whether/by whom claimed).
+- The Module 1.3 / 1.4 `discardLog` (private record of seat, tile, moveIndex, and
+  whether/by whom claimed) is now built (commit `7018f4a`). Remaining 5.1 work is exposing
+  it to the inference layer (and keeping it server-side in Phase 2 per Module 3.3).
 - Status: **not started**
 
 #### Module 5.2 — Inference Engine
@@ -582,7 +585,7 @@ the time comes.
 | 2026-06-17 | Wall shown as one continuous wall drawn from BOTH ends: normal tiles off the live end (recedes tile-by-tile from the most-clockwise point, nothing shifts), loose (kong/flower) tiles off the other end. No separate dead-wall tray and no "dead"/"loose" labels; each end is anchored at the end it is not drawn from | Matches how the table works — loose tiles are just the far end of the same wall, nothing special about them. Supersedes the earlier "dead wall + loose tray" framing. (The engine still draws replacements from `wall.dead` without replenishing from the live wall — see OQ-14) |
 | 2026-06-17 | Added a `deadWall` config switch (Module 1.3 `GameConfig`, optional, default false). False = the family rule (no 14-tile reserve; loose tiles come from the far end of the live wall; play until the wall is exhausted). True = the traditional reserve. `buildWall` branches on it; `drawReplacement` falls back to the wall's far end when there is no reserve | Resolves OQ-14. The family doesn't use a reserve; the switch keeps the traditional style available, with the family rule as the default. 64 vitest cases pass (incl. new no-reserve cases). Engine commit `afdaa57` |
 | 2026-06-17 | Engine privately tracks discard provenance (a `discardLog`: seat, tile, moveIndex, claimedBy) while the player-facing pool stays unordered and authorless | The intelligence module (Phase 4) and the AI need to know who discarded what and when; a human tracks the same from memory, less reliably. Refines the internal effect of the 2026-06-13 "no per-player tracking" note — that still governs what players see, not internal state |
-| 2026-06-17 | The discard log lives on the Module 1.3 `GameState` and is populated by the Module 1.4 turn engine (append on `DISCARD`, mark on claim) | The state model owns the data; the turn engine is the only place state advances, so it is where each discard / claim is recorded. Not yet built |
+| 2026-06-17 | The discard log lives on the Module 1.3 `GameState` and is populated by the Module 1.4 turn engine (append on `DISCARD`, mark on claim) | The state model owns the data; the turn engine is the only place state advances, so it is where each discard / claim is recorded. Built and tested: 6 new vitest cases; full engine suite (game-state + turn-engine + discard-log) green at 72 tests. Commit `7018f4a` |
 | 2026-06-17 | Phase 2 fleshed into modules: server scaffold (3.1), lobby/session (3.2), authoritative per-seat state sync (3.3), reconnection (3.4), optional WebRTC voice (3.5) | Replaces the one-line placeholder now the architecture is agreed; per-seat filtering keeps opponents' concealed tiles and the discard log server-side |
 | 2026-06-17 | Voice chat via WebRTC peer-to-peer mesh (signalling over Socket.io, STUN + fallback TURN), optional; preferred over an external FaceTime window | Keeps voice in the same app and tied to the session; open-source, no per-seat licensing; optional so it never blocks the core game |
 | 2026-06-17 | Added Phase 4 — Intelligence (opponent modelling) from public info only (exposed melds, claims, discard log); displayable live during the Phase 1 test build; distinct from the Phase 3 AI player | Reads only what a human could; cannot see concealed tiles. Modules 5.1 (provenance plumbing), 5.2 (inference engine, approach TBD — OQ-15), 5.3 (live debug display) |
