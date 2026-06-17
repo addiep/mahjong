@@ -2,19 +2,20 @@
  * Module 2.5 — Score Panel
  *
  * Shown at HAND_OVER. For a win: displays the winning hand's score breakdown,
- * each player's bonus-tile points, and running cumulative totals.
+ * non-winners' exposed meld scores, each player's bonus-tile points, and
+ * running cumulative totals.
  * For a draw (wall exhausted): shows "Draw" with no score breakdown and no
  * running total update — the totals are unchanged.
  */
-import type { ScoreResult } from '@mahjong/engine';
-import type { BonusScoreResult } from '@mahjong/engine';
-import type { SeatIndex } from '@mahjong/engine';
+import type { ScoreResult, BonusScoreResult, SeatIndex, ExposedMeldScoreResult } from '@mahjong/engine';
 import styles from './ScorePanel.module.css';
 
 export interface PlayerBonusInfo {
   name: string;
   seat: SeatIndex;
   bonus: BonusScoreResult;
+  /** Exposed meld score for non-winners; null for the winner (already in result). */
+  meldScore: ExposedMeldScoreResult | null;
 }
 
 export interface ScorePanelProps {
@@ -37,6 +38,10 @@ export function ScorePanel({
   onNewHand,
 }: ScorePanelProps) {
   const isDraw = winnerName === null && result === null;
+
+  const nonWinnersWithMelds = playerBonuses.filter(
+    pb => pb.meldScore !== null && pb.meldScore.total > 0,
+  );
 
   return (
     <div className={styles.overlay}>
@@ -98,6 +103,23 @@ export function ScorePanel({
             <div className={styles.handTotal}>
               Hand score: <strong>{result.total}</strong>
             </div>
+          </div>
+        )}
+
+        {/* Non-winner exposed meld scores */}
+        {nonWinnersWithMelds.length > 0 && (
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>Exposed melds</h3>
+            <table className={styles.table}>
+              <tbody>
+                {nonWinnersWithMelds.map(pb => (
+                  <tr key={pb.seat}>
+                    <td className={styles.labelCell}>{pb.name}</td>
+                    <td className={styles.numCell}>{pb.meldScore!.total} pts</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 

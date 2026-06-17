@@ -1,6 +1,12 @@
 /**
  * App shell — wired to the live turn engine.
  *
+ * Playtesting round 2 fixes (2026-06-17):
+ *  #1  All players' exposed melds scored at HAND_OVER (scoreExposedMelds).
+ *  #5  Red border on last discard stays visible until next discard.
+ *  #6  Last-event text shown in the score sidebar.
+ *  #7  Tiles auto-sorted every time the active seat rotates (testing aid).
+ *
  * Phase 1 playtest fixes (2026-06-17):
  *  #1  Game setup screen before each hand (player count, dirty wins, dead wall).
  *  #2  Hand order persists per seat across board rotations (handOrdersRef).
@@ -24,18 +30,50 @@ import {
   DEFAULT_CONFIG,
   dispatch as engineDispatch,
   isWinningHand,
+  isSuited, isWind, isDragon,
   canPung, canKong, canChow,
   scoreWinningHand,
   scoreBonusTiles,
+  scoreExposedMelds,
   type GameState,
   type GameConfig,
   type SeatIndex,
   type TileId,
+  type Tile,
+  type Suit,
+  type Wind,
+  type Dragon,
   type ClaimDecision,
   type ScoreResult,
   type WinContext,
+  type ExposedMeldScoreResult,
 } from '@mahjong/engine';
 import styles from './App.module.css';
+
+// ─── Tile sort helpers (mirrored from PlayerHand.tsx) ─────────────────────────
+
+const SUIT_ORDER: Record<Suit, number> = { bamboo: 0, characters: 1, circles: 2 };
+const WIND_ORDER: Record<Wind, number> = { east: 0, south: 1, west: 2, north: 3 };
+const DRAGON_ORDER: Record<Dragon, number> = { red: 0, green: 1, white: 2 };
+
+function sortTileKey(t: Tile): [number, number, number] {
+  if (isSuited(t)) return [0, SUIT_ORDER[t.suit], t.value];
+  if (isWind(t))   return [1, WIND_ORDER[t.wind], 0];
+  if (isDragon(t)) return [2, DRAGON_ORDER[t.dragon], 0];
+  return [3, 0, 0];
+}
+
+function compareTileKeys(a: [number, number, number], b: [number, number, number]): number {
+  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+}
+
+/** Human-readable tile name, e.g. '3 of bamboo', 'east wind', 'red dragon'. */
+function tileName(tile: Tile): string {
+  if (isSuited(tile)) return `${tile.value} of ${tile.suit}`;
+  if (isWind(tile))   return `${tile.wind} wind`;
+  if (isDragon(tile)) return `${tile.dragon} dragon`;
+  return 'bonus tile';
+}
 
 // ─── Game initialisation ──────────────────────────────────────────────────────
 
@@ -70,7 +108,10 @@ export function App() {
   // Tile just drawn from the wall — shown with a gold border.
   const [drawnTileId, setDrawnTileId] = useState<TileId | null>(null);
 
-  // Per-seat hand display orders: preserved across board rotations within a hand.
+  // Last notable game event for display in the score sidebar.
+  const [lastEvent, setLastEvent] = useState<string | null>(null);
+
+  // Per-seat hand display orders: auto-sorted each time a new seat becomes active.
   const handOrdersRef = useRef<Map<number, string[]>>(new Map());
   // The saved order for whoever is currently the interactive (bottom) seat.
   const [currentSeatOrder, setCurrentSeatOrder] = useState<string[] | undefined>(undefined);
@@ -91,6 +132,7 @@ export function App() {
     setCurrentSeatOrder(undefined);
     setHandScore(null);
     setDrawnTileId(null);
+    setLastEvent(null);
     setState(makeInitialState(config));
     setAppPhase('playing');
   };
@@ -100,6 +142,7 @@ export function App() {
     setCurrentSeatOrder(undefined);
     setHandScore(null);
     setDrawnTileId(null);
+    setLastEvent(null);
     setState(makeInitialState(gameConfig));
   };
 
@@ -193,13 +236,20 @@ export function App() {
     }
   }, [state]);
 
-  // ── Restore saved hand order when current seat changes ─────────────────────
+  // ── Auto-sort tiles when active seat changes ────────────────────────────────
+  // During testing: tiles are sorted each time a seat becomes active so that
+  // a freshly rotated hand is always in a readable order.
 
   useEffect(() => {
     if (!state) return;
-    const saved = handOrdersRef.current.get(state.currentSeat);
-    setCurrentSeatOrder(saved);
-  }, [state?.currentSeat]);
+    const player = state.players[state.currentSeat];
+    if (!player) return;
+    const sortedIds = [...player.concealed]
+      .sort((a, b) => compareTileKeys(sortTileKey(a), sortTileKey(b)))
+      .map(t => t.id);
+    handOrdersRef.current.set(state.currentSeat, sortedIds);
+    setCurrentSeatOrder(sortedIds);
+  }, [state?.currentSeat]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Score HAND_OVER ────────────────────────────────────────────────────────
 
@@ -218,7 +268,7 @@ export function App() {
       return;
     }
 
-    // Win: compute hand score and bonus tiles.
+    // Win: compute hand score and per-player meld + bonus scores.
     let result: ScoreResult | null = null;
 
     if (hr.winnerSeat !== null && hr.winningTile) {
@@ -255,19 +305,26 @@ export function App() {
       }
     }
 
+    // Build per-player bonus + meld info. Non-winners get their exposed melds scored;
+    // the winner's melds are already included in scoreWinningHand.
     const playerBonuses: PlayerBonusInfo[] = state.players.map(p => ({
       name: p.name,
       seat: p.seat,
       bonus: scoreBonusTiles(p.bonusTiles),
+      meldScore: p.seat !== hr.winnerSeat
+        ? scoreExposedMelds(p.melds, p.bonusTiles)
+        : null,
     }));
 
     setRunningTotals(prev =>
       prev.map((t, i) => {
         const player = state.players[i];
         if (!player) return t;
-        const bonusPts = playerBonuses[i]?.bonus.points ?? 0;
-        const handPts = i === hr.winnerSeat && result ? result.total : 0;
-        return t + bonusPts + handPts;
+        const pb = playerBonuses[i];
+        const bonusPts = pb?.bonus.points ?? 0;
+        const handPts  = i === hr.winnerSeat && result ? result.total : 0;
+        const meldPts  = i !== hr.winnerSeat ? (pb?.meldScore?.total ?? 0) : 0;
+        return t + bonusPts + handPts + meldPts;
       }),
     );
 
@@ -281,15 +338,36 @@ export function App() {
   // ── Event handlers ─────────────────────────────────────────────────────────
 
   const handleDiscard = (tileId: TileId) => {
+    if (state) {
+      const player = state.players[state.currentSeat];
+      const tile = player?.concealed.find(t => t.id === tileId);
+      if (player && tile) setLastEvent(`${player.name} discarded the ${tileName(tile)}`);
+    }
     setDrawnTileId(null);
     setState(s => s ? engineDispatch(s, { type: 'DISCARD', tileId }) : s);
   };
 
   const handleDeclareWin = () => {
+    if (state) {
+      const player = state.players[state.currentSeat];
+      if (player) setLastEvent(`${player.name} declared Mah Jong!`);
+    }
     setState(s => s ? engineDispatch(s, { type: 'DECLARE_WIN' }) : s);
   };
 
   const handleClaimResponse = (seat: SeatIndex, decision: ClaimDecision) => {
+    if (decision.type !== 'pass' && state) {
+      const player = state.players[seat];
+      const tile = state.discardPool[state.discardPool.length - 1];
+      if (player && tile) {
+        const verb =
+          decision.type === 'win'  ? 'won with' :
+          decision.type === 'pung' ? 'punged' :
+          decision.type === 'kong' ? 'konged' :
+          'chowed';
+        setLastEvent(`${player.name} ${verb} the ${tileName(tile)}`);
+      }
+    }
     setState(s => s ? engineDispatch(s, { type: 'CLAIM_RESPONSE', seat, decision }) : s);
   };
 
@@ -341,6 +419,7 @@ export function App() {
           drawnTileId={drawnTileId}
           savedOrder={currentSeatOrder}
           onOrderChange={handleOrderChange}
+          lastEvent={lastEvent}
         />
       </div>
 

@@ -232,9 +232,9 @@ function scoreNormalReading(hand: FullHand, input: ScoreInput, cfg: ScoringConfi
   let doublings = 0;
   const addDouble = (label: string, n: number) => { if (n > 0) { doublings += n; doublingLines.push({ label, doublings: n }); } };
 
-  // Major pung/kong, once per qualifying meld (applies to all players).
+  // Pung/kong of honours (terminals + honour tiles), once per qualifying meld (applies to all players).
   const majorMelds = hand.groups.filter(g => g.kind !== 'chow' && isMajorTile(g.tiles[0]!)).length;
-  addDouble('pung/kong of a major tile', majorMelds);
+  addDouble('pung/kong of honours', majorMelds);
 
   // Complete set of flowers / seasons (doubles twice each).
   if (hasCompleteSet(input.bonusTiles, isFlower)) addDouble('complete set of flowers', 2);
@@ -608,4 +608,63 @@ export function scoreWinningHand(
     doublingLines: best ? best.doublingLines : [],
     bonusTileCount,
   };
+}
+
+// ─── Exposed-meld scoring for non-winning players ────────────────────────────
+
+/**
+ * Scores the declared melds and bonus-tile doublings for a player who did NOT
+ * win the hand. Non-winners score base points for each exposed pung / kong and
+ * concealed kong, plus doublings for honours melds and complete bonus sets.
+ * Chows score zero. No going-Mah-Jong bonuses apply.
+ */
+export interface ExposedMeldScoreResult {
+  readonly total:         number;
+  readonly basePoints:    number;
+  readonly doublings:     number;
+  readonly lines:         readonly ScoreLine[];
+  readonly doublingLines: readonly DoublingLine[];
+}
+
+export function scoreExposedMelds(
+  melds:         readonly DeclaredMeld[],
+  bonusTiles:    readonly Tile[],
+  scoringConfig: ScoringConfig = DEFAULT_SCORING_CONFIG,
+): ExposedMeldScoreResult {
+  const cfg = scoringConfig;
+  const scoreLines: ScoreLine[] = [];
+  const dblLines: DoublingLine[] = [];
+  let base = 0;
+
+  for (const meld of melds) {
+    const g = declaredToGroup(meld);
+    if (g.kind === 'chow') continue;
+    const pts = meldBasePoints(g, cfg);
+    if (pts > 0) {
+      const exposure = g.concealed ? 'concealed' : 'exposed';
+      const first = g.tiles[0];
+      if (first) scoreLines.push({ label: `${exposure} ${g.kind} of ${tileKey(first)}`, points: pts });
+      base += pts;
+    }
+  }
+
+  let doublings = 0;
+  const addDouble = (label: string, n: number) => {
+    if (n > 0) { doublings += n; dblLines.push({ label, doublings: n }); }
+  };
+
+  // Pung/kong of honours, once per qualifying meld.
+  const majorCount = melds.filter(m => {
+    const g = declaredToGroup(m);
+    const first = g.tiles[0];
+    return g.kind !== 'chow' && first !== undefined && isMajorTile(first);
+  }).length;
+  addDouble('pung/kong of honours', majorCount);
+
+  if (hasCompleteSet(bonusTiles, isFlower)) addDouble('complete set of flowers', 2);
+  if (hasCompleteSet(bonusTiles, isSeason)) addDouble('complete set of seasons', 2);
+
+  // No base points means nothing to double; avoid returning a doubled zero.
+  const total = base === 0 ? 0 : base * Math.pow(2, doublings);
+  return { total, basePoints: base, doublings, lines: scoreLines, doublingLines: dblLines };
 }

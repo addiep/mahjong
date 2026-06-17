@@ -12,7 +12,8 @@
  *       pool (dy < -50px and more vertical than horizontal).
  *
  * 3. Mah Jong button — shown during DISCARDING when the hand is already
- *    complete (self-draw win). Calls onDeclareWin.
+ *    complete (self-draw win). Calls onDeclareWin. Moved to the right end of
+ *    the toolbar in playtesting round 2 to separate it from the Sort button.
  *
  * Order persistence: accepts savedOrder (restored IDs from a previous turn for
  * this seat) and onOrderChange (fires whenever the order changes) so App.tsx can
@@ -191,6 +192,10 @@ export function PlayerHand({
   return (
     <div className={`${styles.wrap} ${isDiscarding ? styles.discarding : ''}`}>
       <div className={styles.toolbar}>
+        <button type="button" className={styles.sortBtn} onClick={sortHand} title="Sort by suit then number">
+          Sort
+        </button>
+        <span className={styles.hint}>{hint}</span>
         {onDeclareWin && (
           <button
             type="button"
@@ -201,10 +206,6 @@ export function PlayerHand({
             Mah Jong!
           </button>
         )}
-        <button type="button" className={styles.sortBtn} onClick={sortHand} title="Sort by suit then number">
-          Sort
-        </button>
-        <span className={styles.hint}>{hint}</span>
       </div>
 
       <div ref={rowRef} className={styles.row} role="list" aria-label="Your hand (drag to rearrange)">

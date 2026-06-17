@@ -18,13 +18,17 @@
  *
  * Presentational only: it reads counts from the GameState wall; the discards are
  * passed as children and sit inset within the ring.
+ *
+ * Playtesting round 2 changes:
+ * - Tile stacks enlarged to match face-up tile size (34×52 px, PITCH 36).
+ * - Yellow next-tile border and ↻ draw-point arrow removed.
  */
 
 import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react';
 import styles from './Wall.module.css';
 
-const PITCH = 30;   // spacing between stacks along an edge (wider for bigger tiles)
-const MARGIN = 20;  // distance from the frame edge to a stack's centre line
+const PITCH  = 36;  // spacing between stack centres along an edge
+const MARGIN = 22;  // distance from the frame edge to a stack's centre line
 
 interface Slot { readonly x: number; readonly y: number; readonly vertical: boolean; }
 
@@ -54,14 +58,18 @@ function useElementSize<T extends HTMLElement>(ref: RefObject<T>): { w: number; 
 }
 
 /** Renders one stack at a slot: a darker bottom tile and (unless half) a lighter top. */
-function Stack({ slot, half, front }: { slot: Slot; half: boolean; front: boolean }) {
+function Stack({ slot, half }: { slot: Slot; half: boolean }) {
   return (
     <div
       className={styles.stack}
-      style={{ left: `${slot.x}px`, top: `${slot.y}px`, transform: `translate(-50%, -50%) rotate(${slot.vertical ? 90 : 0}deg)` }}
+      style={{
+        left: `${slot.x}px`,
+        top: `${slot.y}px`,
+        transform: `translate(-50%, -50%) rotate(${slot.vertical ? 90 : 0}deg)`,
+      }}
     >
-      <span className={`${styles.backTile} ${styles.backBottom} ${front && half ? styles.drawNext : ''}`} />
-      {!half && <span className={`${styles.backTile} ${styles.backTop} ${front ? styles.drawNext : ''}`} />}
+      <span className={`${styles.backTile} ${styles.backBottom}`} />
+      {!half && <span className={`${styles.backTile} ${styles.backTop}`} />}
     </div>
   );
 }
@@ -83,8 +91,6 @@ export function WallFrame({ liveCount, deadCount, children }: WallFrameProps) {
 
   const liveStacks = Math.min(cap, Math.ceil(liveCount / 2));
   const deadStacks = Math.min(Math.max(0, cap - liveStacks), Math.ceil(deadCount / 2));
-  const liveFront = liveStacks - 1;
-  const liveArrow = slots[liveFront];
 
   return (
     <div
@@ -93,20 +99,20 @@ export function WallFrame({ liveCount, deadCount, children }: WallFrameProps) {
       aria-label={`Wall: ${liveCount + deadCount} tiles remaining`}
     >
       {slots.slice(0, liveStacks).map((slot, i) => (
-        <Stack key={`L${i}`} slot={slot} half={liveCount % 2 === 1 && i === liveFront} front={i === liveFront} />
+        <Stack
+          key={`L${i}`}
+          slot={slot}
+          half={liveCount % 2 === 1 && i === liveStacks - 1}
+        />
       ))}
 
       {deadStacks > 0 && slots.slice(cap - deadStacks).map((slot, j) => (
-        <Stack key={`D${cap - deadStacks + j}`} slot={slot} half={deadCount % 2 === 1 && j === 0} front={j === 0} />
+        <Stack
+          key={`D${cap - deadStacks + j}`}
+          slot={slot}
+          half={deadCount % 2 === 1 && j === 0}
+        />
       ))}
-
-      {liveStacks > 0 && liveArrow && (
-        <span
-          className={styles.drawArrow}
-          style={{ left: `${liveArrow.x + 16}px`, top: `${Math.max(8, liveArrow.y)}px` }}
-          aria-hidden="true"
-        >↻</span>
-      )}
 
       <div className={styles.inner}>{children}</div>
     </div>

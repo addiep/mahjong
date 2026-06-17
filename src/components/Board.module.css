@@ -134,7 +134,7 @@
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
 }
 
-/* ── Score panel placeholder (Module 2.5 refines) ── */
+/* ── Score sidebar ── */
 
 .scorePanel {
   position: absolute;
@@ -156,6 +156,17 @@
 .scoreList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
 .scoreList li { display: flex; justify-content: space-between; gap: 8px; }
 .scoreList li span:last-child { color: var(--accent); font-variant-numeric: tabular-nums; }
+
+/* Last game event — shown under the score list. */
+.lastEvent {
+  margin: 2px 0 0;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-style: italic;
+  line-height: 1.4;
+  border-top: 1px solid var(--placeholder-border);
+  padding-top: 5px;
+}
 
 .placeholderTag { color: var(--text-dim); font-size: 10px; text-align: center; }
 

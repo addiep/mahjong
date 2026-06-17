@@ -26,8 +26,10 @@
 }
 .sortBtn:hover { color: var(--text); border-color: var(--accent); }
 
-/* Mah Jong self-draw button — prominently styled */
+/* Mah Jong self-draw button — prominently styled, pushed to the right end
+   of the toolbar so it sits well away from the Sort button. */
 .mjBtn {
+  margin-left: auto;
   background: #8B2000;
   color: #FFE8B0;
   border: 1px solid #C2362B;

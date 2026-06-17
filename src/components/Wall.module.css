@@ -1,4 +1,6 @@
-/* Module 2.3 (part) — the wall: a two-tile-high ring of face-down stacks. */
+/* Module 2.3 (part) — the wall: a two-tile-high ring of face-down stacks.
+   Tile stacks enlarged in playtesting round 2 to match face-up tile size.
+   Yellow next-tile indicator and draw-arrow removed. */
 
 .frame {
   position: relative;
@@ -9,16 +11,16 @@
 /* The discards live inside the ring, inset clear of the wall stacks. */
 .inner {
   position: absolute;
-  left: 42px;
-  top: 42px;
-  right: 42px;
-  bottom: 42px;
+  left: 48px;
+  top: 48px;
+  right: 48px;
+  bottom: 48px;
 }
 
 .stack {
   position: absolute;
-  width: 26px;
-  height: 44px;
+  width: 34px;
+  height: 52px;
 }
 
 .backTile {
@@ -38,18 +40,5 @@
 .backTop {
   background: #25856f;
   border: 1.5px solid #16564a;
-  transform: translateY(-6px);
-}
-
-.drawNext {
-  box-shadow: 0 0 0 2px var(--accent);
-}
-
-.drawArrow {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  color: var(--accent);
-  font-size: 15px;
-  line-height: 1;
-  pointer-events: none;
+  transform: translateY(-8px);
 }

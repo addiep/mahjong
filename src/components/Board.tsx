@@ -4,6 +4,11 @@
  * The structural shell for a pass-and-play table. `Board` is a pure,
  * presentational component driven entirely by a `GameState` prop.
  *
+ * Updated for playtesting round 2:
+ * - lastEvent prop: last notable game event shown under the score sidebar.
+ * - lastDiscardId: always highlights the most recent discard in red (was:
+ *   only during CLAIM_WINDOW / ROBBING_KONG).
+ *
  * Updated for playtest fixes:
  * - Threads drawnTileId (gold border on newly drawn tile) and lastDiscardId
  *   (red border on last discard during claim window) down to PlayerHand /
@@ -61,6 +66,8 @@ export interface BoardProps {
   readonly savedOrder?: string[];
   /** Fires when the interactive seat changes their display order. */
   readonly onOrderChange?: (ids: string[]) => void;
+  /** Last notable game event to show under the score sidebar. */
+  readonly lastEvent?: string | null;
 }
 
 export function Board({
@@ -73,6 +80,7 @@ export function Board({
   drawnTileId,
   savedOrder,
   onOrderChange,
+  lastEvent,
 }: BoardProps) {
   const { players, config, currentSeat, phase } = state;
   const base = localSeat ?? currentSeat;
@@ -114,7 +122,7 @@ export function Board({
       role="group"
       aria-label={`Mah Jong table, ${config.playerCount} players`}
     >
-      <ScorePanel players={players} prevailingWind={state.prevailingWind} handNumber={state.handNumber} />
+      <ScoreSidebar players={players} prevailingWind={state.prevailingWind} handNumber={state.handNumber} lastEvent={lastEvent} />
 
       <div className={styles.slotTop}>{renderSeat('top')}</div>
       <div className={styles.slotLeft}>{renderSeat('left')}</div>
@@ -276,26 +284,23 @@ function discardStyle(id: string, index: number, cols: number, rows: number, w: 
 }
 
 function DiscardArea({ state }: { state: GameState }) {
-  const { discardPool, wall, phase } = state;
+  const { discardPool, wall } = state;
   const poolRef = useRef<HTMLDivElement>(null);
   const { w, h } = useElementSize(poolRef);
   const cols = Math.max(1, Math.floor(w / CELL_W));
   const rows = Math.max(1, Math.floor(h / CELL_H));
   const current = state.players.find((p) => p.seat === state.currentSeat);
 
-  // The last tile in the discard pool gets a red border during the claim window
-  // so players can easily see what was just thrown.
-  const lastDiscardId =
-    (phase === 'CLAIM_WINDOW' || phase === 'ROBBING_KONG')
-      ? discardPool[discardPool.length - 1]?.id
-      : undefined;
+  // Always highlight the most recently discarded tile in red so players can
+  // easily see what was just thrown. Stays visible until the next discard.
+  const lastDiscardId = discardPool[discardPool.length - 1]?.id;
 
   return (
     <div className={styles.centre}>
       <div className={styles.wallInfo}>
         <span><strong>{wall.live.length + wall.dead.length}</strong> tiles in wall</span>
         <span className={styles.turnInfo}>
-          {current ? `${current.name}` : '—'} · {phase.toLowerCase().replace(/_/g, ' ')}
+          {current ? `${current.name}` : '—'} · {state.phase.toLowerCase().replace(/_/g, ' ')}
         </span>
       </div>
 
@@ -312,14 +317,15 @@ function DiscardArea({ state }: { state: GameState }) {
   );
 }
 
-// ─── Score panel placeholder (Module 2.5) ────────────────────────────────────
+// ─── Score sidebar (Module 2.5) ───────────────────────────────────────────────
 
-function ScorePanel({
-  players, prevailingWind, handNumber,
+function ScoreSidebar({
+  players, prevailingWind, handNumber, lastEvent,
 }: {
   players: readonly PlayerState[];
   prevailingWind: Wind;
   handNumber: number;
+  lastEvent?: string | null;
 }) {
   return (
     <aside className={styles.scorePanel}>
@@ -335,6 +341,9 @@ function ScorePanel({
           </li>
         ))}
       </ul>
+      {lastEvent && (
+        <p className={styles.lastEvent}>{lastEvent}</p>
+      )}
     </aside>
   );
 }
