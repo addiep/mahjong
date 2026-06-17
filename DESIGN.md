@@ -590,6 +590,8 @@ the time comes.
 | 2026-06-17 | Voice chat via WebRTC peer-to-peer mesh (signalling over Socket.io, STUN + fallback TURN), optional; preferred over an external FaceTime window | Keeps voice in the same app and tied to the session; open-source, no per-seat licensing; optional so it never blocks the core game |
 | 2026-06-17 | Added Phase 4 — Intelligence (opponent modelling) from public info only (exposed melds, claims, discard log); displayable live during the Phase 1 test build; distinct from the Phase 3 AI player | Reads only what a human could; cannot see concealed tiles. Modules 5.1 (provenance plumbing), 5.2 (inference engine, approach TBD — OQ-15), 5.3 (live debug display) |
 | 2026-06-17 | Planned deliverable: a player-facing rules write-up + a diff against standard HK rules, once Phase 1 is playable | Doubles as new-player briefing and a check that the house rules have not strayed too far |
+| 2026-06-17 | Made `engine/src` type-clean under the strict tsconfig (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`): asserted array access in meld-validator after length guards, switched wall draws to index+slice (and the shuffle swap to a temp var), and fixed claim-window's exhaustiveness guard to assign `decision.type` (the discriminant narrows to `never`, the object does not). Behaviour unchanged | These were pre-existing errors on `main`, surfaced while building the discard log. Production code now passes `tsc --noEmit` clean. Commit `971707c` |
+| 2026-06-17 | Test files type-checked under a dedicated `engine/tsconfig.test.json` (extends the base, relaxes only `noUncheckedIndexedAccess` + enables `skipLibCheck`); production code stays fully strict. `npm run typecheck` now runs both projects. Fixed a latent branded-`TileId` cast in `claim-window.test.ts` (`chowTiles` was cast to `[string, string]`) | Index access on known tile fixtures is noise in test code; relaxing only that one flag keeps the rest of the test type-checking as strict as production. Whole engine now tsc-clean (src + tests); full suite green at 302 vitest cases. Commit `b766f03` |
 
 ---
 
@@ -601,3 +603,13 @@ the time comes.
 - Push directly to `main` unless work is experimental.
 - Commit messages: `Module X.Y — Short description` + bullet summary.
 - `DESIGN.md` lives in the repo root; Claude reads it at session start and pushes updates as decisions are made.
+
+### Type-checking & tests
+- Engine tests run with **vitest** (`npm test` inside `engine/`).
+- The engine type-checks as two projects (`npm run typecheck` runs both):
+  - `tsconfig.json` — production source, fully strict (`noUncheckedIndexedAccess`,
+    `exactOptionalPropertyTypes`), excludes `src/**/__tests__`.
+  - `tsconfig.test.json` — the test files; extends the base but relaxes only
+    `noUncheckedIndexedAccess` (index access on known fixtures is noise in test code) and
+    enables `skipLibCheck`. Everything else stays as strict as production.
+- Both the source and the tests are tsc-clean as of commit `b766f03`.
