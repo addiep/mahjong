@@ -10,10 +10,10 @@ import {
   validateClaimDecision,
   selectWinClaimant,
 } from '../claim-window.js';
-import { buildTileSet, Tile, SuitedTile } from '../tiles.js';
+import { buildTileSet, Tile, SuitedTile, TileId } from '../tiles.js';
 import { SeatIndex } from '../game-state.js';
 
-// ─── Tile fixtures ─────────────────────────────────────────────────────────────
+// ─── Tile fixtures ─────────────────────────────────────────────
 
 const ALL = buildTileSet();
 
@@ -32,7 +32,7 @@ const cir = (v: number) =>
 const winds   = (w: string) => ALL.filter(t => t.category === 'wind'   && (t as any).wind   === w);
 const dragons = (d: string) => ALL.filter(t => t.category === 'dragon' && (t as any).dragon === d);
 
-// ─── canPung ──────────────────────────────────────────────────────────────────
+// ─── canPung ──────────────────────────────────────────────
 
 describe('canPung', () => {
   it('returns true when the hand has exactly 2 matching tiles', () => {
@@ -72,7 +72,7 @@ describe('canPung', () => {
   });
 });
 
-// ─── canKong ──────────────────────────────────────────────────────────────────
+// ─── canKong ──────────────────────────────────────────────
 
 describe('canKong', () => {
   it('returns true when the hand has exactly 3 matching tiles', () => {
@@ -100,46 +100,40 @@ describe('canKong', () => {
   });
 });
 
-// ─── canChow ──────────────────────────────────────────────────────────────────
+// ─── canChow ──────────────────────────────────────────────
 
 describe('canChow', () => {
   it('returns true when the discard is the high tile', () => {
-    // Discard = Bam5; hand has Bam3, Bam4 → sequence 3-4-5
     const discard   = bam(5)[0];
     const concealed = [bam(3)[0], bam(4)[0]];
     expect(canChow(concealed, discard)).toBe(true);
   });
 
   it('returns true when the discard is the middle tile', () => {
-    // Discard = Bam5; hand has Bam4, Bam6 → sequence 4-5-6
     const discard   = bam(5)[0];
     const concealed = [bam(4)[0], bam(6)[0]];
     expect(canChow(concealed, discard)).toBe(true);
   });
 
   it('returns true when the discard is the low tile', () => {
-    // Discard = Bam5; hand has Bam6, Bam7 → sequence 5-6-7
     const discard   = bam(5)[0];
     const concealed = [bam(6)[0], bam(7)[0]];
     expect(canChow(concealed, discard)).toBe(true);
   });
 
   it('works at the low end of the suit (discard = 1)', () => {
-    // Only valid pattern: 1-2-3
     const discard   = bam(1)[0];
     const concealed = [bam(2)[0], bam(3)[0]];
     expect(canChow(concealed, discard)).toBe(true);
   });
 
   it('returns false for discard = 1 when only the middle/high patterns would work', () => {
-    // Discard = 1; hand has only 2 and 0 (impossible) — only 2+3 would work
     const discard   = bam(1)[0];
-    const concealed = [bam(2)[0]]; // missing Bam3
+    const concealed = [bam(2)[0]];
     expect(canChow(concealed, discard)).toBe(false);
   });
 
   it('works at the high end of the suit (discard = 9)', () => {
-    // Only valid pattern: 7-8-9
     const discard   = bam(9)[0];
     const concealed = [bam(7)[0], bam(8)[0]];
     expect(canChow(concealed, discard)).toBe(true);
@@ -147,13 +141,13 @@ describe('canChow', () => {
 
   it('returns false when a partner tile is missing', () => {
     const discard   = bam(5)[0];
-    const concealed = [bam(3)[0]]; // would need Bam4 for 3-4-5; Bam6 for 4-5-6; Bam7 for 5-6-7
+    const concealed = [bam(3)[0]];
     expect(canChow(concealed, discard)).toBe(false);
   });
 
   it('returns false when partner tiles are from the wrong suit', () => {
     const discard   = bam(5)[0];
-    const concealed = [chr(4)[0], chr(6)[0]]; // wrong suit
+    const concealed = [chr(4)[0], chr(6)[0]];
     expect(canChow(concealed, discard)).toBe(false);
   });
 
@@ -170,17 +164,15 @@ describe('canChow', () => {
   });
 
   it('is satisfied by tiles from different copy indices', () => {
-    // Physical tiles bam(4)[2] and bam(6)[3] are different copies of Bam4 and Bam6
     const discard   = bam(5)[1];
     const concealed = [bam(4)[2], bam(6)[3]];
     expect(canChow(concealed, discard)).toBe(true);
   });
 });
 
-// ─── validateClaimDecision ────────────────────────────────────────────────────
+// ─── validateClaimDecision ──────────────────────────────────────
 
 describe('validateClaimDecision', () => {
-  // Seat 0 discards; seat 1 is left of discarder (the only one who may chow).
   const DISCARDER  = 0 as SeatIndex;
   const LEFT       = 1 as SeatIndex;
   const OTHER      = 2 as SeatIndex;
@@ -210,7 +202,7 @@ describe('validateClaimDecision', () => {
       const concealed = [bam(5)[1], bam(6)[0]];
       const result    = validateClaimDecision({ type: 'pung' }, concealed, discard, OTHER, DISCARDER, N);
       expect(result).toMatch(/pung/);
-      expect(result).toMatch(/1/); // found 1
+      expect(result).toMatch(/1/);
     });
 
     it('returns an error when there are no matching tiles', () => {
@@ -230,28 +222,27 @@ describe('validateClaimDecision', () => {
       const concealed = [bam(5)[1], bam(5)[2]];
       const result    = validateClaimDecision({ type: 'kong' }, concealed, discard, OTHER, DISCARDER, N);
       expect(result).toMatch(/kong/);
-      expect(result).toMatch(/2/); // found 2
+      expect(result).toMatch(/2/);
     });
   });
 
   describe('chow', () => {
     it('is valid for the left player with a correct sequence', () => {
-      // Sequence: Bam4-Bam5-Bam6 (discard = Bam5, hand supplies Bam4 and Bam6)
-      const t1        = bam(4)[0];
-      const t2        = bam(6)[0];
+      const t1        = bam(4)[0]!;
+      const t2        = bam(6)[0]!;
       const concealed = [t1, t2];
-      const decision  = { type: 'chow' as const, chowTiles: [t1.id, t2.id] as [string, string] };
+      const decision  = { type: 'chow' as const, chowTiles: [t1.id, t2.id] as [TileId, TileId] };
       expect(validateClaimDecision(decision, concealed, discard, LEFT, DISCARDER, N)).toBeNull();
     });
 
     it('returns an error when the claimer is not the left player', () => {
-      const t1        = bam(4)[0];
-      const t2        = bam(6)[0];
+      const t1        = bam(4)[0]!;
+      const t2        = bam(6)[0]!;
       const concealed = [t1, t2];
-      const decision  = { type: 'chow' as const, chowTiles: [t1.id, t2.id] as [string, string] };
+      const decision  = { type: 'chow' as const, chowTiles: [t1.id, t2.id] as [TileId, TileId] };
       const result    = validateClaimDecision(decision, concealed, discard, OTHER, DISCARDER, N);
       expect(result).toMatch(/chow/);
-      expect(result).toMatch(/seat 1/); // only seat 1 may chow
+      expect(result).toMatch(/seat 1/);
     });
 
     it('returns an error when chowTiles is missing', () => {
@@ -261,28 +252,27 @@ describe('validateClaimDecision', () => {
     });
 
     it('returns an error when chowTiles references the same tile twice', () => {
-      const t1        = bam(4)[0];
-      const concealed = [t1, bam(6)[0]];
-      const decision  = { type: 'chow' as const, chowTiles: [t1.id, t1.id] as [string, string] };
+      const t1        = bam(4)[0]!;
+      const concealed = [t1, bam(6)[0]!];
+      const decision  = { type: 'chow' as const, chowTiles: [t1.id, t1.id] as [TileId, TileId] };
       const result    = validateClaimDecision(decision, concealed, discard, LEFT, DISCARDER, N);
       expect(result).toMatch(/distinct/);
     });
 
     it('returns an error when a specified tile is not in the hand', () => {
-      const t1        = bam(4)[0];
-      const t2        = bam(6)[0];
-      const concealed = [t1]; // t2 is not in hand
-      const decision  = { type: 'chow' as const, chowTiles: [t1.id, t2.id] as [string, string] };
+      const t1        = bam(4)[0]!;
+      const t2        = bam(6)[0]!;
+      const concealed = [t1];
+      const decision  = { type: 'chow' as const, chowTiles: [t1.id, t2.id] as [TileId, TileId] };
       const result    = validateClaimDecision(decision, concealed, discard, LEFT, DISCARDER, N);
       expect(result).toMatch(/not found/);
     });
 
     it('returns an error when the three tiles do not form a valid chow', () => {
-      // Bam4 + Bam7 + Bam5 (discard) — not consecutive
-      const t1        = bam(4)[0];
-      const t2        = bam(7)[0];
+      const t1        = bam(4)[0]!;
+      const t2        = bam(7)[0]!;
       const concealed = [t1, t2];
-      const decision  = { type: 'chow' as const, chowTiles: [t1.id, t2.id] as [string, string] };
+      const decision  = { type: 'chow' as const, chowTiles: [t1.id, t2.id] as [TileId, TileId] };
       const result    = validateClaimDecision(decision, concealed, discard, LEFT, DISCARDER, N);
       expect(result).toMatch(/not a valid chow/);
     });
@@ -290,16 +280,16 @@ describe('validateClaimDecision', () => {
     it('handles wraparound: discarder = seat 3, left = seat 0', () => {
       const discarder3 = 3 as SeatIndex;
       const seat0      = 0 as SeatIndex;
-      const t1         = bam(4)[0];
-      const t2         = bam(6)[0];
+      const t1         = bam(4)[0]!;
+      const t2         = bam(6)[0]!;
       const concealed  = [t1, t2];
-      const decision   = { type: 'chow' as const, chowTiles: [t1.id, t2.id] as [string, string] };
+      const decision   = { type: 'chow' as const, chowTiles: [t1.id, t2.id] as [TileId, TileId] };
       expect(validateClaimDecision(decision, concealed, discard, seat0, discarder3, N)).toBeNull();
     });
   });
 });
 
-// ─── selectWinClaimant ────────────────────────────────────────────────────────
+// ─── selectWinClaimant ──────────────────────────────────────────
 
 describe('selectWinClaimant', () => {
   it('returns the only candidate when there is just one', () => {
@@ -307,7 +297,6 @@ describe('selectWinClaimant', () => {
   });
 
   it('returns the candidate with the smallest positive offset from the discarder', () => {
-    // Discarder = 0; candidates = 1 and 3. Offset of 1 = 1, offset of 3 = 3. Seat 1 wins.
     const winner = selectWinClaimant(
       [3, 1] as SeatIndex[],
       0 as SeatIndex,
@@ -317,8 +306,6 @@ describe('selectWinClaimant', () => {
   });
 
   it('handles discarder at seat 2 (candidates = 0 and 3)', () => {
-    // Offset of 3: (3 - 2 + 4) % 4 = 1  <- closer
-    // Offset of 0: (0 - 2 + 4) % 4 = 2
     const winner = selectWinClaimant(
       [0, 3] as SeatIndex[],
       2 as SeatIndex,
@@ -328,9 +315,6 @@ describe('selectWinClaimant', () => {
   });
 
   it('handles wrap-around when discarder is seat 3', () => {
-    // Discarder = 3; candidates = 0 and 2.
-    // Offset of 0: (0 - 3 + 4) % 4 = 1  <- closer
-    // Offset of 2: (2 - 3 + 4) % 4 = 3
     const winner = selectWinClaimant(
       [2, 0] as SeatIndex[],
       3 as SeatIndex,
@@ -340,9 +324,6 @@ describe('selectWinClaimant', () => {
   });
 
   it('works with 3 players', () => {
-    // Discarder = 1; candidates = 0 and 2.
-    // Offset of 2: (2 - 1 + 3) % 3 = 1  <- closer
-    // Offset of 0: (0 - 1 + 3) % 3 = 2
     const winner = selectWinClaimant(
       [0, 2] as SeatIndex[],
       1 as SeatIndex,

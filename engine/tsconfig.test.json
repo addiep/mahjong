@@ -1,0 +1,15 @@
+{
+  // Type-checks the test files. Production code (tsconfig.json) stays fully
+  // strict and excludes __tests__; this config re-includes them and relaxes
+  // only noUncheckedIndexedAccess, which is noise on the known tile fixtures in
+  // test code. skipLibCheck avoids type-checking vitest/vite's own .d.ts files
+  // (which need @types/node). Everything else stays as strict as production.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": false,
+    "skipLibCheck":             true,
+    "noEmit":                   true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
