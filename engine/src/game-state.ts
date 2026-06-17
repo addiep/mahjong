@@ -37,7 +37,6 @@ export interface GameConfig {
   readonly playerCount:     PlayerCount;
   readonly discardsVisible: boolean;
   readonly knittingEnabled: boolean;
-  readonly dirtyWinAllowed: boolean;
   /**
    * Whether to reserve a 14-tile dead wall for kong / flower replacements.
    * When false (the family rule, and the default), there is no reserve:
@@ -49,14 +48,13 @@ export interface GameConfig {
 }
 
 /**
- * Sensible defaults: 4-player, face-up discards, no knitting, clean wins only,
+ * Sensible defaults: 4-player, face-up discards, no knitting,
  * and no dead-wall reserve (the family rule — use up the whole wall).
  */
 export const DEFAULT_CONFIG: GameConfig = {
   playerCount:     4,
   discardsVisible: true,
   knittingEnabled: false,
-  dirtyWinAllowed: false,
   deadWall:        false,
 };
 

@@ -5,9 +5,6 @@
  *  - Player count (3 or 4)
  *  - Knitting / crocheting allowed (off by default)
  *  - Dead wall (off by default)
- *
- * Dirty wins (mixed-suit melds) are always allowed — the switch was removed
- * because the description was wrong and the family rule is to allow them.
  */
 
 import { useState } from 'react';
@@ -31,7 +28,6 @@ export function GameSetup({ defaultConfig, onStart }: Props) {
       playerCount,
       discardsVisible: true,
       knittingEnabled: knitting,
-      dirtyWinAllowed: true,
       deadWall,
     });
   };

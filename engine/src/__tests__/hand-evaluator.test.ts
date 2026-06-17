@@ -25,7 +25,7 @@ const dm = (type: MeldType, tiles: Tile[]): DeclaredMeld => ({ type, tiles });
 
 // ─── Standard wins ──────────────────────────────────────────────────────────────
 describe('isWinningHand — standard', () => {
-  it('accepts a clean single-suit win (dirtyWin off)', () => {
+  it('accepts a clean single-suit win', () => {
     const hand = [...pr(B, 1), B(1), B(2), B(3), B(1), B(2), B(3), B(4), B(5), B(6), B(7), B(8), B(9)];
     expect(isWinningHand(hand, [], cfg())).toBe(true);
   });
@@ -35,19 +35,14 @@ describe('isWinningHand — standard', () => {
     expect(isWinningHand(hand, [], cfg())).toBe(false);
   });
 
-  it('rejects a dirty win (chows across suits) when dirtyWin off', () => {
+  it('accepts a multi-suit chow hand', () => {
     const hand = [B(1), B(2), B(3), C(4), C(5), C(6), O(7), O(8), O(9), W('east'), W('east'), W('east'), D('red'), D('red')];
-    expect(isWinningHand(hand, [], cfg({ dirtyWinAllowed: false }))).toBe(false);
+    expect(isWinningHand(hand, [], cfg())).toBe(true);
   });
 
-  it('accepts that same dirty win when dirtyWin on', () => {
-    const hand = [B(1), B(2), B(3), C(4), C(5), C(6), O(7), O(8), O(9), W('east'), W('east'), W('east'), D('red'), D('red')];
-    expect(isWinningHand(hand, [], cfg({ dirtyWinAllowed: true }))).toBe(true);
-  });
-
-  it('accepts a no-chow mixed-suit hand (All Pungs bypasses dirty) when dirtyWin off', () => {
+  it('accepts a multi-suit all-pungs hand', () => {
     const hand = [...x3(B, 1), ...x3(C, 2), ...x3(O, 3), W('east'), W('east'), W('east'), D('red'), D('red')];
-    expect(isWinningHand(hand, [], cfg({ dirtyWinAllowed: false }))).toBe(true);
+    expect(isWinningHand(hand, [], cfg())).toBe(true);
   });
 });
 
@@ -59,10 +54,10 @@ describe('isWinningHand — with declared melds', () => {
     expect(isWinningHand(concealed, declared, cfg())).toBe(true);
   });
 
-  it('rejects when declared chow + concealed chows span suits (dirty, off)', () => {
+  it('accepts a multi-suit hand with a declared chow', () => {
     const declared = [dm('chow', [C(1), C(2), C(3)])];
     const concealed = [B(1), B(2), B(3), B(4), B(5), B(6), O(7), O(8), O(9), ...pr(B, 9)];
-    expect(isWinningHand(concealed, declared, cfg({ dirtyWinAllowed: false }))).toBe(false);
+    expect(isWinningHand(concealed, declared, cfg())).toBe(true);
   });
 
   it('accepts four declared pungs + concealed pair (meldsNeeded 0, All Pungs bypass)', () => {
@@ -90,7 +85,7 @@ describe('decomposeStandard', () => {
 
 // ─── Seven pairs family ─────────────────────────────────────────────────────────
 describe('isWinningHand — seven pairs family', () => {
-  it('accepts Heavenly Twins (one suit, seven pairs) even with dirtyWin off', () => {
+  it('accepts Heavenly Twins (one suit, seven pairs)', () => {
     const hand = [...pr(B, 1), ...pr(B, 2), ...pr(B, 3), ...pr(B, 4), ...pr(B, 5), ...pr(B, 6), ...pr(B, 7)];
     expect(isWinningHand(hand, [], cfg())).toBe(true);
   });

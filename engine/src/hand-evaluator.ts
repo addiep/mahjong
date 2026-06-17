@@ -12,9 +12,6 @@
  *
  * Scope (per DESIGN.md §3, Module 1.7):
  *   - Standard win: (4 - declaredMelds) melds + 1 pair from the concealed tiles.
- *   - `dirtyWinAllowed`: when false, an ordinary win must be clean (suited melds
- *     all one suit; honours always allowed). Limit hands bypass this — and a
- *     no-chow standard hand is always at least All Pungs, so it bypasses too.
  *   - Non-standard winning shapes that the meld decomposition cannot express:
  *     the seven-pairs family, Wriggling Snake, 13 Unique Wonders, and (only when
  *     `knittingEnabled`) Knitting and Crocheting. These require a fully concealed
@@ -270,26 +267,12 @@ export function decomposeStandard(tiles: readonly Tile[], meldsNeeded: number): 
   return out;
 }
 
-// ─── Clean / dirty helpers ──────────────────────────────────────────────────────
+// ─── Suit helpers ─────────────────────────────────────────────────────────────
 
 function suitsOf(tiles: readonly Tile[]): Set<Suit> {
   const s = new Set<Suit>();
   for (const t of tiles) if (isSuited(t)) s.add(t.suit);
   return s;
-}
-
-/** A reading is clean if all suited tiles (reading + declared melds) are one suit. */
-function isClean(decomp: StandardDecomposition, declaredMelds: readonly DeclaredMeld[]): boolean {
-  const suits = new Set<Suit>();
-  for (const t of decomp.pair) if (isSuited(t)) suits.add(t.suit);
-  for (const m of decomp.melds) for (const t of m.tiles) if (isSuited(t)) suits.add(t.suit);
-  for (const m of declaredMelds) for (const t of m.tiles) if (isSuited(t)) suits.add(t.suit);
-  return suits.size <= 1;
-}
-
-function readingHasChow(decomp: StandardDecomposition, declaredMelds: readonly DeclaredMeld[]): boolean {
-  if (decomp.melds.some(m => m.kind === 'chow')) return true;
-  return declaredMelds.some(m => m.type === 'chow');
 }
 
 // ─── Non-standard special hands (fully concealed, 14 tiles) ─────────────────────
@@ -460,13 +443,7 @@ export function isWinningHand(
   if (meldsNeeded < 0) return false;
 
   // Standard 4+1 wins (covers the great majority of limit hands too).
-  const readings = decomposeStandard(hand, meldsNeeded);
-  for (const r of readings) {
-    if (config.dirtyWinAllowed) return true;
-    if (isClean(r, declaredMelds)) return true;
-    // A no-chow hand is at least All Pungs (a limit hand) and bypasses dirty.
-    if (!readingHasChow(r, declaredMelds)) return true;
-  }
+  if (decomposeStandard(hand, meldsNeeded).length > 0) return true;
 
   // Non-standard winning shapes require a fully concealed hand.
   if (declaredMelds.length === 0 && isNonStandardSpecialWin(hand, config)) return true;
