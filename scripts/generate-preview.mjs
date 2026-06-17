@@ -148,8 +148,8 @@ const board = `<div class="app">
       <div class="slotLeft">${seatPanel(players[3],'left')}</div>
       <div class="slotRight">${seatPanel(players[1],'right')}</div>
       <div class="slotCentre"><div class="centre">
-        <div class="wallInfo"><span><strong id="liveCount">42</strong> in wall</span><span><strong id="deadCount">14</strong> dead</span><span class="turnInfo">You (East) · discarding · drawn clockwise ↻</span><button type="button" id="drawBtn" class="sortBtn">Draw</button><button type="button" id="kongBtn" class="sortBtn">Kong</button></div>
-        <div class="frame" id="wallFrame"><div class="kongBox" id="kongBox"></div><div class="inner"><div class="discardPool">${scatteredDiscards()}</div></div></div>
+        <div class="wallInfo"><span><strong id="wallCount">56</strong> tiles in wall</span><span class="turnInfo">You (East) · discarding · drawn clockwise ↻</span><button type="button" id="drawBtn" class="sortBtn">Draw</button><button type="button" id="kongBtn" class="sortBtn">Kong (loose)</button></div>
+        <div class="frame" id="wallFrame"><div class="inner"><div class="discardPool">${scatteredDiscards()}</div></div></div>
       </div></div>
       <div class="slotBottom">${seatPanel(players[0],'bottom')}<div class="placeholder actionBar">Action bar — Module 2.4</div></div>
     </div>
@@ -235,17 +235,17 @@ function perimeterSlots(w, h) {
   for (let y = h - m - PITCH; y >= m + PITCH; y -= PITCH) slots.push({ x: m, y, vertical: true });
   return slots;
 }
-function stackEl(s, isHead, isHalf) {
+function stackEl(slot, isHalf, isFront) {
   const d = document.createElement('div');
   d.className = 'stack';
-  d.style.left = s.x + 'px'; d.style.top = s.y + 'px';
-  d.style.transform = 'translate(-50%, -50%) rotate(' + (s.vertical ? 90 : 0) + 'deg)';
+  d.style.left = slot.x + 'px'; d.style.top = slot.y + 'px';
+  d.style.transform = 'translate(-50%, -50%) rotate(' + (slot.vertical ? 90 : 0) + 'deg)';
   const bottom = document.createElement('span');
-  bottom.className = 'backTile backBottom' + (isHead && isHalf ? ' drawNext' : '');
+  bottom.className = 'backTile backBottom' + (isFront && isHalf ? ' drawNext' : '');
   d.appendChild(bottom);
   if (!isHalf) {
     const top = document.createElement('span');
-    top.className = 'backTile backTop' + (isHead ? ' drawNext' : '');
+    top.className = 'backTile backTop' + (isFront ? ' drawNext' : '');
     d.appendChild(top);
   }
   return d;
@@ -255,42 +255,25 @@ function layoutWall() {
   frame.querySelectorAll('.stack, .drawArrow').forEach((e) => e.remove());
   if (!w || !h) return;
   const slots = perimeterSlots(w, h);
-  const odd = live % 2 === 1;
-  const n = Math.min(slots.length, Math.ceil(live / 2));
-  for (let i = 0; i < n; i++) frame.appendChild(stackEl(slots[i], i === 0, odd && i === 0));
-  if (n > 0) {
+  const cap = slots.length;
+  const liveStacks = Math.min(cap, Math.ceil(live / 2));
+  const deadStacks = Math.min(Math.max(0, cap - liveStacks), Math.ceil(dead / 2));
+  const liveFront = liveStacks - 1;
+  for (let i = 0; i < liveStacks; i++) frame.appendChild(stackEl(slots[i], live % 2 === 1 && i === liveFront, i === liveFront));
+  for (let j = 0; j < deadStacks; j++) frame.appendChild(stackEl(slots[cap - deadStacks + j], dead % 2 === 1 && j === 0, j === 0));
+  if (liveStacks > 0) {
     const a = document.createElement('span');
     a.className = 'drawArrow'; a.textContent = '↻';
-    a.style.left = (slots[0].x + 14) + 'px'; a.style.top = Math.max(8, slots[0].y) + 'px';
+    a.style.left = (slots[liveFront].x + 14) + 'px'; a.style.top = Math.max(8, slots[liveFront].y) + 'px';
     frame.appendChild(a);
   }
 }
-document.getElementById('drawBtn').addEventListener('click', () => {
-  live = Math.max(0, live - 1);
-  document.getElementById('liveCount').textContent = live;
-  layoutWall();
-});
+let dead = 14;
+function updateWallCount() { document.getElementById('wallCount').textContent = live + dead; }
+document.getElementById('drawBtn').addEventListener('click', () => { live = Math.max(0, live - 1); updateWallCount(); layoutWall(); });
+document.getElementById('kongBtn').addEventListener('click', () => { dead = Math.max(0, dead - 1); updateWallCount(); layoutWall(); });
 layoutWall();
 new ResizeObserver(layoutWall).observe(frame);
-
-const kongBox = document.getElementById('kongBox');
-let dead = 14;
-function renderKong() {
-  const looseCount = Math.max(0, Math.min(2, dead));
-  const deadStacks = Math.max(0, Math.ceil((dead - looseCount) / 2));
-  let html = '<span class="kongLabel">dead</span><div class="kongRun">';
-  for (let i = 0; i < deadStacks; i++) html += '<span class="deadMini"></span>';
-  html += '</div><span class="kongLabel">loose</span><div class="kongRun">';
-  for (let i = 0; i < looseCount; i++) html += '<span class="looseTile"></span>';
-  html += '</div>';
-  kongBox.innerHTML = html;
-}
-document.getElementById('kongBtn').addEventListener('click', () => {
-  dead = Math.max(0, dead - 1);
-  document.getElementById('deadCount').textContent = dead;
-  renderKong();
-});
-renderKong();
 `;
 
 const full = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${css}</style></head><body>${board}<script>${script}</script></body></html>`;
