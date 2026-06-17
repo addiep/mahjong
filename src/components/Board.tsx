@@ -11,7 +11,8 @@
  *     The local seat's concealed hand is the interactive, reorderable
  *     PlayerHand (Module 2.2); other seats render a static strip. Exposed melds
  *     sit towards the centre (above the hand for the bottom/top seats).
- *   - Central discard pool + wall indicator — refined in Module 2.3.
+ *   - Central discard pool + wall indicator — discards scatter across the area
+ *     without overlapping; refined further in Module 2.3.
  *   - Action bar (below the local seat) — Module 2.4 (placeholder here).
  *   - Score panel (corner) — Module 2.5 (placeholder here).
  *
@@ -23,7 +24,7 @@
  * (Module 2.2). No engine logic and no game mutation happen here.
  */
 
-import type { CSSProperties } from 'react';
+import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState } from 'react';
 import type { GameState, PlayerState, SeatIndex, Wind, DeclaredMeld } from '@mahjong/engine';
 import { Tile } from './Tile';
 import { PlayerHand } from './PlayerHand';
@@ -194,25 +195,61 @@ function hashFloat(str: string, salt: number): number {
   return ((h >>> 0) % 100000) / 100000;
 }
 
+// Discard scatter. Each tile drops into its own grid cell, sized comfortably
+// larger than a tilted tile so neighbouring cells can never collide.
+const DISCARD_TILE = 46;
+const CELL_W = 62;
+const CELL_H = 66;
+const BBOX_W = 42; // tilted-tile bounding box, used to bound the in-cell jitter
+const BBOX_H = 52;
+
+/** Measures an element in px, updating on resize. */
+function useElementSize<T extends HTMLElement>(ref: RefObject<T>): { w: number; h: number } {
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return size;
+}
+
+/** A spread (shuffled) ordering of the grid's cells, stable for a given grid. */
+function cellOrder(cols: number, rows: number): Array<[number, number]> {
+  const cells: Array<[number, number]> = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cells.push([c, r]);
+  return cells.sort((a, b) => hashFloat(`${a[0]}-${a[1]}`, 7) - hashFloat(`${b[0]}-${b[1]}`, 7));
+}
+
 /**
- * Gives each discard a small jitter and tilt so the pool looks casually dotted
- * around rather than lined up — but the nudge stays inside the tile's own slot,
- * so tiles never overlap and every tile stays fully visible. Values derive from
- * the tile id, so they are stable across renders (a tile never jumps once placed).
+ * Scatters discards across the whole central area without overlapping. The area
+ * is divided into a grid of cells each comfortably larger than a tilted tile;
+ * discards drop into cells in a spread, shuffled order, with a small in-cell
+ * jitter and tilt. Placement is stable — a tile never moves once it has landed.
  */
-function discardStyle(id: string): CSSProperties {
-  const jx = (hashFloat(id, 1) * 2 - 1) * 4;
-  const jy = (hashFloat(id, 2) * 2 - 1) * 4;
-  const rot = (hashFloat(id, 3) * 2 - 1) * 12;
-  return {
-    ['--jx' as string]: `${jx}px`,
-    ['--jy' as string]: `${jy}px`,
-    ['--rot' as string]: `${rot}deg`,
-  } as CSSProperties;
+function discardStyle(id: string, index: number, cols: number, rows: number, w: number, h: number): CSSProperties {
+  const order = cellOrder(cols, rows);
+  const [c, r] = order[index % order.length] ?? [0, 0];
+  const cw = w / cols;
+  const ch = h / rows;
+  const maxJx = Math.max(0, (cw - BBOX_W) / 2);
+  const maxJy = Math.max(0, (ch - BBOX_H) / 2);
+  const left = (c + 0.5) * cw + (hashFloat(id, 1) * 2 - 1) * maxJx;
+  const top = (r + 0.5) * ch + (hashFloat(id, 2) * 2 - 1) * maxJy;
+  const rot = (hashFloat(id, 3) * 2 - 1) * 10;
+  return { left: `${left}px`, top: `${top}px`, ['--rot' as string]: `${rot}deg` } as CSSProperties;
 }
 
 function DiscardArea({ state }: { state: GameState }) {
   const { discardPool, wall, phase } = state;
+  const poolRef = useRef<HTMLDivElement>(null);
+  const { w, h } = useElementSize(poolRef);
+  const cols = Math.max(1, Math.floor(w / CELL_W));
+  const rows = Math.max(1, Math.floor(h / CELL_H));
   const current = state.players.find((p) => p.seat === state.currentSeat);
   return (
     <div className={styles.centre}>
@@ -224,10 +261,10 @@ function DiscardArea({ state }: { state: GameState }) {
         </span>
       </div>
 
-      <div className={styles.discardPool} aria-label={`${discardPool.length} tiles discarded`}>
-        {discardPool.map((tile) => (
-          <div key={tile.id} className={styles.discardTile} style={discardStyle(tile.id)}>
-            <Tile tile={tile} size={46} />
+      <div ref={poolRef} className={styles.discardPool} aria-label={`${discardPool.length} tiles discarded`}>
+        {w > 0 && discardPool.map((tile, i) => (
+          <div key={tile.id} className={styles.discardTile} style={discardStyle(tile.id, i, cols, rows, w, h)}>
+            <Tile tile={tile} size={DISCARD_TILE} />
           </div>
         ))}
       </div>

@@ -121,25 +121,16 @@
 .turnInfo { margin-left: auto; color: var(--accent); text-transform: capitalize; }
 
 .discardPool {
+  position: relative;
   flex: 1;
-  min-height: 150px;
-  overflow: auto;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-content: flex-start;
+  min-height: 180px;
+  overflow: hidden;
 }
 
-/* Each tile gets its own non-overlapping slot; the jitter/tilt stays inside it. */
+/* Absolutely placed by JS into non-overlapping grid cells scattered around. */
 .discardTile {
-  width: 56px;
-  height: 62px;
-  display: grid;
-  place-items: center;
-}
-
-.discardTile svg {
-  transform: translate(var(--jx, 0), var(--jy, 0)) rotate(var(--rot, 0deg));
+  position: absolute;
+  transform: translate(-50%, -50%) rotate(var(--rot, 0deg));
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
 }
 
