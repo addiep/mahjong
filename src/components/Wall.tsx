@@ -13,15 +13,23 @@
  * that, so they are drawn identically and recede from the far end.
  *
  * Each stack is two tiles: a darker bottom and a lighter top raised onto it. An
- * odd remaining count renders the front stack as a single bottom tile, so every
- * individual draw is visible (the top goes, then the bottom).
+ * odd remaining count renders the front stack as a single bottom tile with half
+ * the full-stack depth, so every individual draw is visible (the top goes, then
+ * the bottom) and the remaining tile still reads as a 3D tile.
  *
  * Presentational only: it reads counts from the GameState wall; the discards are
  * passed as children and sit inset within the ring.
  *
  * Playtesting round 2 changes:
- * - Tile stacks enlarged to match face-up tile size (34×52 px, PITCH 36).
- * - Yellow next-tile border and ↻ draw-point arrow removed.
+ * - Tile stacks enlarged to match face-up tile size (34x52 px, PITCH 36).
+ * - Yellow next-tile border and arrow removed.
+ *
+ * Playtesting round 4 changes (2026-06-18):
+ * - Wall capped at MAX_PER_SIDE (18) stacks per side — two layers of 18 = 36
+ *   tiles per side maximum, matching a real game's wall layout on any screen.
+ * - Single remaining tile (upper drawn) now shown with backHalfTop (−6 px)
+ *   rather than a flat rectangle, so it reads as 3D. Full-stack depth increased
+ *   from −8 px to −12 px for a clearer two-tile visual.
  */
 
 import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react';
@@ -29,18 +37,33 @@ import styles from './Wall.module.css';
 
 const PITCH  = 36;  // spacing between stack centres along an edge
 const MARGIN = 22;  // distance from the frame edge to a stack's centre line
+const MAX_PER_SIDE = 18;  // max stacks per side (2 × 18 = 36 tiles per side)
 
 interface Slot { readonly x: number; readonly y: number; readonly vertical: boolean; }
 
-/** Stack positions around the rectangle perimeter, walking clockwise from top-left. */
+/** Stack positions around the rectangle perimeter, walking clockwise from top-left.
+ *  Each side is capped at MAX_PER_SIDE stacks to match a real game wall. */
 function perimeterSlots(w: number, h: number): Slot[] {
-  const slots: Slot[] = [];
   const m = MARGIN;
-  for (let x = m; x <= w - m; x += PITCH) slots.push({ x, y: m, vertical: false });            // top: L→R
-  for (let y = m + PITCH; y <= h - m; y += PITCH) slots.push({ x: w - m, y, vertical: true });  // right: T→B
-  for (let x = w - m - PITCH; x >= m; x -= PITCH) slots.push({ x, y: h - m, vertical: false });  // bottom: R→L
-  for (let y = h - m - PITCH; y >= m + PITCH; y -= PITCH) slots.push({ x: m, y, vertical: true }); // left: B→T
-  return slots;
+
+  const top: Slot[] = [];
+  for (let x = m; x <= w - m; x += PITCH) top.push({ x, y: m, vertical: false });
+
+  const right: Slot[] = [];
+  for (let y = m + PITCH; y <= h - m; y += PITCH) right.push({ x: w - m, y, vertical: true });
+
+  const bottom: Slot[] = [];
+  for (let x = w - m - PITCH; x >= m; x -= PITCH) bottom.push({ x, y: h - m, vertical: false });
+
+  const left: Slot[] = [];
+  for (let y = h - m - PITCH; y >= m + PITCH; y -= PITCH) left.push({ x: m, y, vertical: true });
+
+  return [
+    ...top.slice(0, MAX_PER_SIDE),
+    ...right.slice(0, MAX_PER_SIDE),
+    ...bottom.slice(0, MAX_PER_SIDE),
+    ...left.slice(0, MAX_PER_SIDE),
+  ];
 }
 
 function useElementSize<T extends HTMLElement>(ref: RefObject<T>): { w: number; h: number } {
@@ -57,7 +80,13 @@ function useElementSize<T extends HTMLElement>(ref: RefObject<T>): { w: number; 
   return size;
 }
 
-/** Renders one stack at a slot: a darker bottom tile and (unless half) a lighter top. */
+/**
+ * Renders one stack at a slot.
+ *
+ * Full stack (half=false): darker bottom tile + lighter top tile at −12 px.
+ * Single remaining tile (half=true): darker bottom tile acts as a depth shadow;
+ * a same-shade tile sits above it at −6 px (half depth) so it reads as 3D.
+ */
 function Stack({ slot, half }: { slot: Slot; half: boolean }) {
   return (
     <div
@@ -69,7 +98,10 @@ function Stack({ slot, half }: { slot: Slot; half: boolean }) {
       }}
     >
       <span className={`${styles.backTile} ${styles.backBottom}`} />
-      {!half && <span className={`${styles.backTile} ${styles.backTop}`} />}
+      {half
+        ? <span className={`${styles.backTile} ${styles.backHalfTop}`} />
+        : <span className={`${styles.backTile} ${styles.backTop}`} />
+      }
     </div>
   );
 }

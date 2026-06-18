@@ -1,6 +1,11 @@
 /**
  * App shell — wired to the live turn engine.
  *
+ * Playtesting round 4 fixes (2026-06-18):
+ *  #1  handleDeclareWin now validates the hand with isWinningHand before
+ *      dispatching DECLARE_WIN. If the hand doesn't qualify, a message is shown
+ *      in the event sidebar and the game state is not advanced.
+ *
  * Playtesting round 3 fixes (2026-06-18):
  *  #1/#5  scores prop passed to Board so the sidebar and seat badges show real totals.
  *  #4     Winner's hand captured at HAND_OVER and passed to ScorePanel for display.
@@ -369,10 +374,18 @@ export function App() {
   };
 
   const handleDeclareWin = () => {
-    if (state) {
-      const player = state.players[state.currentSeat];
-      if (player) setLastEvent(`${player.name} declared Mah Jong!`);
+    if (!state) return;
+    const player = state.players[state.currentSeat];
+    if (!player) return;
+
+    // Validate before dispatching — the button is always shown during DISCARDING
+    // but the hand may not yet be a winning hand.
+    if (!isWinningHand(player.concealed, player.melds, state.config)) {
+      setLastEvent("That hand doesn't qualify for Mah Jong yet.");
+      return;
     }
+
+    setLastEvent(`${player.name} declared Mah Jong!`);
     setState(s => s ? engineDispatch(s, { type: 'DECLARE_WIN' }) : s);
   };
 

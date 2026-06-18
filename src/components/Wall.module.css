@@ -1,6 +1,9 @@
 /* Module 2.3 (part) — the wall: a two-tile-high ring of face-down stacks.
    Tile stacks enlarged in playtesting round 2 to match face-up tile size.
-   Yellow next-tile indicator and draw-arrow removed. */
+   Yellow next-tile indicator and draw-arrow removed.
+   Playtesting round 4: full-stack depth increased from −8 px to −12 px;
+   backHalfTop added for single remaining tiles (half the depth, same shade
+   as the bottom tile so it reads as the bottom tile in isolation). */
 
 .frame {
   position: relative;
@@ -40,5 +43,14 @@
 .backTop {
   background: #25856f;
   border: 1.5px solid #16564a;
-  transform: translateY(-8px);
+  transform: translateY(-12px);
+}
+
+/* Single remaining tile (upper has been drawn): same shade as the bottom tile,
+   raised by half the full-stack depth so it reads as a 3D tile rather than a
+   flat rectangle. The backBottom behind it provides the depth shadow. */
+.backHalfTop {
+  background: #11463d;
+  border: 1.5px solid #0c322b;
+  transform: translateY(-6px);
 }

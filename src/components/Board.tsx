@@ -1,10 +1,14 @@
 /**
  * Module 2.0 — UI: Board Layout
  *
+ * Playtesting round 4 (2026-06-18):
+ * - Score badge removed from each seat header; the ScoreSidebar already shows
+ *   every player's running total — no need to repeat it on each seat.
+ *
  * Playtesting round 3 (2026-06-18):
  * - scores prop: live running totals passed from App and shown in the score
- *   sidebar and each seat's name badge (was: always showing the engine's
- *   player.score which starts at 0 and is never updated).
+ *   sidebar (was: always showing the engine's player.score which starts at 0
+ *   and is never updated).
  *
  * Playtesting round 2 (2026-06-17):
  * - lastEvent prop: last notable game event shown under the score sidebar.
@@ -81,8 +85,6 @@ export function Board({
     if (!player) return <div className={styles.seatEmpty} aria-hidden="true" />;
     const isInteractive = player.seat === base;
     const isDiscarding = isInteractive && phase === 'DISCARDING' && player.seat === currentSeat;
-    // Use the running total from App if available, otherwise fall back to engine score.
-    const displayScore = scores?.[player.seat] ?? player.score;
     return (
       <SeatPanel
         player={player}
@@ -96,7 +98,6 @@ export function Board({
         drawnTileId={isInteractive ? drawnTileId : undefined}
         savedOrder={isInteractive ? savedOrder : undefined}
         onOrderChange={isInteractive ? onOrderChange : undefined}
-        score={displayScore}
       />
     );
   };
@@ -138,7 +139,7 @@ export function Board({
 
 function SeatPanel({
   player, position, isCurrent, faceDown, interactive, isDiscarding,
-  onDiscard, onDeclareWin, drawnTileId, savedOrder, onOrderChange, score,
+  onDiscard, onDeclareWin, drawnTileId, savedOrder, onOrderChange,
 }: {
   player: PlayerState;
   position: SeatPosition;
@@ -151,7 +152,6 @@ function SeatPanel({
   drawnTileId?: TileId | null;
   savedOrder?: string[];
   onOrderChange?: (ids: string[]) => void;
-  score: number;
 }) {
   const vertical = position === 'left' || position === 'right';
   const handSize = position === 'bottom' ? 68 : 50;
@@ -200,7 +200,6 @@ function SeatPanel({
       <header className={styles.seatHeader}>
         <span className={styles.windBadge}>{WIND_LABEL[player.seatWind][0]}</span>
         <span className={styles.seatName}>{player.name}</span>
-        <span className={styles.seatScore}>{score}</span>
       </header>
 
       {exposedAbove
