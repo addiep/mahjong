@@ -31,7 +31,7 @@ import {
 import { DeclaredMeld, GameConfig, SeatIndex } from './game-state.js';
 import {
   decomposeStandard, StandardDecomposition,
-  WinContext, detectCircumstance,
+  WinContext,
 } from './hand-evaluator.js';
 import { ScoringConfig, DEFAULT_SCORING_CONFIG } from './scoring-config.js';
 
@@ -191,7 +191,7 @@ function meldBasePoints(g: ScoreGroup, cfg: ScoringConfig): number {
 function pairBasePoints(hand: FullHand, input: ScoreInput, cfg: ScoringConfig): number {
   const t = hand.pair[0]!;
   if (isDragon(t)) return cfg.scoringPair;
-  if (isWind(t) && (t.wind === input.prevailingWind || t.wind === input.seatWind)) return cfg.scoringPair;
+  if (isWind(t) && t.wind === input.seatWind) return cfg.scoringPair;
   return 0;
 }
 
@@ -213,8 +213,7 @@ function scoreNormalReading(hand: FullHand, input: ScoreInput, cfg: ScoringConfi
   if (pairPts > 0) { lines.push({ label: `scoring pair of ${tileKey(hand.pair[0]!)}`, points: pairPts }); base += pairPts; }
 
   // ── Going Mah-Jong bonuses (winner) ──
-  const noChows  = hand.groups.every(g => g.kind !== 'chow');
-  const allChows = hand.groups.every(g => g.kind === 'chow');
+  const noChows = hand.groups.every(g => g.kind !== 'chow');
   lines.push({ label: 'going Mah-Jong', points: cfg.goingMahjong });
   base += cfg.goingMahjong;
   if (input.winContext.source === 'self-draw-wall') {
@@ -226,15 +225,17 @@ function scoreNormalReading(hand: FullHand, input: ScoreInput, cfg: ScoringConfi
     base += cfg.onlyPossibleTile;
   }
   if (noChows) { lines.push({ label: 'no chows', points: cfg.noChows }); base += cfg.noChows; }
-  else if (allChows) { lines.push({ label: 'all chows', points: cfg.allChows }); base += cfg.allChows; }
 
   // ── Doublings ──
   let doublings = 0;
   const addDouble = (label: string, n: number) => { if (n > 0) { doublings += n; doublingLines.push({ label, doublings: n }); } };
 
-  // Pung/kong of honours (terminals + honour tiles), once per qualifying meld (applies to all players).
-  const majorMelds = hand.groups.filter(g => g.kind !== 'chow' && isMajorTile(g.tiles[0]!)).length;
-  addDouble('pung/kong of honours', majorMelds);
+  // Pung/kong of dragons or own-wind only — once per qualifying meld.
+  const honourMelds = hand.groups.filter(g =>
+    g.kind !== 'chow' &&
+    (isDragon(g.tiles[0]!) || (isWind(g.tiles[0]!) && (g.tiles[0]! as { wind: Wind }).wind === input.seatWind))
+  ).length;
+  addDouble('pung/kong of dragon or own wind', honourMelds);
 
   // Complete set of flowers / seasons (doubles twice each).
   if (hasCompleteSet(input.bonusTiles, isFlower)) addDouble('complete set of flowers', 2);
@@ -308,12 +309,18 @@ function detectGroupSpecials(hand: FullHand, input: ScoreInput, cfg: ScoringConf
   if (groups.length === 4 && groups.every(g => g.kind === 'kong')) {
     hits.push({ name: 'All Kongs (Fourfold Plenty)', score: cfg.limit, priority: PRIORITY.allKongs });
   }
+
+  // Three Great Scholars: pung/kong of all three dragons + any 4th meld + pair.
+  // Fires regardless of whether the 4th meld is a chow or pung/kong.
+  const dragonKinds = new Set(
+    groups
+      .filter(g => (g.kind === 'pung' || g.kind === 'kong') && isDragon(g.tiles[0]!))
+      .map(g => tileKey(g.tiles[0]!))
+  );
+  if (dragonKinds.size === 3) hits.push({ name: 'Three Great Scholars', score: cfg.limit, priority: PRIORITY.bespokePungHand });
+
   if (noChows) {
     hits.push({ name: 'All Pungs', score: cfg.limit, priority: PRIORITY.allPungs });
-
-    // Three Great Scholars: pung/kong of all three dragons + one more + pair.
-    const dragonKinds = new Set(groups.filter(g => isDragon(g.tiles[0]!)).map(g => tileKey(g.tiles[0]!)));
-    if (dragonKinds.size === 3) hits.push({ name: 'Three Great Scholars', score: cfg.limit, priority: PRIORITY.bespokePungHand });
 
     // Four Blessings: pung/kong of each of the four winds + any pair.
     const windKinds = new Set(groups.filter(g => isWind(g.tiles[0]!)).map(g => tileKey(g.tiles[0]!)));
@@ -376,11 +383,6 @@ function detectCircumstanceSpecials(input: ScoreInput, cfg: ScoringConfig): Spec
   const P = PRIORITY.circumstance;
   if (input.heavenlyHand) hits.push({ name: 'Heavenly Hand', score: cfg.limit, priority: P });
   if (input.earthlyHand) hits.push({ name: 'Earthly Hand', score: cfg.limit, priority: P });
-  for (const c of detectCircumstance(input.winningTile, input.winContext)) {
-    if (c === 'plum_blossom') hits.push({ name: 'Gathering the Plum Blossom from the Roof', score: cfg.limit, priority: P });
-    if (c === 'moon') hits.push({ name: 'Plucking the Moon from the Bottom of the Sea', score: cfg.limit, priority: P });
-    if (c === 'twofold_fortune') hits.push({ name: 'Twofold Fortune', score: cfg.limit, priority: P });
-  }
   return hits;
 }
 
@@ -588,8 +590,8 @@ export function scoreWinningHand(
 
   // Compare the *capped* totals. A limit special hand and a normal reading that
   // doubles past the limit both pay the limit; in that case the special hand's
-  // name is the meaningful identity to surface (e.g. Gates of Heaven, Plum
-  // Blossom), so the special wins the label on a capped tie.
+  // name is the meaningful identity to surface, so the special wins the label
+  // on a capped tie.
   if (bestSpecial && cappedSpecial >= cappedNormal) {
     return {
       total:         Math.min(cfg.limit, specialScore),
@@ -621,8 +623,11 @@ export function scoreWinningHand(
 /**
  * Scores the declared melds and bonus-tile doublings for a player who did NOT
  * win the hand. Non-winners score base points for each exposed pung / kong and
- * concealed kong, plus doublings for honours melds and complete bonus sets.
- * Chows score zero. No going-Mah-Jong bonuses apply.
+ * concealed kong, plus doublings for dragon/own-wind melds and complete bonus
+ * sets. Chows score zero. No going-Mah-Jong bonuses apply.
+ *
+ * `seatWind` is the non-winner's own seat wind, used to determine own-wind
+ * doubling. If omitted, own-wind doubling is skipped (safe default).
  */
 export interface ExposedMeldScoreResult {
   readonly total:         number;
@@ -636,6 +641,7 @@ export function scoreExposedMelds(
   melds:         readonly DeclaredMeld[],
   bonusTiles:    readonly Tile[],
   scoringConfig: ScoringConfig = DEFAULT_SCORING_CONFIG,
+  seatWind?:     Wind,
 ): ExposedMeldScoreResult {
   const cfg = scoringConfig;
   const scoreLines: ScoreLine[] = [];
@@ -659,13 +665,21 @@ export function scoreExposedMelds(
     if (n > 0) { doublings += n; dblLines.push({ label, doublings: n }); }
   };
 
-  // Pung/kong of honours, once per qualifying meld.
-  const majorCount = melds.filter(m => {
+  // Pung/kong of dragons or own-wind only, once per qualifying meld.
+  const honourCount = melds.filter(m => {
     const g = declaredToGroup(m);
     const first = g.tiles[0];
-    return g.kind !== 'chow' && first !== undefined && isMajorTile(first);
+    if (g.kind === 'chow' || first === undefined) return false;
+    return isDragon(first) || (seatWind !== undefined && isWind(first) && (first as { wind: Wind }).wind === seatWind);
   }).length;
-  addDouble('pung/kong of honours', majorCount);
+  addDouble('pung/kong of dragon or own wind', honourCount);
+
+  // Clean-hand doubling: all exposed melds in at most one suit (honours permitted,
+  // but at least one suited tile must be present).
+  const meldTiles = melds.flatMap(m => [...m.tiles]);
+  const meldSuits = suitedSuits(meldTiles);
+  const hasSuited = meldTiles.some(isSuited);
+  if (hasSuited && meldSuits.size <= 1) addDouble('clean hand', 1);
 
   if (hasCompleteSet(bonusTiles, isFlower)) addDouble('complete set of flowers', 2);
   if (hasCompleteSet(bonusTiles, isSeason)) addDouble('complete set of seasons', 2);

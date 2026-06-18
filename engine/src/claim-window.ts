@@ -65,6 +65,10 @@ export function canKong(concealed: readonly Tile[], discard: Tile): boolean {
  * partner value in suit S. Because the two values are always different
  * (consecutive integers), separate per-value counts are sufficient — no risk
  * of the same physical tile being counted twice.
+ *
+ * Only the player immediately right of the discarder (next in turn order) may
+ * chow. A player who is not the right-hand neighbour but whose hand would be
+ * completed by a chow should claim 'win' instead.
  */
 export function canChow(concealed: readonly Tile[], discard: Tile): boolean {
   if (!isSuited(discard)) return false;
@@ -146,11 +150,11 @@ export function validateClaimDecision(
     }
 
     case 'chow': {
-      // Only the player immediately next in turn order may chow.
-      const leftSeat = ((discarderSeat + 1) % playerCount) as SeatIndex;
-      if (claimerSeat !== leftSeat) {
+      // Only the player immediately next in turn order (right of discarder) may chow.
+      const rightSeat = ((discarderSeat + 1) % playerCount) as SeatIndex;
+      if (claimerSeat !== rightSeat) {
         return (
-          `chow: only seat ${leftSeat} (left of discarder at seat ${discarderSeat}) may chow`
+          `chow: only seat ${rightSeat} (right of discarder at seat ${discarderSeat}) may chow`
         );
       }
       if (!decision.chowTiles) {

@@ -26,7 +26,7 @@ export interface ScoringConfig {
   readonly concealedPung:  MeldPoints;   // 4 / 8
   readonly exposedKong:    MeldPoints;   // 8 / 16
   readonly concealedKong:  MeldPoints;   // 16 / 32
-  /** Pair of a Dragon, the prevailing Wind, or the player's seat Wind. */
+  /** Pair of a Dragon or the player's seat Wind. */
   readonly scoringPair:    number;       // 2
   /** Flat points per flower or season bonus tile (Module 1.9). */
   readonly flowerOrSeason: number;       // 4
@@ -36,7 +36,6 @@ export interface ScoringConfig {
   readonly winFromLiveWall:  number;     // +2  (winning tile self-drawn from the live wall)
   readonly onlyPossibleTile: number;     // +2  (won on the only tile that completes the hand)
   readonly noChows:          number;     // +10 (hand contains no chows)
-  readonly allChows:         number;     // +1  (all chows + one pair)
 
   // ── Limit (agreed maximum payout) and special-hand fixed scores ──
   /** The agreed maximum payout; also the cap on any single hand. */
@@ -65,7 +64,6 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   winFromLiveWall:  2,
   onlyPossibleTile: 2,
   noChows:          10,
-  allChows:         1,
 
   limit:                  1000,
   halfLimit:              500,

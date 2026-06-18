@@ -16,9 +16,6 @@
  *     the seven-pairs family, Wriggling Snake, 13 Unique Wonders, and (only when
  *     `knittingEnabled`) Knitting and Crocheting. These require a fully concealed
  *     hand (no declared melds).
- *   - Circumstance hands (Plum Blossom, Moon, Twofold Fortune) are recognised
- *     from a provenance context, not tile structure; see `detectCircumstance`.
- *     They presuppose an otherwise-winning hand and so do not affect the binary.
  *
  * Bonus tiles (flowers/seasons) are never part of the hand; callers exclude them.
  *
@@ -26,7 +23,7 @@
  */
 
 import {
-  Tile, Suit, SuitedValue, SUITS, TileKey, tileKey,
+  Tile, Suit, SUITS, TileKey, tileKey,
   isSuited, isHonour, isBonus, isTerminal,
 } from './tiles.js';
 import { DeclaredMeld, GameConfig } from './game-state.js';
@@ -83,6 +80,8 @@ function buildCounts(tiles: readonly Tile[]): Counts {
 }
 
 // ─── Structural decomposition (count space) ─────────────────────────────────────
+
+type SuitedValue = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 type StructMeld =
   | { readonly kind: 'pung'; readonly suit: Suit; readonly value: SuitedValue }
@@ -451,31 +450,13 @@ export function isWinningHand(
   return false;
 }
 
-// ─── Circumstance hands ─────────────────────────────────────────────────────────
+// ─── Win context ─────────────────────────────────────────────────────────────
 
 export type WinningTileSource = 'discard' | 'self-draw-wall' | 'dead-wall-replacement';
 
 /** Provenance of the winning tile, supplied by the turn engine. */
 export interface WinContext {
   readonly source: WinningTileSource;
-  /** True if the winning tile was the very last tile of the live wall (for Moon). */
+  /** True if the winning tile was the very last tile of the live wall. */
   readonly isLastWallTile?: boolean;
-  /** Number of consecutive kong replacements that produced this tile (for Twofold Fortune). */
-  readonly kongReplacementChain?: number;
-}
-
-export type CircumstanceHand = 'plum_blossom' | 'moon' | 'twofold_fortune';
-
-/**
- * Detects circumstance hands from the winning tile and its provenance.
- * Presupposes the hand is already a win (call `isWinningHand` first).
- */
-export function detectCircumstance(winningTile: Tile, context: WinContext): CircumstanceHand[] {
-  const out: CircumstanceHand[] = [];
-  const isCirc = (v: SuitedValue) => isSuited(winningTile) && winningTile.suit === 'circles' && winningTile.value === v;
-
-  if (isCirc(5) && context.source === 'dead-wall-replacement') out.push('plum_blossom');
-  if (isCirc(1) && context.source === 'self-draw-wall' && context.isLastWallTile === true) out.push('moon');
-  if (context.source === 'dead-wall-replacement' && (context.kongReplacementChain ?? 0) >= 2) out.push('twofold_fortune');
-  return out;
 }
