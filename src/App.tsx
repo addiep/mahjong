@@ -1,5 +1,5 @@
 /**
- * App shell — wired to the live turn engine.
+ * App shell -- wired to the live turn engine.
  *
  * Playtesting round 4 fixes (2026-06-18):
  *  #1  handleDeclareWin now validates the hand with isWinningHand before
@@ -44,6 +44,7 @@ import {
   scoreWinningHand,
   scoreBonusTiles,
   scoreExposedMelds,
+  inferTable,
   type GameState,
   type GameConfig,
   type SeatIndex,
@@ -59,7 +60,7 @@ import {
 } from '@mahjong/engine';
 import styles from './App.module.css';
 
-// ─── Tile sort helpers (mirrored from PlayerHand.tsx) ─────────────────────────
+// --- Tile sort helpers (mirrored from PlayerHand.tsx) -----
 
 const SUIT_ORDER: Record<Suit, number> = { bamboo: 0, characters: 1, circles: 2 };
 const WIND_ORDER: Record<Wind, number> = { east: 0, south: 1, west: 2, north: 3 };
@@ -84,7 +85,7 @@ function tileName(tile: Tile): string {
   return 'bonus tile';
 }
 
-// ─── Game initialisation ──────────────────────────────────────────────────────
+// --- Game initialisation -----
 
 function makeInitialState(config: GameConfig): GameState {
   const deal = buildWall(config.playerCount, config.deadWall ?? false);
@@ -95,7 +96,7 @@ function makeInitialState(config: GameConfig): GameState {
   return createGameState(config, deal, names);
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// --- Types -----
 
 interface HandScoreInfo {
   winnerName: string | null;
@@ -105,7 +106,7 @@ interface HandScoreInfo {
   winnerHand: WinnerHandInfo | null;
 }
 
-// ─── App ──────────────────────────────────────────────────────────────────────
+// --- App -----
 
 export function App() {
   // 'setup' = show the setup screen; 'playing' = game in progress.
@@ -116,7 +117,7 @@ export function App() {
   const [handScore, setHandScore] = useState<HandScoreInfo | null>(null);
   const [runningTotals, setRunningTotals] = useState<number[]>([0, 0, 0, 0]);
 
-  // Tile just drawn from the wall — shown with a gold border.
+  // Tile just drawn from the wall -- shown with a gold border.
   const [drawnTileId, setDrawnTileId] = useState<TileId | null>(null);
 
   // Last notable game event for display in the score sidebar.
@@ -134,7 +135,7 @@ export function App() {
   const prevPhaseRef = useRef<string | null>(null);
   const prevSeatRef = useRef<number | null>(null);
 
-  // ── Start / new hand ──────────────────────────────────────────────────────
+  // -- Start / new hand -----
 
   const startGame = (config: GameConfig) => {
     setGameConfig(config);
@@ -157,7 +158,7 @@ export function App() {
     setState(makeInitialState(gameConfig));
   };
 
-  // ── Auto-advance non-interactive phases ───────────────────────────────────
+  // -- Auto-advance non-interactive phases -----
 
   useEffect(() => {
     if (!state) return;
@@ -225,7 +226,7 @@ export function App() {
     });
   }, [state]);
 
-  // ── Track drawn tile (gold border) ────────────────────────────────────────
+  // -- Track drawn tile (gold border) -----
 
   useEffect(() => {
     if (!state) return;
@@ -247,7 +248,7 @@ export function App() {
     }
   }, [state]);
 
-  // ── Auto-sort tiles when active seat changes ──────────────────────────────
+  // -- Auto-sort tiles when active seat changes -----
   // During testing: tiles are sorted each time a seat becomes active so that
   // a freshly rotated hand is always in a readable order.
 
@@ -262,7 +263,7 @@ export function App() {
     setCurrentSeatOrder(sortedIds);
   }, [state?.currentSeat]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Score HAND_OVER ───────────────────────────────────────────────────────
+  // -- Score HAND_OVER -----
 
   useEffect(() => {
     if (!state) return;
@@ -361,7 +362,7 @@ export function App() {
     });
   }, [state]);
 
-  // ── Event handlers ────────────────────────────────────────────────────────
+  // -- Event handlers -----
 
   const handleDiscard = (tileId: TileId) => {
     if (state) {
@@ -378,7 +379,7 @@ export function App() {
     const player = state.players[state.currentSeat];
     if (!player) return;
 
-    // Validate before dispatching — the button is always shown during DISCARDING
+    // Validate before dispatching -- the button is always shown during DISCARDING
     // but the hand may not yet be a winning hand.
     if (!isWinningHand(player.concealed, player.melds, state.config)) {
       setLastEvent("That hand doesn't qualify for Mah Jong yet.");
@@ -410,7 +411,7 @@ export function App() {
     handOrdersRef.current.set(state.currentSeat, ids);
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // -- Render -----
 
   // Setup screen.
   if (appPhase === 'setup' || !state) {
@@ -455,6 +456,7 @@ export function App() {
           onOrderChange={handleOrderChange}
           lastEvent={lastEvent}
           scores={runningTotals}
+          inference={inferTable(state)}
         />
       </div>
 
