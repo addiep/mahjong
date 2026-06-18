@@ -24,10 +24,6 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.knittingEnabled).toBe(false);
   });
 
-  it('defaults dirty wins to disallowed', () => {
-    expect(DEFAULT_CONFIG.dirtyWinAllowed).toBe(false);
-  });
-
   it('defaults the dead-wall reserve off (the family rule)', () => {
     expect(DEFAULT_CONFIG.deadWall).toBe(false);
   });
@@ -152,14 +148,12 @@ describe('createGameState honours config flags', () => {
       playerCount:     4,
       discardsVisible: false,
       knittingEnabled: true,
-      dirtyWinAllowed: true,
       deadWall:        true,
     };
     const state = createGameState(config, buildWall(4, true), NAMES_4);
     expect(state.config).toBe(config);
     expect(state.config.discardsVisible).toBe(false);
     expect(state.config.knittingEnabled).toBe(true);
-    expect(state.config.dirtyWinAllowed).toBe(true);
     expect(state.config.deadWall).toBe(true);
   });
 });

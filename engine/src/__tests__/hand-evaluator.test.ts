@@ -136,7 +136,10 @@ describe('isWinningHand — knitting gated by config', () => {
     expect(isWinningHand(knit, [], cfg({ knittingEnabled: true }))).toBe(true);
   });
   it('rejects two-suit identical pairs that are not cross-suit matched, even when enabled', () => {
-    const hand = [...pr(B, 1), ...pr(B, 2), ...pr(B, 3), ...pr(B, 4), ...pr(C, 5), ...pr(C, 6), ...pr(C, 7)];
+    // Same-suit identical pairs (not B(n)+C(n) cross-suit pairs). Values are
+    // non-consecutive so the hand is not an ordinary chow win either, and the
+    // two suits keep it out of the one-suit seven-pairs family.
+    const hand = [...pr(B, 1), ...pr(B, 4), ...pr(B, 7), ...pr(C, 1), ...pr(C, 4), ...pr(C, 7), ...pr(C, 9)];
     expect(isWinningHand(hand, [], cfg({ knittingEnabled: true }))).toBe(false);
   });
   it('accepts crocheting only when knittingEnabled is true', () => {
