@@ -188,3 +188,90 @@ describe('inference -- plumbing (justDrawn through the turn engine)', () => {
     expect(last.justDrawn).toBe(true);
   });
 });
+
+// --- Playtesting feedback (2026-06-18 session): targeted regression cases -----
+
+describe('inference -- honours needs real evidence', () => {
+  it('does not infer winds & dragons from a single early suited discard', () => {
+    // C's only discard is the 2 of bamboo. You cannot read an honours hand from that.
+    const log = [entry(2, bam(2), 0)];
+    const inf = inferPlayers(makeState([player(0), player(1), player(2), player(3)], log));
+    const honours = inf[2]!.topGuesses.find(g => g.kind === 'honours');
+    expect(honours).toBeUndefined();
+  });
+
+  it('does not infer honours merely because no honour was discarded', () => {
+    // Four bamboo discards, no honours thrown: a one-suit lean, not an honours lean.
+    const log = [entry(1, bam(2), 0), entry(1, bam(5), 1), entry(1, bam(7), 2), entry(1, bam(9), 3)];
+    const inf = inferPlayers(makeState([player(0), player(1), player(2), player(3)], log));
+    expect(inf[1]!.topGuesses.map(g => g.kind)).not.toContain('honours');
+  });
+});
+
+describe('inference -- exposed melds rule out an all-honours hand', () => {
+  it('drops the honours guess when a dragon pung is paired with a suited chow', () => {
+    // C: exposed pung of green dragons + a chow of characters. A chow makes an
+    // all-honours hand impossible, so "winds & dragons" must not appear.
+    const p2 = player(2, [
+      pung([dragon('green'), dragon('green', 1), dragon('green', 2)]),
+      chow([cha(4), cha(5), cha(6)]),
+    ]);
+    const inf = inferPlayers(makeState([player(0), player(1), p2, player(3)], []));
+    const kinds = inf[2]!.topGuesses.map(g => g.kind);
+    expect(kinds).toContain('characters');
+    expect(kinds).not.toContain('honours');
+  });
+});
+
+describe('inference -- knitting suit pair', () => {
+  it('names the two kept suits when a knitter sheds circles + honours', () => {
+    const cfg = { ...DEFAULT_CONFIG, knittingEnabled: true };
+    const log = [
+      entry(3, cir(2), 0), entry(3, wind('north'), 1), entry(3, cir(6), 2), entry(3, dragon('white'), 3),
+    ];
+    const inf = inferPlayers(makeState([player(0), player(1), player(2), player(3)], log, { config: cfg }));
+    const knit = inf[3]!.topGuesses.find(g => g.kind === 'knitting')!;
+    expect(knit.label).toBe('knitting bamboo and characters');
+    expect(knit.label).not.toContain('two-suit pairs');
+  });
+
+  it('rules out knitting once the player has any exposed meld', () => {
+    const cfg = { ...DEFAULT_CONFIG, knittingEnabled: true };
+    // Same shedding fingerprint, but the player has exposed a meld -> not wall-only.
+    const p3 = player(3, [chow([bam(4), bam(5), bam(6)])]);
+    const log = [
+      entry(3, cir(2), 0), entry(3, wind('north'), 1), entry(3, cir(6), 2), entry(3, dragon('white'), 3),
+    ];
+    const inf = inferPlayers(makeState([player(0), player(1), player(2), p3], log, { config: cfg }));
+    expect(inf[3]!.topGuesses.map(g => g.kind)).not.toContain('knitting');
+  });
+});
+
+describe('inference -- safe tiles vs out of play', () => {
+  it('does not list a tile as safe once all four copies are visible', () => {
+    // Exposed pung of green dragons (3) + the fourth discarded = all four out.
+    const p1 = player(1, [pung([dragon('green', 0), dragon('green', 1), dragon('green', 2)])]);
+    const log = [entry(0, dragon('green', 3), 0)];
+    const { safeToDiscard, outOfPlay } =
+      inferTable(makeState([player(0), p1, player(2), player(3)], log));
+    expect(safeToDiscard.some(n => n.label === 'green dragon')).toBe(false);
+    expect(outOfPlay.some(n => n.label === 'green dragon')).toBe(true);
+  });
+
+  it('still lists a tile as safe when exactly three copies are visible', () => {
+    const log = [entry(1, dragon('red', 0), 0), entry(2, dragon('red', 1), 1), entry(3, dragon('red', 2), 2)];
+    const { safeToDiscard } = inferTable(makeState([player(0), player(1), player(2), player(3)], log));
+    expect(safeToDiscard.some(n => n.label === 'red dragon' && n.certainty === 'safe')).toBe(true);
+  });
+});
+
+describe('inference -- out-of-play tracking', () => {
+  it('reports a fully-exhausted kind under every player as not held', () => {
+    const p1 = player(1, [pung([dragon('green', 0), dragon('green', 1), dragon('green', 2)])]);
+    const log = [entry(0, dragon('green', 3), 0)];
+    const table = inferTable(makeState([player(0), p1, player(2), player(3)], log));
+    for (const p of table.players) {
+      expect(p.notHolding.some(n => n.label === 'green dragon')).toBe(true);
+    }
+  });
+});
