@@ -583,8 +583,14 @@ export function scoreWinningHand(
   // ── Combine: best of normal vs special, capped at the limit ──
   const normalTotal = best ? best.total : 0;
   const specialScore = bestSpecial ? bestSpecial.score : 0;
+  const cappedNormal  = Math.min(cfg.limit, normalTotal);
+  const cappedSpecial = Math.min(cfg.limit, specialScore);
 
-  if (bestSpecial && specialScore >= normalTotal) {
+  // Compare the *capped* totals. A limit special hand and a normal reading that
+  // doubles past the limit both pay the limit; in that case the special hand's
+  // name is the meaningful identity to surface (e.g. Gates of Heaven, Plum
+  // Blossom), so the special wins the label on a capped tie.
+  if (bestSpecial && cappedSpecial >= cappedNormal) {
     return {
       total:         Math.min(cfg.limit, specialScore),
       specialHand:   bestSpecial.name,
