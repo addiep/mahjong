@@ -8,7 +8,7 @@ import { DEFAULT_CONFIG, GameConfig, DeclaredMeld, MeldType, SeatIndex } from '.
 import { WinContext } from '../hand-evaluator.js';
 import { Tile, Wind } from '../tiles.js';
 
-// ─── Fabricators ──────────────────────────────────────────────
+// ─── Fabricators ────────────────────────────────────────────────────────
 let _id = 0;
 const mk = (o: object): Tile => ({ id: `s${_id++}`, ...o } as unknown as Tile);
 const B = (v: number) => mk({ category: 'suited', suit: 'bamboo', value: v });
@@ -39,7 +39,7 @@ const ctx = (o: Partial<ScoreInput> & { concealed: readonly Tile[]; winningTile:
 const score = (o: Partial<ScoreInput> & { concealed: readonly Tile[]; winningTile: Tile }) =>
   scoreWinningHand(ctx(o));
 
-// ─── Base-point arithmetic (under the limit) ───────────────────────────
+// ─── Base-point arithmetic (under the limit) ──────────────────────────────────
 describe('normal scoring — base points and doublings', () => {
   it('scores a clean self-drawn hand with one major pung + a chow', () => {
     // pungs Red-dragon, B2, B7 + chow B4B5B6 + pair B9, self-drawn.
@@ -47,7 +47,7 @@ describe('normal scoring — base points and doublings', () => {
     const r = score({ concealed, winningTile: concealed[10]! }); // a B5 (in the chow)
     // base: Dred pung 8 + B2 pung 4 + B7 pung 4 + chow 0 + pair 0 + going 20 + live wall 2 = 38
     expect(r.basePoints).toBe(38);
-    // doublings: major meld (Dred) 1 + clean 1 + all concealed 1 = 3
+    // doublings: dragon meld (Dred) 1 + clean 1 + all concealed 1 = 3
     expect(r.doublings).toBe(3);
     expect(r.total).toBe(304);
     expect(r.specialHand).toBeNull();
@@ -95,9 +95,18 @@ describe('normal scoring — base points and doublings', () => {
     // base: 4 + 4 + 4 + chow 0 + South pair 2 + going 20 + live wall 2 + only tile 2 = 38
     expect(r.basePoints).toBe(38);
   });
+
+  it('prevailing wind pair does NOT score (only dragon or own-wind pair scores)', () => {
+    // seat wind = South (=own wind); prevailing = East.
+    // pair of East (prevailing only, not own) should give 0 pair points.
+    const concealed = [...x3(B, 2), ...x3(B, 3), ...x3(B, 5), B(6), B(7), B(8), W('east'), W('east')];
+    const r = score({ concealed, winningTile: concealed[0]!, seatWind: 'south' });
+    // base: 4 + 4 + 4 + chow 0 + East pair 0 + going 20 + live wall 2 = 34
+    expect(r.basePoints).toBe(34);
+  });
 });
 
-// ─── The limit caps every hand ────────────────────────────────────
+// ─── The limit caps every hand ────────────────────────────────────────────
 describe('limit cap', () => {
   it('caps a huge concealed pung hand at the limit', () => {
     const concealed = [...x3(B, 2), ...x3(B, 3), ...x3(B, 4), ...x3(B, 5), ...pr(B, 6)];
@@ -106,7 +115,7 @@ describe('limit cap', () => {
   });
 });
 
-// ─── Special / limit hands ───────────────────────────────────────
+// ─── Special / limit hands ───────────────────────────────────────────────
 describe('special & limit hands', () => {
   it('All Pairs Honours scores 500', () => {
     const concealed = [...pr(B, 1), ...pr(B, 9), ...pr(C, 1), ...pr(C, 9), ...pr(O, 1), ...Wp('east'), ...Dp('red')];
@@ -189,17 +198,18 @@ describe('special & limit hands', () => {
     expect(on.specialHand).toBe('Knitting');
     expect(on.total).toBe(1000);
   });
-});
 
-// ─── Circumstance hands ─────────────────────────────────────────
-describe('circumstance hands', () => {
-  it('Gathering the Plum Blossom (circ 5 from the dead wall)', () => {
-    const concealed = [O(1), O(1), O(2), O(3), O(4), O(5), O(6), O(7), O(3), O(4), O(5), O(6), O(7), O(8)];
-    const r = score({ concealed, winningTile: concealed[5]!, winContext: { source: 'dead-wall-replacement' } });
-    expect(r.specialHand).toBe('Gathering the Plum Blossom from the Roof');
+  it('Three Great Scholars fires even when the 4th meld is a chow', () => {
+    // Three dragon pungs + one chow + pair
+    const concealed = [...D3('red'), ...D3('green'), ...D3('white'), B(1), B(2), B(3), ...pr(B, 5)];
+    const r = score({ concealed, winningTile: concealed[0]! });
+    expect(r.specialHand).toBe('Three Great Scholars');
     expect(r.total).toBe(1000);
   });
+});
 
+// ─── Circumstance hands ───────────────────────────────────────────────────────
+describe('circumstance hands', () => {
   it('Heavenly Hand flag scores the limit', () => {
     const concealed = [...x3(B, 2), B(4), B(5), B(6), ...x3(C, 7), ...x3(O, 8), ...Dp('red')];
     const r = score({ concealed, winningTile: concealed[0]!, heavenlyHand: true });

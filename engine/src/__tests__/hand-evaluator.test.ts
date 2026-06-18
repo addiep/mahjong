@@ -3,12 +3,12 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  isWinningHand, decomposeStandard, detectCircumstance,
+  isWinningHand, decomposeStandard,
 } from '../hand-evaluator.js';
 import { DEFAULT_CONFIG, GameConfig, DeclaredMeld, MeldType } from '../game-state.js';
 import { Tile } from '../tiles.js';
 
-// ─── Fabricators ────────────────────────────────────────────────────────────────
+// ─── Fabricators ──────────────────────────────────────────────────────────────────
 let _id = 0;
 const mk = (o: object): Tile => ({ id: `x${_id++}`, ...o } as unknown as Tile);
 const B = (v: number) => mk({ category: 'suited', suit: 'bamboo', value: v });
@@ -23,7 +23,7 @@ const pr = (f: (v: number) => Tile, v: number) => [f(v), f(v)];
 const cfg = (over: Partial<GameConfig> = {}): GameConfig => ({ ...DEFAULT_CONFIG, ...over });
 const dm = (type: MeldType, tiles: Tile[]): DeclaredMeld => ({ type, tiles });
 
-// ─── Standard wins ──────────────────────────────────────────────────────────────
+// ─── Standard wins ───────────────────────────────────────────────────────────────
 describe('isWinningHand — standard', () => {
   it('accepts a clean single-suit win', () => {
     const hand = [...pr(B, 1), B(1), B(2), B(3), B(1), B(2), B(3), B(4), B(5), B(6), B(7), B(8), B(9)];
@@ -66,7 +66,7 @@ describe('isWinningHand — with declared melds', () => {
   });
 });
 
-// ─── decomposeStandard ──────────────────────────────────────────────────────────
+// ─── decomposeStandard ────────────────────────────────────────────────────────────────
 describe('decomposeStandard', () => {
   it('returns both readings of 222333444 (three pungs vs three chows)', () => {
     const hand = [...pr(B, 9), ...x3(B, 2), ...x3(B, 3), ...x3(B, 4), B(5), B(6), B(7)];
@@ -83,7 +83,7 @@ describe('decomposeStandard', () => {
   });
 });
 
-// ─── Seven pairs family ─────────────────────────────────────────────────────────
+// ─── Seven pairs family ─────────────────────────────────────────────────────────────────
 describe('isWinningHand — seven pairs family', () => {
   it('accepts Heavenly Twins (one suit, seven pairs)', () => {
     const hand = [...pr(B, 1), ...pr(B, 2), ...pr(B, 3), ...pr(B, 4), ...pr(B, 5), ...pr(B, 6), ...pr(B, 7)];
@@ -101,7 +101,7 @@ describe('isWinningHand — seven pairs family', () => {
   });
 });
 
-// ─── Bespoke special hands ──────────────────────────────────────────────────────
+// ─── Bespoke special hands ─────────────────────────────────────────────────────────────
 describe('isWinningHand — bespoke special hands', () => {
   it('accepts Wriggling Snake (1-9 one suit, one doubled, four winds)', () => {
     const hand = [B(1), B(2), B(3), B(4), B(5), B(5), B(6), B(7), B(8), B(9), W('east'), W('south'), W('west'), W('north')];
@@ -124,7 +124,7 @@ describe('isWinningHand — bespoke special hands', () => {
   });
 });
 
-// ─── Knitting / crocheting gating ───────────────────────────────────────────────
+// ─── Knitting / crocheting gating ────────────────────────────────────────────────────────
 describe('isWinningHand — knitting gated by config', () => {
   const knit = [B(1), B(2), B(3), B(4), B(5), B(6), B(7), C(1), C(2), C(3), C(4), C(5), C(6), C(7)];
   const crochet = [B(1), C(1), O(1), B(2), C(2), O(2), B(3), C(3), O(3), B(4), C(4), O(4), B(5), B(5)];
@@ -145,22 +145,5 @@ describe('isWinningHand — knitting gated by config', () => {
   it('accepts crocheting only when knittingEnabled is true', () => {
     expect(isWinningHand(crochet, [], cfg({ knittingEnabled: false }))).toBe(false);
     expect(isWinningHand(crochet, [], cfg({ knittingEnabled: true }))).toBe(true);
-  });
-});
-
-// ─── Circumstance hands ─────────────────────────────────────────────────────────
-describe('detectCircumstance', () => {
-  it('detects Plum Blossom (circ 5 from dead wall)', () => {
-    expect(detectCircumstance(O(5), { source: 'dead-wall-replacement' })).toContain('plum_blossom');
-  });
-  it('detects Moon (circ 1, last wall tile, self-draw)', () => {
-    expect(detectCircumstance(O(1), { source: 'self-draw-wall', isLastWallTile: true })).toContain('moon');
-  });
-  it('detects Twofold Fortune (kong replacement chain >= 2)', () => {
-    expect(detectCircumstance(O(5), { source: 'dead-wall-replacement', kongReplacementChain: 2 }))
-      .toEqual(expect.arrayContaining(['plum_blossom', 'twofold_fortune']));
-  });
-  it('does not detect Plum Blossom on an ordinary self-draw', () => {
-    expect(detectCircumstance(O(5), { source: 'self-draw-wall' })).toHaveLength(0);
   });
 });

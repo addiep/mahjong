@@ -26,6 +26,10 @@
  *  #9  Draw (wall exhausted) no longer updates running totals or shows scores.
  * #12  "Drawn clockwise" label removed (in Board).
  * #13  Bigger tiles (bottom 68px, others 50px, in Board).
+ *
+ * Rule changes batch (2026-06-18):
+ *  - Winner's bonus tile points not added when hand is a limit hand.
+ *  - scoreExposedMelds now receives the player's seatWind for own-wind doubling.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -333,12 +337,13 @@ export function App() {
       : null;
 
     // Build per-player bonus + meld info.
+    // For non-winners: pass the player's own seatWind for correct own-wind doubling.
     const playerBonuses: PlayerBonusInfo[] = state.players.map(p => ({
       name: p.name,
       seat: p.seat,
       bonus: scoreBonusTiles(p.bonusTiles),
       meldScore: p.seat !== hr.winnerSeat
-        ? scoreExposedMelds(p.melds, p.bonusTiles)
+        ? scoreExposedMelds(p.melds, p.bonusTiles, undefined, p.seatWind)
         : null,
     }));
 
@@ -347,7 +352,9 @@ export function App() {
         const player = state.players[i];
         if (!player) return t;
         const pb = playerBonuses[i];
-        const bonusPts = pb?.bonus.points ?? 0;
+        // Winner's bonus tile points are NOT added for limit hands (rule change).
+        const isWinnerLimit = i === hr.winnerSeat && result?.isLimitHand;
+        const bonusPts = isWinnerLimit ? 0 : (pb?.bonus.points ?? 0);
         const handPts  = i === hr.winnerSeat && result ? result.total : 0;
         const meldPts  = i !== hr.winnerSeat ? (pb?.meldScore?.total ?? 0) : 0;
         return t + bonusPts + handPts + meldPts;
