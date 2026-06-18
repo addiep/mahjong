@@ -1,6 +1,10 @@
 /**
  * Module 2.0 — UI: Board Layout
  *
+ * Playtesting round 5 (2026-06-18):
+ * - 'X tiles in wall' span removed from DiscardArea: it was partially covered
+ *   by wall tiles and the count is not useful during play.
+ *
  * Playtesting round 4 (2026-06-18):
  * - Score badge removed from each seat header; the ScoreSidebar already shows
  *   every player's running total — no need to repeat it on each seat.
@@ -287,7 +291,6 @@ function DiscardArea({ state }: { state: GameState }) {
   return (
     <div className={styles.centre}>
       <div className={styles.wallInfo}>
-        <span><strong>{wall.live.length + wall.dead.length}</strong> tiles in wall</span>
         <span className={styles.turnInfo}>
           {current ? `${current.name}` : '—'} · {state.phase.toLowerCase().replace(/_/g, ' ')}
         </span>

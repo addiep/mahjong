@@ -1,9 +1,11 @@
 /* Module 2.3 (part) — the wall: a two-tile-high ring of face-down stacks.
-   Tile stacks enlarged in playtesting round 2 to match face-up tile size.
-   Yellow next-tile indicator and draw-arrow removed.
+   Playtesting round 5 (2026-06-18): stack height corrected to 46px to match
+   the face-up tile height (DISCARD_TILE = 46px; width = 46 × 54/74 ≈ 34px).
+   The width was already correct; only the height was wrong.
    Playtesting round 4: full-stack depth increased from −8 px to −12 px;
    backHalfTop added for single remaining tiles (half the depth, same shade
-   as the bottom tile so it reads as the bottom tile in isolation). */
+   as the bottom tile so it reads as the bottom tile in isolation).
+   Playtesting round 2: tile stacks enlarged and draw-arrow removed. */
 
 .frame {
   position: relative;
@@ -23,7 +25,7 @@
 .stack {
   position: absolute;
   width: 34px;
-  height: 52px;
+  height: 46px;
 }
 
 .backTile {
