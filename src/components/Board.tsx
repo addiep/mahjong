@@ -1,5 +1,5 @@
 /**
- * Module 2.0 — UI: Board Layout
+ * Module 2.0 -- UI: Board Layout
  *
  * Playtesting round 5 (2026-06-18):
  * - 'X tiles in wall' span removed from DiscardArea: it was partially covered
@@ -7,7 +7,7 @@
  *
  * Playtesting round 4 (2026-06-18):
  * - Score badge removed from each seat header; the ScoreSidebar already shows
- *   every player's running total — no need to repeat it on each seat.
+ *   every player's running total -- no need to repeat it on each seat.
  *
  * Playtesting round 3 (2026-06-18):
  * - scores prop: live running totals passed from App and shown in the score
@@ -26,11 +26,13 @@
 import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState } from 'react';
 import type {
   GameState, PlayerState, SeatIndex, Wind, DeclaredMeld, TileId, ClaimDecision,
+  TableInference,
 } from '@mahjong/engine';
 import { Tile } from './Tile';
 import { PlayerHand } from './PlayerHand';
 import { WallFrame } from './Wall';
 import { ActionBar } from './ActionBar';
+import { InferencePanel } from './InferencePanel';
 import styles from './Board.module.css';
 
 type SeatPosition = 'bottom' | 'right' | 'top' | 'left';
@@ -56,8 +58,10 @@ export interface BoardProps {
   readonly savedOrder?: string[];
   readonly onOrderChange?: (ids: string[]) => void;
   readonly lastEvent?: string | null;
-  /** Running totals from App — indexed by seat number. Used instead of player.score. */
+  /** Running totals from App -- indexed by seat number. Used instead of player.score. */
   readonly scores?: readonly number[];
+  /** Module 5.2 opponent-modelling read-out, shown beneath the scoreboard. */
+  readonly inference?: TableInference;
 }
 
 export function Board({
@@ -72,6 +76,7 @@ export function Board({
   onOrderChange,
   lastEvent,
   scores,
+  inference,
 }: BoardProps) {
   const { players, config, currentSeat, phase } = state;
   const base = localSeat ?? currentSeat;
@@ -119,6 +124,8 @@ export function Board({
         handNumber={state.handNumber}
         lastEvent={lastEvent}
         scores={scores}
+        inference={inference}
+        currentSeat={state.currentSeat}
       />
 
       <div className={styles.slotTop}>{renderSeat('top')}</div>
@@ -139,7 +146,7 @@ export function Board({
   );
 }
 
-// ─── Seat panel ───────────────────────────────────────────────────────────────
+// --- Seat panel -----
 
 function SeatPanel({
   player, position, isCurrent, faceDown, interactive, isDiscarding,
@@ -229,7 +236,7 @@ function MeldGroup({ meld, size }: { meld: DeclaredMeld; size: number }) {
   );
 }
 
-// ─── Central table: wall + discard pool (Module 2.3) ─────────────────────────
+// --- Central table: wall + discard pool (Module 2.3) -----
 
 function hashFloat(str: string, salt: number): number {
   let h = (2166136261 ^ salt) >>> 0;
@@ -309,16 +316,18 @@ function DiscardArea({ state }: { state: GameState }) {
   );
 }
 
-// ─── Score sidebar ────────────────────────────────────────────────────────────
+// --- Score sidebar -----
 
 function ScoreSidebar({
-  players, prevailingWind, handNumber, lastEvent, scores,
+  players, prevailingWind, handNumber, lastEvent, scores, inference, currentSeat,
 }: {
   players: readonly PlayerState[];
   prevailingWind: Wind;
   handNumber: number;
   lastEvent?: string | null;
   scores?: readonly number[];
+  inference?: TableInference;
+  currentSeat: SeatIndex;
 }) {
   return (
     <aside className={styles.scorePanel}>
@@ -336,6 +345,9 @@ function ScoreSidebar({
       </ul>
       {lastEvent && (
         <p className={styles.lastEvent}>{lastEvent}</p>
+      )}
+      {inference && (
+        <InferencePanel inference={inference} currentSeat={currentSeat} />
       )}
     </aside>
   );
