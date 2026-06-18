@@ -1,20 +1,20 @@
 /**
- * Module 1.4 — Turn Engine (State Machine)
+ * Module 1.4 -- Turn Engine (State Machine)
  *
  * Implements the pure dispatch() function that drives the game through its
  * phases. Every call takes a GameState and an Action and returns a new
- * GameState — nothing is ever mutated.
+ * GameState -- nothing is ever mutated.
  *
  * Phase flow:
  *
- *   DRAWING ──BEGIN_TURN──► draw from wall ──► CHECK_BONUS / DISCARDING
- *   CHECK_BONUS ──DRAW_REPLACEMENT──► (loop on bonus) ──► DISCARDING
- *   DISCARDING ──DISCARD──► CLAIM_WINDOW
- *              ──DECLARE_CONCEALED_KONG──► CHECK_BONUS
- *              ──DECLARE_ADDED_KONG──► ROBBING_KONG
- *              ──DECLARE_WIN (self-draw)──► HAND_OVER
- *   CLAIM_WINDOW ──CLAIM_RESPONSE──► next player / claimer / HAND_OVER
- *   ROBBING_KONG ──CLAIM_RESPONSE──► robbed win (HAND_OVER) or, if nobody robs,
+ *   DRAWING --BEGIN_TURN--> draw from wall --> CHECK_BONUS / DISCARDING
+ *   CHECK_BONUS --DRAW_REPLACEMENT--> (loop on bonus) --> DISCARDING
+ *   DISCARDING --DISCARD--> CLAIM_WINDOW
+ *              --DECLARE_CONCEALED_KONG--> CHECK_BONUS
+ *              --DECLARE_ADDED_KONG--> ROBBING_KONG
+ *              --DECLARE_WIN (self-draw)--> HAND_OVER
+ *   CLAIM_WINDOW --CLAIM_RESPONSE--> next player / claimer / HAND_OVER
+ *   ROBBING_KONG --CLAIM_RESPONSE--> robbed win (HAND_OVER) or, if nobody robs,
  *                  the melder's kong replacement draw (CHECK_BONUS)
  *
  * What this module does NOT do:
@@ -22,7 +22,7 @@
  *   - Rotate seats between hands (Game Runner / caller)
  *
  * Win validation for ordinary discard claims is still deferred; Module 1.7 is
- * wired only where a structural win is required — the Robbing the Kong window,
+ * wired only where a structural win is required -- the Robbing the Kong window,
  * where a rob must be a genuine winning hand on the added tile.
  *
  * Discard log: the turn engine is the only place state advances, so it owns the
@@ -49,7 +49,7 @@ import { drawFromWall, drawReplacement } from './wall.js';
 import { validateClaimDecision, selectWinClaimant } from './claim-window.js';
 import { isWinningHand } from './hand-evaluator.js';
 
-// ─── Actions ─────────────────────────────────────────────────────────────
+// --- Actions -----
 
 export type Action =
   | { readonly type: 'BEGIN_TURN' }
@@ -70,7 +70,7 @@ export type DiscardAction =
   | { readonly type: 'DECLARE_ADDED_KONG';     readonly tileId: TileId }
   | { readonly type: 'DECLARE_WIN' };
 
-// ─── Dispatch ──────────────────────────────────────────────────────────
+// --- Dispatch -----
 
 export function dispatch(state: GameState, action: Action): GameState {
   switch (state.phase) {
@@ -88,7 +88,7 @@ export function dispatch(state: GameState, action: Action): GameState {
   }
 }
 
-// ─── DRAWING ─────────────────────────────────────────────────────────────
+// --- DRAWING -----
 
 function handleDrawing(state: GameState, action: Action): GameState {
   if (action.type !== 'BEGIN_TURN') {
@@ -106,12 +106,12 @@ function handleDrawing(state: GameState, action: Action): GameState {
     if (tile === null) {
       return { ...state, wall, phase: 'HAND_OVER', handResult: { reason: 'draw', winnerSeat: null, selfDraw: null } };
     }
-    next = { ...replacePlayer(state, withConcealed(player, tile)), wall, lastDrawSource: 'live-wall' as const };
+    next = { ...replacePlayer(state, withConcealed(player, tile)), wall, lastDrawSource: 'live-wall' as const, lastDrawnTileId: tile.id };
   }
   return transitionToDiscard(next);
 }
 
-// ─── CHECK_BONUS ───────────────────────────────────────────────────────
+// --- CHECK_BONUS -----
 
 function handleCheckBonus(state: GameState, action: Action): GameState {
   if (action.type !== 'DRAW_REPLACEMENT') {
@@ -127,10 +127,11 @@ function handleCheckBonus(state: GameState, action: Action): GameState {
   if (isBonus(tile)) {
     return { ...replacePlayer(next, { ...player, bonusTiles: [...player.bonusTiles, tile] }), phase: 'CHECK_BONUS' };
   }
-  return transitionToDiscard(replacePlayer(next, { ...player, concealed: [...player.concealed, tile] }));
+  const drew = { ...replacePlayer(next, { ...player, concealed: [...player.concealed, tile] }), lastDrawnTileId: tile.id };
+  return transitionToDiscard(drew);
 }
 
-// ─── DISCARDING ─────────────────────────────────────────────────────────
+// --- DISCARDING -----
 
 function handleDiscarding(state: GameState, action: Action): GameState {
   const player = state.players[state.currentSeat]!;
@@ -140,13 +141,15 @@ function handleDiscarding(state: GameState, action: Action): GameState {
       const tile = player.concealed.find(t => t.id === action.tileId);
       if (!tile) throw new Error(`DISCARD: tile "${action.tileId}" not found in concealed hand`);
       const updatedPlayer = { ...player, concealed: removeOne(player.concealed, tile) };
+      const justDrawn = state.lastDrawnTileId === tile.id;
       const responses: (ClaimDecision | null)[] =
         Array.from({ length: state.config.playerCount }, (_, i) =>
           i === state.currentSeat ? { type: 'pass' as const } : null);
+      const { lastDrawnTileId: _consumed, ...rest } = state;
       return {
-        ...replacePlayer(state, updatedPlayer),
+        ...replacePlayer(rest, updatedPlayer),
         discardPool: [...state.discardPool, tile],
-        discardLog:  appendDiscard(state.discardLog, state.currentSeat, tile),
+        discardLog:  appendDiscard(state.discardLog, state.currentSeat, tile, justDrawn),
         phase:       'CLAIM_WINDOW',
         claimWindow: { responses },
       };
@@ -200,6 +203,7 @@ function handleDiscarding(state: GameState, action: Action): GameState {
     case 'DECLARE_WIN': {
       const wp = state.players[state.currentSeat]!;
       const winningTile = wp.concealed[wp.concealed.length - 1];
+      if (!winningTile) throw new Error('DECLARE_WIN: no winning tile in concealed hand');
       const isLastWallTile = state.wall.live.length === 0;
       const winSource = state.lastDrawSource === 'dead-wall' ? 'dead-wall-replacement' as const : 'self-draw-wall' as const;
       return {
@@ -213,7 +217,7 @@ function handleDiscarding(state: GameState, action: Action): GameState {
   }
 }
 
-// ─── CLAIM_WINDOW ──────────────────────────────────────────────────────
+// --- CLAIM_WINDOW -----
 
 function handleClaimWindow(state: GameState, action: Action): GameState {
   if (action.type !== 'CLAIM_RESPONSE') {
@@ -238,7 +242,7 @@ function handleClaimWindow(state: GameState, action: Action): GameState {
   return resolveClaimWindow(newState);
 }
 
-// ─── ROBBING_KONG ──────────────────────────────────────────────────────
+// --- ROBBING_KONG -----
 
 function handleRobbingKong(state: GameState, action: Action): GameState {
   if (action.type !== 'CLAIM_RESPONSE') {
@@ -281,11 +285,11 @@ function resolveRobbingKong(state: GameState): GameState {
     const winner = selectWinClaimant(winSeats, rk.melderSeat, state.config.playerCount);
     return { ...state, robbingKong: null, phase: 'HAND_OVER', handResult: { reason: 'win', winnerSeat: winner, selfDraw: false, winningTile: rk.tile, winSource: 'discard' as const, robbedKong: true } };
   }
-  // Nobody robbed — the melder draws the kong replacement and continues their turn.
+  // Nobody robbed -- the melder draws the kong replacement and continues their turn.
   return { ...state, robbingKong: null, phase: 'CHECK_BONUS' };
 }
 
-// ─── Claim resolution ──────────────────────────────────────────────────
+// --- Claim resolution -----
 
 function resolveClaimWindow(state: GameState): GameState {
   const responses = state.claimWindow!.responses;
@@ -335,8 +339,9 @@ function resolvePungOrKong(state: GameState, claimerSeat: SeatIndex, decision: C
   const meld: DeclaredMeld        = { type: meldType, tiles: [...fromHand, discarded] };
 
   const updatedClaimer = { ...claimer, concealed: removeTiles(claimer.concealed, fromHand), melds: [...claimer.melds, meld] };
+  const { lastDrawnTileId: _pk, ...base } = state;
   return {
-    ...replacePlayer(state, updatedClaimer),
+    ...replacePlayer(base, updatedClaimer),
     currentSeat: claimerSeat,
     discardPool: state.discardPool.slice(0, -1),
     discardLog:  markClaimed(state.discardLog, discarded.id, claimerSeat),
@@ -357,8 +362,9 @@ function resolveChow(state: GameState, claimerSeat: SeatIndex, decision: ClaimDe
 
   const meld: DeclaredMeld = { type: 'chow', tiles: [t1, t2, discarded] };
   const updatedClaimer = { ...claimer, concealed: claimer.concealed.filter(t => t.id !== id1 && t.id !== id2), melds: [...claimer.melds, meld] };
+  const { lastDrawnTileId: _ch, ...base } = state;
   return {
-    ...replacePlayer(state, updatedClaimer),
+    ...replacePlayer(base, updatedClaimer),
     currentSeat: claimerSeat,
     discardPool: state.discardPool.slice(0, -1),
     discardLog:  markClaimed(state.discardLog, discarded.id, claimerSeat),
@@ -367,7 +373,7 @@ function resolveChow(state: GameState, claimerSeat: SeatIndex, decision: ClaimDe
   };
 }
 
-// ─── Discard log helpers ────────────────────────────────────────────────
+// --- Discard log helpers -----
 
 /**
  * Append a new (unclaimed) discard entry to the log. `moveIndex` is the
@@ -375,12 +381,13 @@ function resolveChow(state: GameState, claimerSeat: SeatIndex, decision: ClaimDe
  * the sequence is stable and gap-free. An absent log is treated as empty.
  */
 function appendDiscard(
-  log:  readonly DiscardLogEntry[] | undefined,
-  seat: SeatIndex,
-  tile: Tile,
+  log:       readonly DiscardLogEntry[] | undefined,
+  seat:      SeatIndex,
+  tile:      Tile,
+  justDrawn: boolean,
 ): readonly DiscardLogEntry[] {
   const base = log ?? [];
-  return [...base, { seat, tile, moveIndex: base.length, claimedBy: null }];
+  return [...base, { seat, tile, moveIndex: base.length, claimedBy: null, justDrawn }];
 }
 
 /**
@@ -397,7 +404,7 @@ function markClaimed(
   return base.map(e => (e.tile.id === tileId ? { ...e, claimedBy: claimerSeat } : e));
 }
 
-// ─── Internal helpers ───────────────────────────────────────────────────
+// --- Internal helpers -----
 
 function transitionToDiscard(state: GameState): GameState {
   const player     = state.players[state.currentSeat]!;
