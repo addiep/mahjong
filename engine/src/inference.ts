@@ -1,0 +1,392 @@
+/**
+ * Module 5.2 -- Inference Engine (opponent modelling)
+ *
+ * Reads only the information a human at the table could observe and remember:
+ *   - each player's exposed melds (suit / honour signals),
+ *   - the private `discardLog` (who discarded what, in what order, who claimed it),
+ *   - the communal discard pool (tile counts, for safe-tile reasoning),
+ *   - the game config (whether knitting / crochet hands are legal).
+ *
+ * It NEVER reads any player's concealed hand. The engine retains the discard
+ * provenance perfectly; a human approximates the same from fallible memory.
+ *
+ * The caller re-runs `inferTable(state)` after every discard to refresh the
+ * machine's per-player hypothesis about each opponent's target hand.
+ *
+ * Dependencies: tiles.ts, game-state.ts. No UI dependencies. No side effects.
+ */
+
+import {
+  Tile, TileKey, Suit,
+  tileKey, isSuited, isHonour, isWind, isDragon, SUITS,
+} from './tiles.js';
+import {
+  GameState, PlayerState, SeatIndex, DiscardLogEntry, DeclaredMeld,
+} from './game-state.js';
+
+// --- Output types -----
+
+/** The candidate targets the engine reasons about for each player. */
+export type TargetKind =
+  | 'bamboo' | 'characters' | 'circles'   // a clean suited hand
+  | 'honours'                             // winds & dragons
+  | 'knitting' | 'crochet'                // cross-suit special hands
+  | 'mixed';                              // a deliberately dirty (multi-suit) hand
+
+/** How sure the engine is about a guess, derived from the tally magnitude. */
+export type Confidence = 'low' | 'medium' | 'high';
+
+/** A single hypothesis about what a player is collecting. */
+export interface TargetGuess {
+  readonly kind:       TargetKind;
+  /** Natural-language target, e.g. "collecting bamboo". */
+  readonly label:      string;
+  /** The raw tally score behind this guess (higher = stronger). */
+  readonly score:      number;
+  readonly confidence: Confidence;
+}
+
+/** How close a player looks to a win, from public signals only. */
+export interface Closeness {
+  readonly meldCount: number;
+  readonly level:     'none' | 'building' | 'near' | 'ready';
+  /** A short phrase, or null when nothing notable. */
+  readonly note:      string | null;
+  /** True when the player is discarding tiles they just drew (a fishing tempo). */
+  readonly fishing:   boolean;
+}
+
+/** A tile kind that looks safe for the seat-to-move to discard. */
+export interface SafeTileNote {
+  readonly key:       TileKey;
+  /** Human label, e.g. "red dragon" or "9 of circles". */
+  readonly label:     string;
+  /** 'safe' = cannot be punged or paired (and, for suited, no chow risk);
+   *  'likely' = safe from pung/pair but a chow remains theoretically possible. */
+  readonly certainty: 'safe' | 'likely';
+}
+
+/** The full per-player read-out. */
+export interface PlayerInference {
+  readonly seat:       SeatIndex;
+  readonly name:       string;
+  /** The two strongest hypotheses, strongest first. May be empty very early. */
+  readonly topGuesses: readonly TargetGuess[];
+  readonly closeness:  Closeness;
+  /** One natural-language line for the live panel. */
+  readonly summary:    string;
+}
+
+/** The table-wide inference: one read-out per player plus safe-tile advice. */
+export interface TableInference {
+  readonly players:       readonly PlayerInference[];
+  /** Tiles that look safe for `state.currentSeat` to discard right now. */
+  readonly safeToDiscard: readonly SafeTileNote[];
+}
+
+// --- Weights (tunable) -----
+
+const W = {
+  meldSuit:     6,  // an exposed meld in a suit strongly confirms that suit
+  meldHonour:   6,  // an exposed pung/kong of winds or dragons
+  cleanBoost:   4,  // exposed meld in suit X *and* later discarding X -> clean hand in X
+  discardEarly: 2,  // shedding a suit early counts double (players go clean early)
+  discardLate:  1,  // shedding a suit later
+  keepHonours:  3,  // no honours discarded over many turns -> honour-heavy hand
+  keepSuit:     3,  // a suit a player conspicuously never discards -> they keep it
+  dragonEarly:  4,  // discarding a dragon early: strong negative for honours, "odd"
+  knit:         7,  // knitting discard fingerprint
+  crochet:      7,  // crochet discard fingerprint
+  mixed:        5,  // dirty (multi-suit) exposed melds
+  oddNudge:     2,  // early-dragon nudge toward a special / cross-suit hand
+} as const;
+
+/** A player's first N discards count as "early". */
+const EARLY_DISCARDS = 4;
+
+const SUIT_LIST: readonly Suit[] = SUITS;
+
+// --- Public entry points -----
+
+/** Per-player hypotheses only (no safe-tile advice). Handy for tests. */
+export function inferPlayers(state: GameState): PlayerInference[] {
+  const log = state.discardLog ?? [];
+  return state.players.map(p => inferOne(state, p, log));
+}
+
+/** Full table read-out: per-player guesses + safe-tile advice for the mover. */
+export function inferTable(state: GameState): TableInference {
+  const players = inferPlayers(state);
+  const safeToDiscard = inferSafeTiles(state, players);
+  return { players, safeToDiscard };
+}
+
+// --- Per-player inference -----
+
+function inferOne(
+  state:  GameState,
+  player: PlayerState,
+  log:    readonly DiscardLogEntry[],
+): PlayerInference {
+  const myDiscards = log.filter(e => e.seat === player.seat);
+  const knitting   = state.config.knittingEnabled;
+
+  // Running tally per candidate target.
+  const tally: Record<TargetKind, number> = {
+    bamboo: 0, characters: 0, circles: 0,
+    honours: 0, knitting: 0, crochet: 0, mixed: 0,
+  };
+
+  // -- Exposed melds: classify suits and honours --
+  const suitedMeldCount: Record<Suit, number> = { bamboo: 0, characters: 0, circles: 0 };
+  let honourMelds = 0;
+  for (const m of player.melds) {
+    const t0 = m.tiles[0];
+    if (!t0) continue;
+    if (isSuited(t0))      suitedMeldCount[t0.suit] += 1;
+    else if (isHonour(t0)) honourMelds += 1;
+  }
+  const meldedSuits = SUIT_LIST.filter(s => suitedMeldCount[s] > 0);
+  const dirty = meldedSuits.length >= 2;
+
+  for (const s of meldedSuits) tally[s] += W.meldSuit * suitedMeldCount[s];
+  tally.honours += W.meldHonour * honourMelds;
+
+  // -- Discards: shed suits, honour timing --
+  const suitDiscards: Record<Suit, number> = { bamboo: 0, characters: 0, circles: 0 };
+  let honourDiscards = 0;
+  let earlyDragonDiscard = false;
+  myDiscards.forEach((e, idx) => {
+    const t = e.tile;
+    const early = idx < EARLY_DISCARDS;
+    if (isSuited(t)) {
+      suitDiscards[t.suit] += 1;
+      tally[t.suit] -= early ? W.discardEarly : W.discardLate;
+    } else if (isHonour(t)) {
+      honourDiscards += 1;
+      tally.honours -= early ? W.discardEarly : W.discardLate;
+      if (isDragon(t) && early) {
+        earlyDragonDiscard = true;
+        tally.honours -= W.dragonEarly;
+      }
+    }
+  });
+
+  // -- Clean-hand boost: melding a suit and then shedding it = comfortable in it --
+  for (const s of meldedSuits) {
+    if (suitDiscards[s] > 0) tally[s] += W.cleanBoost;
+  }
+
+  // -- Kept-suit lean: once a player has shed a few suited tiles, the suits they
+  //    conspicuously never discard are the ones they are keeping (players go
+  //    clean early, so the suit they avoid throwing is their likely target). --
+  const totalSuitedDiscards = SUIT_LIST.reduce((n, s) => n + suitDiscards[s], 0);
+  if (totalSuitedDiscards >= 3) {
+    for (const s of SUIT_LIST) {
+      if (suitDiscards[s] === 0) tally[s] += W.keepSuit;
+    }
+  }
+
+  // -- Keeping honours: many discards, none of them honours --
+  if (myDiscards.length >= 4 && honourDiscards === 0) {
+    tally.honours += W.keepHonours;
+  }
+
+  // -- Cross-suit special hands (only legal when knitting is enabled) --
+  const distinctSuitsShed = SUIT_LIST.filter(s => suitDiscards[s] > 0).length;
+  if (knitting && player.melds.length === 0) {
+    // Knitting: shed exactly one suit + honours, keep the other two suits.
+    if (honourDiscards >= 1 && distinctSuitsShed === 1) tally.knitting += W.knit;
+    // Crochet: shed honours, keep all three suits.
+    if (honourDiscards >= 2 && distinctSuitsShed === 0) tally.crochet += W.crochet;
+  }
+
+  // -- "Something odd": an early dragon discard nudges toward a special hand.
+  //    Knitting/crochet are concealed-only, so only nudge them when no melds
+  //    are exposed; the mixed-hand nudge applies regardless. --
+  if (earlyDragonDiscard) {
+    if (knitting && player.melds.length === 0) {
+      tally.knitting += W.oddNudge;
+      tally.crochet  += W.oddNudge;
+    }
+    tally.mixed += W.oddNudge;
+  }
+
+  // -- Dirty melds: collapse the per-suit reads into a single "mixed" guess --
+  if (dirty) {
+    let moved = 0;
+    for (const s of meldedSuits) { moved += Math.max(0, tally[s]); tally[s] = 0; }
+    tally.mixed += moved + W.mixed;
+  }
+
+  // -- Rank and label --
+  const topGuesses = rankGuesses(tally);
+  const closeness  = assessCloseness(player, myDiscards);
+  const summary    = buildSummary(player.name, topGuesses, closeness, myDiscards.length);
+
+  return { seat: player.seat, name: player.name, topGuesses, closeness, summary };
+}
+
+// --- Ranking / labelling -----
+
+function targetLabel(kind: TargetKind): string {
+  switch (kind) {
+    case 'bamboo':     return 'collecting bamboo';
+    case 'characters': return 'collecting characters';
+    case 'circles':    return 'collecting circles';
+    case 'honours':    return 'going for winds and dragons';
+    case 'knitting':   return 'knitting (two-suit pairs)';
+    case 'crochet':    return 'crocheting (three-suit sets)';
+    case 'mixed':      return 'going for a mixed hand, perhaps all pungs';
+  }
+}
+
+function confidenceOf(score: number): Confidence {
+  if (score >= 6) return 'high';
+  if (score >= 4) return 'medium';
+  return 'low';
+}
+
+function rankGuesses(tally: Record<TargetKind, number>): TargetGuess[] {
+  const kinds = Object.keys(tally) as TargetKind[];
+  return kinds
+    .map(kind => ({ kind, score: tally[kind] }))
+    .filter(g => g.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2)
+    .map(g => ({
+      kind:       g.kind,
+      label:      targetLabel(g.kind),
+      score:      g.score,
+      confidence: confidenceOf(g.score),
+    }));
+}
+
+// --- Closeness -----
+
+function assessCloseness(
+  player:     PlayerState,
+  myDiscards: readonly DiscardLogEntry[],
+): Closeness {
+  const meldCount = player.melds.length;
+
+  // Fishing tempo: at least two of the last three discards were the tile just drawn.
+  const recent = myDiscards.slice(-3);
+  const justDrawnCount = recent.filter(e => e.justDrawn === true).length;
+  const fishing = justDrawnCount >= 2;
+
+  let level: Closeness['level'];
+  let note: string | null;
+  if (meldCount >= 4)       { level = 'ready';    note = 'needs only the pair or one tile'; }
+  else if (meldCount === 3) { level = 'near';     note = 'may be one or two tiles from a win'; }
+  else if (meldCount >= 1)  { level = 'building'; note = null; }
+  else                      { level = 'none';     note = null; }
+
+  if (fishing && meldCount >= 2) {
+    note = (note ? note + ', and ' : '') + 'discarding freshly-drawn tiles (fishing)';
+  }
+
+  return { meldCount, level, note, fishing };
+}
+
+// --- Summary line -----
+
+function hedge(confidence: Confidence): string {
+  switch (confidence) {
+    case 'high':   return 'is';
+    case 'medium': return 'seems to be';
+    case 'low':    return 'might be';
+  }
+}
+
+function buildSummary(
+  name:        string,
+  guesses:     readonly TargetGuess[],
+  closeness:   Closeness,
+  discardCount: number,
+): string {
+  const first = guesses[0];
+  if (!first) {
+    return discardCount < 2
+      ? `${name}: too early to read`
+      : `${name}: no clear direction yet`;
+  }
+  let s = `${name} ${hedge(first.confidence)} ${first.label}`;
+  const second = guesses[1];
+  if (second) s += ` (possibly ${shortLabel(second.kind)})`;
+  if (closeness.note) s += `; ${closeness.meldCount} melds down, ${closeness.note}`;
+  return s + '.';
+}
+
+/** A terse noun for the secondary guess in a summary line. */
+function shortLabel(kind: TargetKind): string {
+  switch (kind) {
+    case 'bamboo':     return 'bamboo';
+    case 'characters': return 'characters';
+    case 'circles':    return 'circles';
+    case 'honours':    return 'winds and dragons';
+    case 'knitting':   return 'knitting';
+    case 'crochet':    return 'crocheting';
+    case 'mixed':      return 'a mixed hand';
+  }
+}
+
+// --- Safe-tile advice -----
+
+function tileLabel(t: Tile): string {
+  switch (t.category) {
+    case 'suited': return `${t.value} of ${t.suit}`;
+    case 'wind':   return `${t.wind} wind`;
+    case 'dragon': return `${t.dragon} dragon`;
+    case 'flower': return `${t.flower} flower`;
+    case 'season': return `${t.season} season`;
+  }
+}
+
+/**
+ * A kind is safe to discard once three copies are visible (across discards and
+ * exposed melds): the remaining copy can no longer complete a pung or a pair.
+ * Honours are then fully safe (they cannot chow). A suited tile could still be
+ * chowed by the only player who can claim it (the next seat in turn order), so
+ * it is only 'safe' when that player does not look to be collecting its suit.
+ */
+function inferSafeTiles(
+  state:   GameState,
+  players: readonly PlayerInference[],
+): SafeTileNote[] {
+  const seenIds = new Set<string>();
+  const counts  = new Map<TileKey, number>();
+  const sample  = new Map<TileKey, Tile>();
+
+  const see = (t: Tile) => {
+    if (seenIds.has(t.id)) return;
+    seenIds.add(t.id);
+    const k = tileKey(t);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+    if (!sample.has(k)) sample.set(k, t);
+  };
+
+  for (const e of state.discardLog ?? []) see(e.tile);
+  for (const t of state.discardPool)     see(t);
+  for (const p of state.players)
+    for (const m of p.melds)
+      for (const t of m.tiles) see(t);
+
+  // The only player who could chow the mover's discard is the next seat.
+  const nextSeat = ((state.currentSeat + 1) % state.config.playerCount) as SeatIndex;
+  const nextGuess = players[nextSeat]?.topGuesses[0]?.kind ?? null;
+
+  const notes: SafeTileNote[] = [];
+  for (const [key, n] of counts) {
+    if (n < 3) continue;
+    const t = sample.get(key);
+    if (!t) continue;
+    if (isHonour(t)) {
+      notes.push({ key, label: tileLabel(t), certainty: 'safe' });
+    } else if (isSuited(t)) {
+      const chowRisk = nextGuess === t.suit;
+      notes.push({ key, label: tileLabel(t), certainty: chowRisk ? 'likely' : 'safe' });
+    }
+  }
+  return notes;
+}
