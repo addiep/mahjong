@@ -15,3 +15,4 @@ export * from './hand-evaluator.js';
 export * from './scoring-config.js';
 export * from './scoring.js';
 export * from './flower-scoring.js';
+export * from './inference.js';
