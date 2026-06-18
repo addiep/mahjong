@@ -1,12 +1,12 @@
 /**
- * Module 1.3 — Game State Model
+ * Module 1.3 -- Game State Model
  *
  * Defines the TypeScript types that describe the complete state of a game at
  * any point in time, plus a factory function for creating the initial state
  * after the deal.
  *
  * This is the single source of truth for the engine. All other modules either
- * read from a GameState or produce a new one — nothing is ever mutated in place.
+ * read from a GameState or produce a new one -- nothing is ever mutated in place.
  *
  * Dependencies: tiles.ts (Tile, TileId, Wind), wall.ts (Wall, Deal, PlayerCount)
  * No UI dependencies. No side effects.
@@ -15,7 +15,7 @@
 import { Tile, TileId, Wind } from './tiles.js';
 import { Wall, Deal, PlayerCount } from './wall.js';
 
-// ─── Seat ──────────────────────────────────────────
+// --- Seat -----
 
 /**
  * A player's seat position for a hand.
@@ -27,7 +27,7 @@ export type SeatIndex = 0 | 1 | 2 | 3;
 /** The seat winds in canonical seat order. */
 const SEAT_WINDS: readonly Wind[] = ['east', 'south', 'west', 'north'];
 
-// ─── Game configuration ────────────────────────────────────
+// --- Game configuration -----
 
 /**
  * Configuration set before the hand begins and immutable during play.
@@ -49,7 +49,7 @@ export interface GameConfig {
 
 /**
  * Sensible defaults: 4-player, face-up discards, no knitting,
- * and no dead-wall reserve (the family rule — use up the whole wall).
+ * and no dead-wall reserve (the family rule -- use up the whole wall).
  */
 export const DEFAULT_CONFIG: GameConfig = {
   playerCount:     4,
@@ -58,16 +58,16 @@ export const DEFAULT_CONFIG: GameConfig = {
   deadWall:        false,
 };
 
-// ─── Declared melds ─────────────────────────────────────
+// --- Declared melds -----
 
 /**
  * The type of a declared (face-up) meld.
  *
- * chow           — three consecutive suited tiles, claimed from a discard.
- * pung           — three identical tiles, claimed from a discard.
- * open_kong      — four identical tiles: either claimed from a discard, or
+ * chow           -- three consecutive suited tiles, claimed from a discard.
+ * pung           -- three identical tiles, claimed from a discard.
+ * open_kong      -- four identical tiles: either claimed from a discard, or
  *                  extended by adding a 4th tile to a melded pung.
- * concealed_kong — four identical tiles all drawn from the wall; declared
+ * concealed_kong -- four identical tiles all drawn from the wall; declared
  *                  mid-turn. Scored as concealed despite being announced.
  */
 export type MeldType =
@@ -82,7 +82,7 @@ export interface DeclaredMeld {
   readonly tiles: readonly Tile[];
 }
 
-// ─── Player state ──────────────────────────────────
+// --- Player state -----
 
 export interface PlayerState {
   /** The player's display name. */
@@ -101,21 +101,21 @@ export interface PlayerState {
   readonly score:      number;
 }
 
-// ─── Game phase ─────────────────────────────────
+// --- Game phase -----
 
 /**
  * The phase the game is currently in. The turn engine (Module 1.4) drives
  * transitions between these phases.
  *
- * DRAWING      — the current player needs to draw from the live wall, or has
+ * DRAWING      -- the current player needs to draw from the live wall, or has
  *                just claimed a discard and holds it before discarding.
- * CHECK_BONUS  — a bonus tile (or kong) requires a replacement draw from the
+ * CHECK_BONUS  -- a bonus tile (or kong) requires a replacement draw from the
  *                dead wall before play continues.
- * DISCARDING   — the current player has their full hand and must discard one tile.
- * CLAIM_WINDOW — a tile has just been discarded; other players may claim it.
- * ROBBING_KONG — a player has promoted an exposed pung to a kong; other players
+ * DISCARDING   -- the current player has their full hand and must discard one tile.
+ * CLAIM_WINDOW -- a tile has just been discarded; other players may claim it.
+ * ROBBING_KONG -- a player has promoted an exposed pung to a kong; other players
  *                may rob that exact tile for a win before the replacement draw.
- * HAND_OVER    — the hand has ended (win or exhausted wall); handResult is set.
+ * HAND_OVER    -- the hand has ended (win or exhausted wall); handResult is set.
  */
 export type GamePhase =
   | 'DRAWING'
@@ -125,7 +125,7 @@ export type GamePhase =
   | 'ROBBING_KONG'
   | 'HAND_OVER';
 
-// ─── Hand result ──────────────────────────────────
+// --- Hand result -----
 
 /** Why the hand ended. */
 export type HandEndReason = 'win' | 'draw';
@@ -153,7 +153,7 @@ export interface HandResult {
   readonly robbedKong?: boolean;
 }
 
-// ─── Claim window ───────────────────────────────
+// --- Claim window -----
 
 /**
  * The type of claim a player may make on a discarded tile.
@@ -190,7 +190,7 @@ export interface ClaimWindowState {
  * and only as a winning tile ('win' or 'pass'); concealed kongs are never robbable.
  *
  * responses is indexed by SeatIndex, like ClaimWindowState. The melder's own
- * slot is pre-filled with { type: 'pass' } — they cannot rob their own kong.
+ * slot is pre-filled with { type: 'pass' } -- they cannot rob their own kong.
  */
 export interface RobbingKongState {
   /** The tile just added to the kong; the only tile that may be robbed. */
@@ -201,7 +201,7 @@ export interface RobbingKongState {
   readonly responses:  ReadonlyArray<ClaimDecision | null>;
 }
 
-// ─── Discard log (private provenance) ───────────────────────────────
+// --- Discard log (private provenance) -----
 
 /**
  * A single record in the private discard log.
@@ -214,7 +214,7 @@ export interface RobbingKongState {
  * This is never shown to players in normal play. It exists for the
  * intelligence module (opponent modelling, Phase 4) and the AI, which are
  * entitled to reason from the same public information a human tracks from
- * memory — just more reliably. Concealed tiles are never recorded here.
+ * memory -- just more reliably. Concealed tiles are never recorded here.
  */
 export interface DiscardLogEntry {
   /** The seat that discarded this tile. */
@@ -225,14 +225,21 @@ export interface DiscardLogEntry {
   readonly moveIndex: number;
   /** Seat that claimed this discard (pung/kong/chow/win), or null if unclaimed. */
   readonly claimedBy: SeatIndex | null;
+  /**
+   * True when the discarded tile was the very tile the player had just drawn
+   * this turn (i.e. drawn and thrown without joining the hand). Publicly
+   * observable at the table and a "fishing" tempo signal for the intelligence
+   * module (Module 5.2). Absent on entries that predate this field.
+   */
+  readonly justDrawn?: boolean;
 }
 
-// ─── Game state ─────────────────────────────────
+// --- Game state -----
 
 /**
  * The complete, immutable snapshot of the game at a single point in time.
  *
- * The turn engine produces a new GameState for every action — old snapshots
+ * The turn engine produces a new GameState for every action -- old snapshots
  * are never modified.
  */
 export interface GameState {
@@ -263,7 +270,7 @@ export interface GameState {
    *
    * Distinct from `discardPool`: the pool is what players see (authorless,
    * and tiles leave it when claimed), whereas this log retains who discarded
-   * what, in what order, and whether it was claimed — the raw material for the
+   * what, in what order, and whether it was claimed -- the raw material for the
    * intelligence module and the AI. Never rendered to players in normal play.
    *
    * Optional for backward compatibility with state literals that predate it;
@@ -277,9 +284,18 @@ export interface GameState {
    * Absent before the first draw.
    */
   readonly lastDrawSource?: 'live-wall' | 'dead-wall';
+  /**
+   * Id of the tile most recently drawn from the wall into the current player's
+   * concealed hand this turn, or absent if their pending discard does not
+   * follow a fresh draw (e.g. they claimed a discard, or it is the opening
+   * discard). The turn engine sets it on a wall/replacement draw and clears it
+   * on a claim, so a DISCARD can record whether it was the just-drawn tile.
+   * Read by the intelligence module for the fishing-tempo signal.
+   */
+  readonly lastDrawnTileId?: TileId;
 }
 
-// ─── Factory ───────────────────────────────────
+// --- Factory -----
 
 /**
  * Creates the initial GameState for a new hand from a config, a completed deal,
