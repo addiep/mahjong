@@ -30,6 +30,11 @@
  * Rule changes batch (2026-06-18):
  *  - Winner's bonus tile points not added when hand is a limit hand.
  *  - scoreExposedMelds now receives the player's seatWind for own-wind doubling.
+ *
+ * Event log fix (2026-06-19):
+ *  - logEvent calls moved out of setState functional updaters (StrictMode
+ *    double-invokes updaters, causing each AI event to appear twice).
+ *  - Rolling event list expanded from 3 to 6 entries.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -139,8 +144,10 @@ export function App() {
 
   // The last few notable game events (most recent last), shown in the sidebar
   // so the human can follow several AI seats between their own turns.
+  // Capped at 6; logEvent must be called OUTSIDE setState updaters because
+  // React StrictMode double-invokes updaters, which would duplicate entries.
   const [events, setEvents] = useState<string[]>([]);
-  const logEvent = (msg: string) => setEvents(prev => [...prev, msg].slice(-3));
+  const logEvent = (msg: string) => setEvents(prev => [...prev, msg].slice(-6));
 
   // Per-seat hand display orders: auto-sorted each time a new seat becomes active.
   const handOrdersRef = useRef<Map<number, string[]>>(new Map());
@@ -262,6 +269,10 @@ export function App() {
   // HeuristicController and dispatch the result after a short, watchable delay.
   // The synchronous auto-advance above leaves AI decision points untouched
   // (it only auto-passes seats with no legal action), so the two never clash.
+  //
+  // IMPORTANT: logEvent must be called BEFORE setState, not inside the updater.
+  // React StrictMode double-invokes functional updaters, so any logEvent call
+  // inside setState would fire twice and duplicate the event entry.
 
   useEffect(() => {
     if (!state) return;
@@ -279,16 +290,17 @@ export function App() {
       if (ctrl) {
         act = () => {
           void ctrl.getDiscardAction(captured, seat as SeatIndex).then(action => {
+            // Log before setState so it fires exactly once.
+            const player = captured.players[seat];
+            if (action.type === 'DISCARD') {
+              const tile = player?.concealed.find(t => t.id === action.tileId);
+              if (player && tile) logEvent(`${player.name} discarded the ${tileName(tile)}`);
+            } else if (action.type === 'DECLARE_WIN') {
+              if (player) logEvent(`${player.name} declared Mah Jong!`);
+            }
+            setDrawnTileId(null);
             setState(s => {
               if (s !== captured) return s;
-              const player = s.players[seat];
-              if (action.type === 'DISCARD') {
-                const tile = player?.concealed.find(t => t.id === action.tileId);
-                if (player && tile) logEvent(`${player.name} discarded the ${tileName(tile)}`);
-              } else if (action.type === 'DECLARE_WIN') {
-                if (player) logEvent(`${player.name} declared Mah Jong!`);
-              }
-              setDrawnTileId(null);
               try { return engineDispatch(s, action); }
               catch (err) { console.error('AI discard error:', err); return s; }
             });
@@ -314,18 +326,19 @@ export function App() {
         if (hasLegal && ctrl) {
           act = () => {
             void ctrl.getClaimDecision(captured, pending as SeatIndex).then(decision => {
+              // Log before setState so it fires exactly once.
+              if (decision.type !== 'pass') {
+                const pl = captured.players[pending];
+                const tile = captured.discardPool[captured.discardPool.length - 1];
+                if (pl && tile) {
+                  const verb = decision.type === 'win' ? 'won with'
+                    : decision.type === 'pung' ? 'punged'
+                    : decision.type === 'kong' ? 'konged' : 'chowed';
+                  logEvent(`${pl.name} ${verb} the ${tileName(tile)}`);
+                }
+              }
               setState(s => {
                 if (s !== captured) return s;
-                if (decision.type !== 'pass') {
-                  const pl = s.players[pending];
-                  const tile = s.discardPool[s.discardPool.length - 1];
-                  if (pl && tile) {
-                    const verb = decision.type === 'win' ? 'won with'
-                      : decision.type === 'pung' ? 'punged'
-                      : decision.type === 'kong' ? 'konged' : 'chowed';
-                    logEvent(`${pl.name} ${verb} the ${tileName(tile)}`);
-                  }
-                }
                 try { return engineDispatch(s, { type: 'CLAIM_RESPONSE', seat: pending as SeatIndex, decision }); }
                 catch (err) { console.error('AI claim error:', err); return s; }
               });
