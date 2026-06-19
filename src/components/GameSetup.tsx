@@ -13,6 +13,8 @@ import { useState } from 'react';
 import type { GameConfig } from '@mahjong/engine';
 import styles from './GameSetup.module.css';
 
+const SEAT_WINDS = ['East', 'South', 'West', 'North'];
+
 interface Props {
   readonly defaultConfig: GameConfig;
   readonly defaultAiSeats?: number;
@@ -95,7 +97,9 @@ export function GameSetup({ defaultConfig, defaultAiSeats, onStart }: Props) {
           <span className={styles.hint}>
             {clampedAi === 0
               ? 'Pass-and-play: you control every seat.'
-              : `You play East; the other ${clampedAi} seat${clampedAi > 1 ? 's' : ''} are AI.`}
+              : `You play ${SEAT_WINDS.slice(0, playerCount - clampedAi).join(', ')}; `
+                + `${SEAT_WINDS.slice(playerCount - clampedAi, playerCount).join(', ')} `
+                + `${clampedAi > 1 ? 'are' : 'is'} AI.`}
           </span>
         </div>
 

@@ -22,7 +22,7 @@
 
 .seatEmpty { width: 100%; }
 
-/* ── Seat panel ── */
+/* --- Seat panel --- */
 
 .seat {
   background: var(--panel-bg);
@@ -95,7 +95,7 @@
   border-left: 1px dashed var(--panel-border);
 }
 
-/* ── Centre: wall + discard pool ── */
+/* --- Centre: wall + discard pool --- */
 
 .centre {
   flex: 1;
@@ -134,14 +134,14 @@
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
 }
 
-/* ── Score sidebar ── */
+/* --- Score sidebar --- */
 
 .scorePanel {
   position: absolute;
   top: var(--gap);
   left: var(--gap);
   z-index: 2;
-  width: 215px;
+  width: 280px;
   background: var(--placeholder-bg);
   border: 1px dashed var(--placeholder-border);
   border-radius: var(--radius);
@@ -170,7 +170,7 @@
 
 .placeholderTag { color: var(--text-dim); font-size: 10px; text-align: center; }
 
-/* ── Shared placeholder block ── */
+/* --- Shared placeholder block --- */
 
 .placeholder {
   display: grid;
@@ -185,7 +185,7 @@
 
 .actionBar { width: 100%; max-width: 560px; min-height: 44px; }
 
-/* ── Narrow screens ── */
+/* --- Narrow screens --- */
 
 @media (max-width: 720px) {
   .board {

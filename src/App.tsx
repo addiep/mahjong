@@ -129,6 +129,10 @@ export function App() {
   const aiControllers = useRef<Map<number, HeuristicController>>(new Map());
   // Guard so the AI acts on each distinct state at most once.
   const aiActedRef = useRef<GameState | null>(null);
+  // Step-through mode (test aid): when on, each AI move waits for the Step button.
+  const [stepMode, setStepMode] = useState(false);
+  const [aiPending, setAiPending] = useState(false);
+  const pendingActRef = useRef<(() => void) | null>(null);
 
   // Tile just drawn from the wall -- shown with a gold border.
   const [drawnTileId, setDrawnTileId] = useState<TileId | null>(null);
@@ -348,9 +352,15 @@ export function App() {
 
     if (!act) return;
     aiActedRef.current = state;
+    if (stepMode) {
+      // Hold the move; the Step button fires it.
+      pendingActRef.current = act;
+      setAiPending(true);
+      return;
+    }
     const handle = setTimeout(act, 500);
     return () => clearTimeout(handle);
-  }, [state, aiSeats]);
+  }, [state, aiSeats, stepMode]);
 
   // -- Track drawn tile (gold border) -----
 
@@ -558,6 +568,25 @@ export function App() {
     setLastEvent(`Hint: ${planText}${discardText}.`);
   };
 
+  const stepAi = () => {
+    const a = pendingActRef.current;
+    if (!a) return;
+    pendingActRef.current = null;
+    setAiPending(false);
+    a();
+  };
+
+  // Toggling step mode off releases any move that was waiting.
+  const toggleStepMode = (on: boolean) => {
+    setStepMode(on);
+    if (!on && pendingActRef.current) {
+      const a = pendingActRef.current;
+      pendingActRef.current = null;
+      setAiPending(false);
+      a();
+    }
+  };
+
   // -- Render -----
 
   // Setup screen.
@@ -588,6 +617,19 @@ export function App() {
             />
             Reveal all hands
           </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={stepMode}
+              onChange={e => toggleStepMode(e.target.checked)}
+            />
+            Step through AI
+          </label>
+          {stepMode && (
+            <button type="button" className={styles.newHandBtn} disabled={!aiPending} onClick={stepAi}>
+              {aiPending ? 'Step ▶' : 'Step'}
+            </button>
+          )}
           <button type="button" className={styles.newHandBtn} onClick={handleHint}>
             Hint
           </button>
