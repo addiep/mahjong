@@ -1,5 +1,5 @@
 /**
- * @mahjong/engine — public API
+ * @mahjong/engine -- public API
  *
  * Re-exports everything from the engine modules.
  */
@@ -16,3 +16,10 @@ export * from './scoring-config.js';
 export * from './scoring.js';
 export * from './flower-scoring.js';
 export * from './inference.js';
+
+
+// Module 4.x -- AI players (Phase 3)
+export * from './ai/assessment.js';
+export * from './ai/discard.js';
+export * from './ai/claims.js';
+export * from './ai/heuristic-controller.js';
