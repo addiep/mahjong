@@ -76,6 +76,15 @@ describe('inference -- suit collection from exposed melds', () => {
     const inf = inferPlayers(makeState([p0, player(1), player(2), player(3)], []));
     expect(inf[0]!.topGuesses[0]!.kind).toBe('mixed');
   });
+
+  it('does not suggest all pungs for a mixed hand built from chows', () => {
+    // Two exposed chows in different suits: a mixed hand, but plainly not all pungs.
+    const p0 = player(0, [chow([bam(1), bam(2), bam(3)]), chow([cir(4), cir(5), cir(6)])]);
+    const inf = inferPlayers(makeState([p0, player(1), player(2), player(3)], []));
+    const top = inf[0]!.topGuesses[0]!;
+    expect(top.kind).toBe('mixed');
+    expect(top.label).not.toContain('pung');
+  });
 });
 
 describe('inference -- suit collection from discards', () => {
@@ -151,11 +160,23 @@ describe('inference -- closeness', () => {
     expect(inf[0]!.closeness.note).toMatch(/one or two tiles/);
   });
 
-  it('detects a fishing tempo from repeated just-drawn discards', () => {
+  it('does not call it fishing while still building with only two melds', () => {
+    // Two melds + freshly-drawn discards early on is normal play, not fishing.
     const p1 = player(1, [pung([cha(2), cha(2, 1), cha(2, 2)]), pung([cha(5), cha(5, 1), cha(5, 2)])]);
     const log = [entry(1, cir(1), 0, true), entry(1, cir(9), 1, true)];
     const inf = inferPlayers(makeState([player(0), p1, player(2), player(3)], log));
-    expect(inf[1]!.closeness.fishing).toBe(true);
+    expect(inf[1]!.closeness.note ?? '').not.toContain('fishing');
+  });
+
+  it('reads a fishing tempo once the player has three melds down', () => {
+    const p1 = player(1, [
+      pung([cha(2), cha(2, 1), cha(2, 2)]),
+      pung([cha(5), cha(5, 1), cha(5, 2)]),
+      chow([bam(1), bam(2), bam(3)]),
+    ]);
+    const log = [entry(1, cir(1), 0, true), entry(1, cir(9), 1, true)];
+    const inf = inferPlayers(makeState([player(0), p1, player(2), player(3)], log));
+    expect(inf[1]!.closeness.note ?? '').toContain('fishing');
   });
 });
 

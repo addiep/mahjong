@@ -275,8 +275,16 @@ function inferOne(
     ? `knitting ${keptSuits[0]} and ${keptSuits[1]}`
     : 'knitting';
 
+  // -- Mixed-hand label: only suggest "all pungs" when no chow is exposed (an
+  //    all-pungs hand has no chows) and at least one pung/kong is on the table. --
+  const hasChow = player.melds.some(m => m.type === 'chow');
+  const exposedNonChows = player.melds.filter(m => m.type !== 'chow').length;
+  const mixedLabel = (!hasChow && exposedNonChows >= 1)
+    ? 'going for a mixed hand, perhaps all pungs'
+    : 'going for a mixed hand';
+
   // -- Rank and label --
-  const topGuesses = rankGuesses(tally, { knitting: knitLabel });
+  const topGuesses = rankGuesses(tally, { knitting: knitLabel, mixed: mixedLabel });
   const closeness  = assessCloseness(player, myDiscards);
   const summary    = buildSummary(player.name, topGuesses, closeness, myDiscards.length);
 
@@ -297,7 +305,7 @@ function targetLabel(kind: TargetKind): string {
     case 'honours':    return 'going for an all-honours hand (winds & dragons)';
     case 'knitting':   return 'knitting';
     case 'crochet':    return 'crocheting (three-suit sets)';
-    case 'mixed':      return 'going for a mixed hand, perhaps all pungs';
+    case 'mixed':      return 'going for a mixed hand';
   }
 }
 
@@ -345,7 +353,10 @@ function assessCloseness(
   else if (meldCount >= 1)  { level = 'building'; note = null; }
   else                      { level = 'none';     note = null; }
 
-  if (fishing && meldCount >= 2) {
+  // A freshly-drawn discard only reads as fishing once the hand looks set
+  // (three or more melds down). With fewer melds the player is still building
+  // and throwing a drawn tile that did not fit is perfectly normal.
+  if (fishing && meldCount >= 3) {
     note = (note ? note + ', and ' : '') + 'discarding freshly-drawn tiles (fishing)';
   }
 
