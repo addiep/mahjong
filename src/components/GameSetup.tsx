@@ -1,8 +1,10 @@
 /**
- * GameSetup — pre-game configuration screen.
+ * GameSetup -- pre-game configuration screen.
  *
  * Collects:
  *  - Player count (3 or 4)
+ *  - Number of AI opponents (0 .. playerCount - 1); the rest are human
+ *    (pass-and-play). The human is always seat 0 (East); AI take the last seats.
  *  - Knitting / crocheting allowed (off by default)
  *  - Dead wall (off by default)
  */
@@ -13,24 +15,42 @@ import styles from './GameSetup.module.css';
 
 interface Props {
   readonly defaultConfig: GameConfig;
-  readonly onStart: (config: GameConfig) => void;
+  readonly defaultAiSeats?: number;
+  readonly onStart: (config: GameConfig, aiSeats: number) => void;
 }
 
-export function GameSetup({ defaultConfig, onStart }: Props) {
+export function GameSetup({ defaultConfig, defaultAiSeats, onStart }: Props) {
   const [playerCount, setPlayerCount] = useState<3 | 4>(
     (defaultConfig.playerCount as 3 | 4) ?? 4,
+  );
+  const [aiSeats, setAiSeats] = useState<number>(
+    defaultAiSeats ?? ((defaultConfig.playerCount as number) - 1),
   );
   const [knitting, setKnitting] = useState(defaultConfig.knittingEnabled ?? false);
   const [deadWall, setDeadWall] = useState(defaultConfig.deadWall ?? false);
 
-  const handleStart = () => {
-    onStart({
-      playerCount,
-      discardsVisible: true,
-      knittingEnabled: knitting,
-      deadWall,
-    });
+  // AI count cannot exceed playerCount - 1 (at least one human seat).
+  const maxAi = playerCount - 1;
+  const clampedAi = Math.min(aiSeats, maxAi);
+
+  const choosePlayers = (n: 3 | 4) => {
+    setPlayerCount(n);
+    if (aiSeats > n - 1) setAiSeats(n - 1);
   };
+
+  const handleStart = () => {
+    onStart(
+      {
+        playerCount,
+        discardsVisible: true,
+        knittingEnabled: knitting,
+        deadWall,
+      },
+      clampedAi,
+    );
+  };
+
+  const aiOptions = Array.from({ length: playerCount }, (_, i) => i); // 0 .. playerCount-1
 
   return (
     <div className={styles.overlay}>
@@ -44,18 +64,39 @@ export function GameSetup({ defaultConfig, onStart }: Props) {
             <button
               type="button"
               className={playerCount === 4 ? styles.activeBtn : styles.inactiveBtn}
-              onClick={() => setPlayerCount(4)}
+              onClick={() => choosePlayers(4)}
             >
               4
             </button>
             <button
               type="button"
               className={playerCount === 3 ? styles.activeBtn : styles.inactiveBtn}
-              onClick={() => setPlayerCount(3)}
+              onClick={() => choosePlayers(3)}
             >
               3
             </button>
           </div>
+        </div>
+
+        <div className={styles.section}>
+          <label className={styles.label}>AI opponents</label>
+          <div className={styles.toggle}>
+            {aiOptions.map(n => (
+              <button
+                key={n}
+                type="button"
+                className={clampedAi === n ? styles.activeBtn : styles.inactiveBtn}
+                onClick={() => setAiSeats(n)}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <span className={styles.hint}>
+            {clampedAi === 0
+              ? 'Pass-and-play: you control every seat.'
+              : `You play East; the other ${clampedAi} seat${clampedAi > 1 ? 's' : ''} are AI.`}
+          </span>
         </div>
 
         <div className={styles.section}>
@@ -68,7 +109,7 @@ export function GameSetup({ defaultConfig, onStart }: Props) {
             <span>
               <strong>Knitting &amp; crocheting</strong>
               <span className={styles.hint}>
-                &nbsp;— allow the knitting and crocheting special hands
+                &nbsp;-- allow the knitting and crocheting special hands
               </span>
             </span>
           </label>
@@ -84,7 +125,7 @@ export function GameSetup({ defaultConfig, onStart }: Props) {
             <span>
               <strong>Dead wall</strong>
               <span className={styles.hint}>
-                &nbsp;— reserve 14 tiles for kong / bonus replacements
+                &nbsp;-- reserve 14 tiles for kong / bonus replacements
               </span>
             </span>
           </label>
