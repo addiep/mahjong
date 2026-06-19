@@ -137,8 +137,10 @@ export function App() {
   // Tile just drawn from the wall -- shown with a gold border.
   const [drawnTileId, setDrawnTileId] = useState<TileId | null>(null);
 
-  // Last notable game event for display in the score sidebar.
-  const [lastEvent, setLastEvent] = useState<string | null>(null);
+  // The last few notable game events (most recent last), shown in the sidebar
+  // so the human can follow several AI seats between their own turns.
+  const [events, setEvents] = useState<string[]>([]);
+  const logEvent = (msg: string) => setEvents(prev => [...prev, msg].slice(-3));
 
   // Per-seat hand display orders: auto-sorted each time a new seat becomes active.
   const handOrdersRef = useRef<Map<number, string[]>>(new Map());
@@ -172,7 +174,7 @@ export function App() {
     setCurrentSeatOrder(undefined);
     setHandScore(null);
     setDrawnTileId(null);
-    setLastEvent(null);
+    setEvents([]);
     setState(makeInitialState(config));
     setAppPhase('playing');
   };
@@ -183,7 +185,7 @@ export function App() {
     setCurrentSeatOrder(undefined);
     setHandScore(null);
     setDrawnTileId(null);
-    setLastEvent(null);
+    setEvents([]);
     setState(makeInitialState(gameConfig));
   };
 
@@ -282,9 +284,9 @@ export function App() {
               const player = s.players[seat];
               if (action.type === 'DISCARD') {
                 const tile = player?.concealed.find(t => t.id === action.tileId);
-                if (player && tile) setLastEvent(`${player.name} discarded the ${tileName(tile)}`);
+                if (player && tile) logEvent(`${player.name} discarded the ${tileName(tile)}`);
               } else if (action.type === 'DECLARE_WIN') {
-                if (player) setLastEvent(`${player.name} declared Mah Jong!`);
+                if (player) logEvent(`${player.name} declared Mah Jong!`);
               }
               setDrawnTileId(null);
               try { return engineDispatch(s, action); }
@@ -321,7 +323,7 @@ export function App() {
                     const verb = decision.type === 'win' ? 'won with'
                       : decision.type === 'pung' ? 'punged'
                       : decision.type === 'kong' ? 'konged' : 'chowed';
-                    setLastEvent(`${pl.name} ${verb} the ${tileName(tile)}`);
+                    logEvent(`${pl.name} ${verb} the ${tileName(tile)}`);
                   }
                 }
                 try { return engineDispatch(s, { type: 'CLAIM_RESPONSE', seat: pending as SeatIndex, decision }); }
@@ -507,7 +509,7 @@ export function App() {
     if (state) {
       const player = state.players[state.currentSeat];
       const tile = player?.concealed.find(t => t.id === tileId);
-      if (player && tile) setLastEvent(`${player.name} discarded the ${tileName(tile)}`);
+      if (player && tile) logEvent(`${player.name} discarded the ${tileName(tile)}`);
     }
     setDrawnTileId(null);
     setState(s => s ? engineDispatch(s, { type: 'DISCARD', tileId }) : s);
@@ -521,11 +523,11 @@ export function App() {
     // Validate before dispatching -- the button is always shown during DISCARDING
     // but the hand may not yet be a winning hand.
     if (!isWinningHand(player.concealed, player.melds, state.config)) {
-      setLastEvent("That hand doesn't qualify for Mah Jong yet.");
+      logEvent("That hand doesn't qualify for Mah Jong yet.");
       return;
     }
 
-    setLastEvent(`${player.name} declared Mah Jong!`);
+    logEvent(`${player.name} declared Mah Jong!`);
     setState(s => s ? engineDispatch(s, { type: 'DECLARE_WIN' }) : s);
   };
 
@@ -539,7 +541,7 @@ export function App() {
           decision.type === 'pung' ? 'punged' :
           decision.type === 'kong' ? 'konged' :
           'chowed';
-        setLastEvent(`${player.name} ${verb} the ${tileName(tile)}`);
+        logEvent(`${player.name} ${verb} the ${tileName(tile)}`);
       }
     }
     setState(s => s ? engineDispatch(s, { type: 'CLAIM_RESPONSE', seat, decision }) : s);
@@ -552,10 +554,10 @@ export function App() {
 
   const handleHint = () => {
     if (!state) return;
-    if (state.phase !== 'DISCARDING') { setLastEvent('Hint: wait until it is your turn to discard.'); return; }
+    if (state.phase !== 'DISCARDING') { logEvent('Hint: wait until it is your turn to discard.'); return; }
     const seat = state.currentSeat;
     const advice = adviseSeat(state, seat);
-    if (advice.winNow) { setLastEvent('Hint: this hand is a winning hand -- declare Mah Jong!'); return; }
+    if (advice.winNow) { logEvent('Hint: this hand is a winning hand -- declare Mah Jong!'); return; }
     const planText = advice.plan.mode === 'dirty'
       ? 'go for a dirty hand (build melds in any suit, fast)'
       : `collect ${advice.plan.targetSuit}`;
@@ -565,7 +567,7 @@ export function App() {
       const tile = player?.concealed.find(t => t.id === advice.discard);
       if (tile) discardText = `; the AI would discard the ${tileName(tile)}`;
     }
-    setLastEvent(`Hint: ${planText}${discardText}.`);
+    logEvent(`Hint: ${planText}${discardText}.`);
   };
 
   const stepAi = () => {
@@ -653,7 +655,7 @@ export function App() {
           drawnTileId={drawnTileId}
           savedOrder={currentSeatOrder}
           onOrderChange={handleOrderChange}
-          lastEvent={lastEvent}
+          lastEvents={events}
           scores={runningTotals}
           inference={inferTable(state)}
         />

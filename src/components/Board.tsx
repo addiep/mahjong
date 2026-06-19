@@ -15,7 +15,7 @@
  *   and is never updated).
  *
  * Playtesting round 2 (2026-06-17):
- * - lastEvent prop: last notable game event shown under the score sidebar.
+ * - lastEvents prop: the last few game events shown under the score sidebar.
  * - lastDiscardId: always highlights the most recent discard in red.
  *
  * Phase 1 playtest fixes:
@@ -57,7 +57,7 @@ export interface BoardProps {
   readonly drawnTileId?: TileId | null;
   readonly savedOrder?: string[];
   readonly onOrderChange?: (ids: string[]) => void;
-  readonly lastEvent?: string | null;
+  readonly lastEvents?: readonly string[];
   /** Running totals from App -- indexed by seat number. Used instead of player.score. */
   readonly scores?: readonly number[];
   /** Module 5.2 opponent-modelling read-out, shown beneath the scoreboard. */
@@ -77,7 +77,7 @@ export function Board({
   drawnTileId,
   savedOrder,
   onOrderChange,
-  lastEvent,
+  lastEvents,
   scores,
   inference,
 }: BoardProps) {
@@ -125,7 +125,7 @@ export function Board({
         players={players}
         prevailingWind={state.prevailingWind}
         handNumber={state.handNumber}
-        lastEvent={lastEvent}
+        lastEvents={lastEvents}
         scores={scores}
         inference={inference}
         currentSeat={state.currentSeat}
@@ -322,12 +322,12 @@ function DiscardArea({ state }: { state: GameState }) {
 // --- Score sidebar -----
 
 function ScoreSidebar({
-  players, prevailingWind, handNumber, lastEvent, scores, inference, currentSeat,
+  players, prevailingWind, handNumber, lastEvents, scores, inference, currentSeat,
 }: {
   players: readonly PlayerState[];
   prevailingWind: Wind;
   handNumber: number;
-  lastEvent?: string | null;
+  lastEvents?: readonly string[];
   scores?: readonly number[];
   inference?: TableInference;
   currentSeat: SeatIndex;
@@ -346,8 +346,10 @@ function ScoreSidebar({
           </li>
         ))}
       </ul>
-      {lastEvent && (
-        <p className={styles.lastEvent}>{lastEvent}</p>
+      {lastEvents && lastEvents.length > 0 && (
+        <div className={styles.lastEvent}>
+          {lastEvents.map((e, i) => <div key={i}>{e}</div>)}
+        </div>
       )}
       {inference && (
         <InferencePanel inference={inference} currentSeat={currentSeat} />
