@@ -62,6 +62,8 @@ export interface BoardProps {
   readonly scores?: readonly number[];
   /** Module 5.2 opponent-modelling read-out, shown beneath the scoreboard. */
   readonly inference?: TableInference;
+  /** Seats a human controls; the ActionBar is hidden for AI pending seats. */
+  readonly humanSeats?: ReadonlySet<number> | undefined;
 }
 
 export function Board({
@@ -71,6 +73,7 @@ export function Board({
   onDiscard,
   onDeclareWin,
   onClaimResponse,
+  humanSeats,
   drawnTileId,
   savedOrder,
   onOrderChange,
@@ -139,7 +142,7 @@ export function Board({
       <div className={styles.slotBottom}>
         {renderSeat('bottom')}
         {onClaimResponse && (
-          <ActionBar state={state} onClaim={onClaimResponse} />
+          <ActionBar state={state} onClaim={onClaimResponse} humanSeats={humanSeats} />
         )}
       </div>
     </div>

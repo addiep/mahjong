@@ -28,6 +28,9 @@ import styles from './ActionBar.module.css';
 interface ActionBarProps {
   state: GameState;
   onClaim: (seat: SeatIndex, decision: ClaimDecision) => void;
+  /** Seats the human may act for. When set, the bar is hidden for any other
+   *  (AI-controlled) pending seat so the human is not prompted on its behalf. */
+  humanSeats?: ReadonlySet<number> | undefined;
 }
 
 /**
@@ -69,14 +72,15 @@ function chowLabel(id1: TileId, id2: TileId, concealed: readonly Tile[], discard
   return vals.join('-');
 }
 
-export function ActionBar({ state, onClaim }: ActionBarProps) {
+export function ActionBar({ state, onClaim, humanSeats }: ActionBarProps) {
   const { phase, claimWindow, robbingKong, players, config, currentSeat, discardPool } = state;
 
-  // ── CLAIM_WINDOW ───────────────────────────────────────────────────────────
+  // --- CLAIM_WINDOW ---
   if (phase === 'CLAIM_WINDOW' && claimWindow) {
     const pendingIdx = claimWindow.responses.findIndex(r => r === null);
     if (pendingIdx < 0) return null;
     const pendingSeat = pendingIdx as SeatIndex;
+    if (humanSeats && !humanSeats.has(pendingSeat)) return null;
     const claimer = players[pendingSeat];
     const discard = discardPool[discardPool.length - 1];
     if (!claimer || !discard) return null;
@@ -136,11 +140,12 @@ export function ActionBar({ state, onClaim }: ActionBarProps) {
     );
   }
 
-  // ── ROBBING_KONG ──────────────────────────────────────────────────────────
+  // --- ROBBING_KONG ---
   if (phase === 'ROBBING_KONG' && robbingKong) {
     const pendingIdx = robbingKong.responses.findIndex(r => r === null);
     if (pendingIdx < 0) return null;
     const pendingSeat = pendingIdx as SeatIndex;
+    if (humanSeats && !humanSeats.has(pendingSeat)) return null;
     const claimer = players[pendingSeat];
     if (!claimer) return null;
 

@@ -49,6 +49,8 @@ import {
   scoreBonusTiles,
   scoreExposedMelds,
   inferTable,
+  HeuristicController,
+  adviseSeat,
   type GameState,
   type GameConfig,
   type SeatIndex,
@@ -121,6 +123,13 @@ export function App() {
   const [handScore, setHandScore] = useState<HandScoreInfo | null>(null);
   const [runningTotals, setRunningTotals] = useState<number[]>([0, 0, 0, 0]);
 
+  // Number of AI opponents (the last N seats); the human is always seat 0.
+  const [aiSeats, setAiSeats] = useState(0);
+  // One HeuristicController per AI seat, rebuilt each hand so strategy state resets.
+  const aiControllers = useRef<Map<number, HeuristicController>>(new Map());
+  // Guard so the AI acts on each distinct state at most once.
+  const aiActedRef = useRef<GameState | null>(null);
+
   // Tile just drawn from the wall -- shown with a gold border.
   const [drawnTileId, setDrawnTileId] = useState<TileId | null>(null);
 
@@ -141,8 +150,19 @@ export function App() {
 
   // -- Start / new hand -----
 
-  const startGame = (config: GameConfig) => {
+  const buildAiControllers = (playerCount: number, ai: number) => {
+    const map = new Map<number, HeuristicController>();
+    for (let seat = playerCount - ai; seat < playerCount; seat++) {
+      map.set(seat, new HeuristicController(seat as SeatIndex));
+    }
+    aiControllers.current = map;
+    aiActedRef.current = null;
+  };
+
+  const startGame = (config: GameConfig, ai: number) => {
     setGameConfig(config);
+    setAiSeats(ai);
+    buildAiControllers(config.playerCount, ai);
     setRunningTotals(Array(config.playerCount).fill(0));
     handOrdersRef.current.clear();
     setCurrentSeatOrder(undefined);
@@ -154,6 +174,7 @@ export function App() {
   };
 
   const startNewHand = () => {
+    buildAiControllers(gameConfig.playerCount, aiSeats);
     handOrdersRef.current.clear();
     setCurrentSeatOrder(undefined);
     setHandScore(null);
@@ -229,6 +250,107 @@ export function App() {
       }
     });
   }, [state]);
+
+  // -- Drive AI seats -----
+  // When the seat to act (or the first pending claimer) is an AI seat, ask its
+  // HeuristicController and dispatch the result after a short, watchable delay.
+  // The synchronous auto-advance above leaves AI decision points untouched
+  // (it only auto-passes seats with no legal action), so the two never clash.
+
+  useEffect(() => {
+    if (!state) return;
+    if (aiSeats <= 0) return;
+    if (aiActedRef.current === state) return;
+
+    const pc = state.config.playerCount;
+    const isAi = (seat: number) => seat >= pc - aiSeats;
+    const captured = state;
+    let act: (() => void) | null = null;
+
+    if (state.phase === 'DISCARDING' && isAi(state.currentSeat)) {
+      const seat = state.currentSeat;
+      const ctrl = aiControllers.current.get(seat);
+      if (ctrl) {
+        act = () => {
+          void ctrl.getDiscardAction(captured, seat as SeatIndex).then(action => {
+            setState(s => {
+              if (s !== captured) return s;
+              const player = s.players[seat];
+              if (action.type === 'DISCARD') {
+                const tile = player?.concealed.find(t => t.id === action.tileId);
+                if (player && tile) setLastEvent(`${player.name} discarded the ${tileName(tile)}`);
+              } else if (action.type === 'DECLARE_WIN') {
+                if (player) setLastEvent(`${player.name} declared Mah Jong!`);
+              }
+              setDrawnTileId(null);
+              try { return engineDispatch(s, action); }
+              catch (err) { console.error('AI discard error:', err); return s; }
+            });
+          });
+        };
+      }
+    } else if (state.phase === 'CLAIM_WINDOW') {
+      const discard = state.discardPool[state.discardPool.length - 1];
+      const pending = state.claimWindow?.responses.findIndex(r => r === null) ?? -1;
+      if (discard && pending >= 0 && isAi(pending)) {
+        const claimer = state.players[pending];
+        const leftSeat = (state.currentSeat + 1) % pc;
+        const higherClaimIn = state.claimWindow!.responses.some(
+          r => r !== null && (r.type === 'pung' || r.type === 'kong' || r.type === 'win'),
+        );
+        const hasLegal = !!claimer && (
+          isWinningHand([...claimer.concealed, discard], claimer.melds, state.config) ||
+          canPung(claimer.concealed, discard) ||
+          canKong(claimer.concealed, discard) ||
+          (!higherClaimIn && pending === leftSeat && canChow(claimer.concealed, discard))
+        );
+        const ctrl = aiControllers.current.get(pending);
+        if (hasLegal && ctrl) {
+          act = () => {
+            void ctrl.getClaimDecision(captured, pending as SeatIndex).then(decision => {
+              setState(s => {
+                if (s !== captured) return s;
+                if (decision.type !== 'pass') {
+                  const pl = s.players[pending];
+                  const tile = s.discardPool[s.discardPool.length - 1];
+                  if (pl && tile) {
+                    const verb = decision.type === 'win' ? 'won with'
+                      : decision.type === 'pung' ? 'punged'
+                      : decision.type === 'kong' ? 'konged' : 'chowed';
+                    setLastEvent(`${pl.name} ${verb} the ${tileName(tile)}`);
+                  }
+                }
+                try { return engineDispatch(s, { type: 'CLAIM_RESPONSE', seat: pending as SeatIndex, decision }); }
+                catch (err) { console.error('AI claim error:', err); return s; }
+              });
+            });
+          };
+        }
+      }
+    } else if (state.phase === 'ROBBING_KONG') {
+      const pending = state.robbingKong?.responses.findIndex(r => r === null) ?? -1;
+      const tile = state.robbingKong?.tile;
+      if (pending >= 0 && isAi(pending) && tile) {
+        const claimer = state.players[pending];
+        const canWin = !!claimer && isWinningHand([...claimer.concealed, tile], claimer.melds, state.config);
+        const ctrl = aiControllers.current.get(pending);
+        if (canWin && ctrl) {
+          act = () => {
+            void ctrl.getClaimDecision(captured, pending as SeatIndex).then(decision => {
+              setState(s => s === captured
+                ? engineDispatch(s, { type: 'CLAIM_RESPONSE', seat: pending as SeatIndex, decision })
+                : s);
+            });
+          };
+        }
+      }
+    }
+
+    if (!act) return;
+    aiActedRef.current = state;
+    const handle = setTimeout(act, 500);
+    return () => clearTimeout(handle);
+  }, [state, aiSeats]);
 
   // -- Track drawn tile (gold border) -----
 
@@ -418,15 +540,39 @@ export function App() {
     handOrdersRef.current.set(state.currentSeat, ids);
   };
 
+  const handleHint = () => {
+    if (!state) return;
+    if (state.phase !== 'DISCARDING') { setLastEvent('Hint: wait until it is your turn to discard.'); return; }
+    const seat = state.currentSeat;
+    const advice = adviseSeat(state, seat);
+    if (advice.winNow) { setLastEvent('Hint: this hand is a winning hand -- declare Mah Jong!'); return; }
+    const planText = advice.plan.mode === 'dirty'
+      ? 'go for a dirty hand (build melds in any suit, fast)'
+      : `collect ${advice.plan.targetSuit}`;
+    let discardText = '';
+    if (advice.discard) {
+      const player = state.players[seat];
+      const tile = player?.concealed.find(t => t.id === advice.discard);
+      if (tile) discardText = `; the AI would discard the ${tileName(tile)}`;
+    }
+    setLastEvent(`Hint: ${planText}${discardText}.`);
+  };
+
   // -- Render -----
 
   // Setup screen.
   if (appPhase === 'setup' || !state) {
     return (
       <div className={styles.app}>
-        <GameSetup defaultConfig={gameConfig} onStart={startGame} />
+        <GameSetup defaultConfig={gameConfig} defaultAiSeats={aiSeats} onStart={startGame} />
       </div>
     );
+  }
+
+  const aiStart = state.config.playerCount - aiSeats;
+  const humanSeats = new Set<number>();
+  for (let s2 = 0; s2 < state.config.playerCount; s2++) {
+    if (aiSeats <= 0 || s2 < aiStart) humanSeats.add(s2);
   }
 
   return (
@@ -442,6 +588,9 @@ export function App() {
             />
             Reveal all hands
           </label>
+          <button type="button" className={styles.newHandBtn} onClick={handleHint}>
+            Hint
+          </button>
           <button type="button" className={styles.newHandBtn} onClick={() => setAppPhase('setup')}>
             Setup
           </button>
@@ -458,6 +607,7 @@ export function App() {
           onDiscard={state.phase === 'DISCARDING' ? handleDiscard : undefined}
           onDeclareWin={state.phase === 'DISCARDING' ? handleDeclareWin : undefined}
           onClaimResponse={handleClaimResponse}
+          humanSeats={humanSeats}
           drawnTileId={drawnTileId}
           savedOrder={currentSeatOrder}
           onOrderChange={handleOrderChange}
