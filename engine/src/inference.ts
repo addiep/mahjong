@@ -184,7 +184,10 @@ function inferOne(
   const dirty = meldedSuits.length >= 2;
 
   for (const s of meldedSuits) tally[s] += W.meldSuit * suitedMeldCount[s];
-  tally.honours += W.meldHonour * honourMelds;
+  // A single honour meld (e.g. one dragon pung) is normal in an ordinary suit
+  // hand and is NOT evidence of an all-honours hand. Only two or more exposed
+  // honour melds point at the (rare) all-honours special hand.
+  if (honourMelds >= 2) tally.honours += W.meldHonour * honourMelds;
 
   // -- Discards: shed suits, honour timing --
   const suitDiscards: Record<Suit, number> = { bamboo: 0, characters: 0, circles: 0 };
@@ -291,7 +294,7 @@ function targetLabel(kind: TargetKind): string {
     case 'bamboo':     return 'collecting bamboo';
     case 'characters': return 'collecting characters';
     case 'circles':    return 'collecting circles';
-    case 'honours':    return 'going for winds and dragons';
+    case 'honours':    return 'going for an all-honours hand (winds & dragons)';
     case 'knitting':   return 'knitting';
     case 'crochet':    return 'crocheting (three-suit sets)';
     case 'mixed':      return 'going for a mixed hand, perhaps all pungs';
@@ -384,7 +387,7 @@ function shortLabel(kind: TargetKind): string {
     case 'bamboo':     return 'bamboo';
     case 'characters': return 'characters';
     case 'circles':    return 'circles';
-    case 'honours':    return 'winds and dragons';
+    case 'honours':    return 'an all-honours hand';
     case 'knitting':   return 'knitting';
     case 'crochet':    return 'crocheting';
     case 'mixed':      return 'a mixed hand';

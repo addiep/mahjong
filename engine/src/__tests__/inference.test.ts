@@ -93,10 +93,21 @@ describe('inference -- suit collection from discards', () => {
 });
 
 describe('inference -- honours', () => {
-  it('reads a dragon pung as going for winds and dragons', () => {
+  it('does not read a single dragon pung as an all-honours hand', () => {
+    // One dragon pung is normal in an ordinary suit hand; it is not "winds & dragons".
     const p0 = player(0, [pung([dragon('red'), dragon('red', 1), dragon('red', 2)])]);
     const inf = inferPlayers(makeState([p0, player(1), player(2), player(3)], []));
+    expect(inf[0]!.topGuesses.map(g => g.kind)).not.toContain('honours');
+  });
+
+  it('reads two exposed honour pungs as an all-honours special hand', () => {
+    const p0 = player(0, [
+      pung([dragon('red'), dragon('red', 1), dragon('red', 2)]),
+      pung([wind('east'), wind('east', 1), wind('east', 2)]),
+    ]);
+    const inf = inferPlayers(makeState([p0, player(1), player(2), player(3)], []));
     expect(inf[0]!.topGuesses[0]!.kind).toBe('honours');
+    expect(inf[0]!.topGuesses[0]!.label).toContain('all-honours');
   });
 
   it('treats an early dragon discard as a strong negative for honours', () => {
