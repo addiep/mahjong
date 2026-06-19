@@ -153,6 +153,14 @@ function isMajorTile(t: Tile): boolean {
   return isHonour(t) || isTerminal(t);
 }
 
+/** Human-readable tile-kind label for score display (e.g. 'circles', 'south wind', 'red dragon'). */
+function tileLabel(t: Tile): string {
+  if (isSuited(t)) return t.suit;
+  if (isWind(t)) return `${t.wind} wind`;
+  if (isDragon(t)) return `${t.dragon} dragon`;
+  return 'bonus';
+}
+
 /** Green tiles for Imperial Jade: bamboo 2,3,4,6,8 and the Green Dragon. */
 function isGreenTile(t: Tile): boolean {
   if (isSuited(t)) return t.suit === 'bamboo' && [2, 3, 4, 6, 8].includes(t.value);
@@ -205,12 +213,12 @@ function scoreNormalReading(hand: FullHand, input: ScoreInput, cfg: ScoringConfi
     const p = meldBasePoints(g, cfg);
     if (p > 0) {
       const exposure = g.concealed ? 'concealed' : 'exposed';
-      lines.push({ label: `${exposure} ${g.kind} of ${tileKey(g.tiles[0]!)}`, points: p });
+      lines.push({ label: `${exposure} ${g.kind} of ${tileLabel(g.tiles[0]!)}`, points: p });
       base += p;
     }
   }
   const pairPts = pairBasePoints(hand, input, cfg);
-  if (pairPts > 0) { lines.push({ label: `scoring pair of ${tileKey(hand.pair[0]!)}`, points: pairPts }); base += pairPts; }
+  if (pairPts > 0) { lines.push({ label: `scoring pair of ${tileLabel(hand.pair[0]!)}`, points: pairPts }); base += pairPts; }
 
   // ── Going Mah-Jong bonuses (winner) ──
   const noChows = hand.groups.every(g => g.kind !== 'chow');
@@ -621,13 +629,14 @@ export function scoreWinningHand(
 // ─── Exposed-meld scoring for non-winning players ────────────────────────────
 
 /**
- * Scores the declared melds and bonus-tile doublings for a player who did NOT
- * win the hand. Non-winners score base points for each exposed pung / kong and
- * concealed kong, plus doublings for dragon/own-wind melds and complete bonus
- * sets. Chows score zero. No going-Mah-Jong bonuses apply.
+ * Scores the full hand of a player who did NOT win. Non-winners earn base
+ * points for declared exposed/concealed pungs and kongs plus any concealed
+ * pungs still in hand, and doublings for dragon/own-wind melds, clean-hand,
+ * and complete bonus sets. Chows score zero. No going-Mah-Jong bonuses apply.
  *
- * `seatWind` is the non-winner's own seat wind, used to determine own-wind
- * doubling. If omitted, own-wind doubling is skipped (safe default).
+ * `seatWind` is the non-winner's own seat wind (for own-wind doubling).
+ * `concealedTiles` are the player's unmelded hand tiles; when supplied they
+ * are scanned for concealed pungs and scoring pairs of dragons / own-wind.
  */
 export interface ExposedMeldScoreResult {
   readonly total:         number;
@@ -638,16 +647,18 @@ export interface ExposedMeldScoreResult {
 }
 
 export function scoreExposedMelds(
-  melds:         readonly DeclaredMeld[],
-  bonusTiles:    readonly Tile[],
-  scoringConfig: ScoringConfig = DEFAULT_SCORING_CONFIG,
-  seatWind?:     Wind,
+  melds:           readonly DeclaredMeld[],
+  bonusTiles:      readonly Tile[],
+  scoringConfig:   ScoringConfig = DEFAULT_SCORING_CONFIG,
+  seatWind?:       Wind,
+  concealedTiles?: readonly Tile[],
 ): ExposedMeldScoreResult {
   const cfg = scoringConfig;
   const scoreLines: ScoreLine[] = [];
   const dblLines: DoublingLine[] = [];
   let base = 0;
 
+  // ── Declared melds ──
   for (const meld of melds) {
     const g = declaredToGroup(meld);
     if (g.kind === 'chow') continue;
@@ -655,8 +666,38 @@ export function scoreExposedMelds(
     if (pts > 0) {
       const exposure = g.concealed ? 'concealed' : 'exposed';
       const first = g.tiles[0];
-      if (first) scoreLines.push({ label: `${exposure} ${g.kind} of ${tileKey(first)}`, points: pts });
+      if (first) scoreLines.push({ label: `${exposure} ${g.kind} of ${tileLabel(first)}`, points: pts });
       base += pts;
+    }
+  }
+
+  // ── Concealed pungs / scoring pairs from unmelded hand tiles ──
+  let concealedHonourPungCount = 0;
+  if (concealedTiles && concealedTiles.length > 0) {
+    const counts = new Map<string, { tile: Tile; count: number }>();
+    for (const t of concealedTiles) {
+      const k = tileKey(t);
+      if (!counts.has(k)) counts.set(k, { tile: t, count: 0 });
+      counts.get(k)!.count++;
+    }
+    for (const { tile, count } of counts.values()) {
+      if (count >= 3) {
+        const kind: 'pung' | 'kong' = count >= 4 ? 'kong' : 'pung';
+        const pseudo: ScoreGroup = { kind, concealed: true, tiles: Array.from({ length: count }, () => tile) };
+        const pts = meldBasePoints(pseudo, cfg);
+        if (pts > 0) {
+          scoreLines.push({ label: `concealed ${kind} of ${tileLabel(tile)}`, points: pts });
+          base += pts;
+        }
+        if (isDragon(tile) || (seatWind !== undefined && isWind(tile) && (tile as { wind: Wind }).wind === seatWind)) {
+          concealedHonourPungCount++;
+        }
+      } else if (count === 2) {
+        if (isDragon(tile) || (seatWind !== undefined && isWind(tile) && (tile as { wind: Wind }).wind === seatWind)) {
+          scoreLines.push({ label: `scoring pair of ${tileLabel(tile)}`, points: cfg.scoringPair });
+          base += cfg.scoringPair;
+        }
+      }
     }
   }
 
@@ -665,21 +706,21 @@ export function scoreExposedMelds(
     if (n > 0) { doublings += n; dblLines.push({ label, doublings: n }); }
   };
 
-  // Pung/kong of dragons or own-wind only, once per qualifying meld.
-  const honourCount = melds.filter(m => {
+  // Pung/kong of dragons or own-wind: declared melds + concealed pungs.
+  const declaredHonourCount = melds.filter(m => {
     const g = declaredToGroup(m);
     const first = g.tiles[0];
     if (g.kind === 'chow' || first === undefined) return false;
     return isDragon(first) || (seatWind !== undefined && isWind(first) && (first as { wind: Wind }).wind === seatWind);
   }).length;
-  addDouble('pung/kong of dragon or own wind', honourCount);
+  addDouble('pung/kong of dragon or own wind', declaredHonourCount + concealedHonourPungCount);
 
-  // Clean-hand doubling: all exposed melds in at most one suit (honours permitted,
-  // but at least one suited tile must be present).
-  const meldTiles = melds.flatMap(m => [...m.tiles]);
-  const meldSuits = suitedSuits(meldTiles);
-  const hasSuited = meldTiles.some(isSuited);
-  if (hasSuited && meldSuits.size <= 1) addDouble('clean hand', 1);
+  // Clean-hand doubling: all tiles (declared + concealed) in at most one suit
+  // (honours permitted, but at least one suited tile must be present).
+  const allTiles = [...melds.flatMap(m => [...m.tiles]), ...(concealedTiles ?? [])];
+  const allSuits = suitedSuits(allTiles);
+  const hasSuited = allTiles.some(isSuited);
+  if (hasSuited && allSuits.size <= 1) addDouble('clean hand', 1);
 
   if (hasCompleteSet(bonusTiles, isFlower)) addDouble('complete set of flowers', 2);
   if (hasCompleteSet(bonusTiles, isSeason)) addDouble('complete set of seasons', 2);

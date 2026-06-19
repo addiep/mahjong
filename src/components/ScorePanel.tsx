@@ -3,11 +3,15 @@
  *
  * Shown at HAND_OVER. For a win: displays the winner's full hand (tiles +
  * declared melds + bonus tiles), the hand score breakdown, non-winners'
- * exposed meld scores, each player's bonus-tile points, and running totals.
- * For a draw: shows "Draw" with no score breakdown and unchanged totals.
+ * hand scores (exposed melds + concealed pungs), each player's bonus-tile
+ * points, and running totals. For a draw: shows "Draw" with no score
+ * breakdown and unchanged totals.
  *
  * Playtesting round 3 (2026-06-18):
  *  - winnerHand prop: winner's tiles rendered at the top of the overlay.
+ *
+ * Scoring fixes (2026-06-19):
+ *  - Section renamed from 'Exposed melds' to 'Other players\' hands'.
  */
 import type {
   ScoreResult,
@@ -38,7 +42,7 @@ export interface PlayerBonusInfo {
   name: string;
   seat: SeatIndex;
   bonus: BonusScoreResult;
-  /** Exposed meld score for non-winners; null for the winner (already in result). */
+  /** Full hand score for non-winners (melds + concealed pungs); null for the winner. */
   meldScore: ExposedMeldScoreResult | null;
 }
 
@@ -66,7 +70,7 @@ export function ScorePanel({
 }: ScorePanelProps) {
   const isDraw = winnerName === null && result === null;
 
-  const nonWinnersWithMelds = playerBonuses.filter(
+  const nonWinnersWithScore = playerBonuses.filter(
     pb => pb.meldScore !== null && pb.meldScore.total > 0,
   );
 
@@ -176,13 +180,13 @@ export function ScorePanel({
           </div>
         )}
 
-        {/* ── Non-winner exposed meld scores ── */}
-        {nonWinnersWithMelds.length > 0 && (
+        {/* ── Non-winner hand scores ── */}
+        {nonWinnersWithScore.length > 0 && (
           <div className={styles.section}>
-            <h3 className={styles.sectionTitle}>Exposed melds</h3>
+            <h3 className={styles.sectionTitle}>Other players' hands</h3>
             <table className={styles.table}>
               <tbody>
-                {nonWinnersWithMelds.map(pb => (
+                {nonWinnersWithScore.map(pb => (
                   <tr key={pb.seat}>
                     <td className={styles.labelCell}>{pb.name}</td>
                     <td className={styles.numCell}>{pb.meldScore!.total} pts</td>

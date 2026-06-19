@@ -35,6 +35,11 @@
  *  - logEvent calls moved out of setState functional updaters (StrictMode
  *    double-invokes updaters, causing each AI event to appear twice).
  *  - Rolling event list expanded from 3 to 6 entries.
+ *
+ * Scoring fixes (2026-06-19):
+ *  - Score labels now use human-readable tile names ('circles', 'south wind').
+ *  - Non-winners' concealed pungs and scoring pairs now scored at HAND_OVER
+ *    (scoreExposedMelds extended with optional concealedTiles param).
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -484,13 +489,13 @@ export function App() {
       : null;
 
     // Build per-player bonus + meld info.
-    // For non-winners: pass the player's own seatWind for correct own-wind doubling.
+    // Non-winners: pass concealed tiles so pungs and scoring pairs are included.
     const playerBonuses: PlayerBonusInfo[] = state.players.map(p => ({
       name: p.name,
       seat: p.seat,
       bonus: scoreBonusTiles(p.bonusTiles),
       meldScore: p.seat !== hr.winnerSeat
-        ? scoreExposedMelds(p.melds, p.bonusTiles, undefined, p.seatWind)
+        ? scoreExposedMelds(p.melds, p.bonusTiles, undefined, p.seatWind, p.concealed)
         : null,
     }));
 
