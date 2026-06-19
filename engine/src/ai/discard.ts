@@ -6,12 +6,12 @@
  *
  * Ordering rule (Adam, 2026-06-19): clean the hand FIRST. In clean mode the
  * off-suit suited tiles are shed before guest (non-seat) winds -- you commit to
- * your suit, then ditch the winds. Guest winds are still shed reasonably early
- * (right after the off-suit junk, before any in-target tile), which keeps the
- * "throw winds early so nobody pungs them" benefit without throwing them before
- * the hand is clean. In DIRTY mode there is no off-suit to clean, so guest winds
- * are the first to go. Dragons and the AI's own seat wind are always kept (both
- * double on a pung).
+ * your suit, then ditch the winds. Among off-suit tiles the weakest suit goes
+ * first (a 2-tile suit before a developed 3+ tile suit), so a strong second
+ * suit is held longer than scraps of a third. Guest winds are still shed early
+ * (before any in-target tile). In DIRTY mode there is no off-suit to clean, so
+ * guest winds are the first to go. Dragons and the AI's own seat wind are
+ * always kept (both double on a pung).
  *
  * A later pass will overlay the inference safe-tile reads for defensive play
  * (DESIGN Module 4.3). The baseline plays to its own hand only.
@@ -27,13 +27,11 @@ import { GameState, SeatIndex } from '../game-state.js';
 import { HandPlan } from './assessment.js';
 
 // --- Keep-values (higher = more useful = keep; lowest is discarded) -----
-// Tuned so that, in clean mode, the discard order from first to last is:
-//   off-suit single -> off-suit pair -> guest wind -> guest wind pair ->
-//   in-target terminal -> in-target simple -> in-target run -> dragon/own wind
-//   -> in-target pair -> dragon/own-wind pair -> any triplet.
 const KEEP = {
-  offSuit:            1,   // suited, wrong suit (clean mode): shed first to clean up
-  offSuitPair:        2,
+  offSuitLone:        1,   // off-suit tile, only 1 of its suit held: deadest, shed first
+  offSuitWeak:        2,   // off-suit tile in a 2-tile suit: weak, shed early
+  offSuitStrong:      4,   // off-suit tile in a 3+ tile suit: a developed second
+                          //   suit, held longer than a lone guest wind
   guestWindClean:     3,   // a non-seat wind, clean mode: shed after the off-suit junk
   guestWindCleanPair: 4,
   guestWindDirty:     1,   // dirty mode: no suit to clean, so winds go first
@@ -86,7 +84,16 @@ export function keepValue(tile: Tile, plan: HandPlan, concealed: readonly Tile[]
   if (isSuited(tile)) {
     const st = tile as SuitedTile;
     const inPlan = plan.mode === 'dirty' || st.suit === plan.targetSuit;
-    if (!inPlan) return c >= 2 ? KEEP.offSuitPair : KEEP.offSuit;
+    if (!inPlan) {
+      // Shed the weakest off-suit suit first: rank an off-suit tile by how
+      // many tiles of its suit we hold (a 2-tile suit goes before a 4-tile one).
+      const suitCount = concealed.filter(
+        t => isSuited(t) && (t as SuitedTile).suit === st.suit,
+      ).length;
+      if (suitCount <= 1) return KEEP.offSuitLone;
+      if (suitCount === 2) return KEEP.offSuitWeak;
+      return KEEP.offSuitStrong;
+    }
     if (c >= 3) return KEEP.inTriplet;
     if (c === 2) return KEEP.inPair;
     const vs = valueSet(concealed, st.suit);

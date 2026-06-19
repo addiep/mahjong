@@ -142,6 +142,21 @@ describe('keepValue / chooseDiscardTile', () => {
     const st = makeState([player(0, concealed), player(1, []), player(2, []), player(3, [])]);
     expect(chooseDiscardTile(st, 0, plan)).toBe(wind('south').id);
   });
+
+  it('sheds the weaker off-suit suit first (2 characters before 4 bamboo)', () => {
+    // Target circles. Off-suit: 4 bamboo (a developed second suit) vs 2 characters.
+    // The characters should go before any bamboo.
+    const plan = cleanPlan('circles', 'east');
+    const concealed = [
+      bam(1), bam(2), bam(3), bam(4), chr(3), chr(5),
+      cir(2), cir(2,1), cir(5), cir(5,1),
+    ];
+    const st = makeState([player(0, concealed), player(1, []), player(2, []), player(3, [])]);
+    const id = chooseDiscardTile(st, 0, plan);
+    const discarded = concealed.find(t => t.id === id)!;
+    expect(discarded.category).toBe('suited');
+    expect((discarded as SuitedTile).suit).toBe('characters');
+  });
 });
 
 // --- claims -----
