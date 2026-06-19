@@ -127,6 +127,21 @@ describe('keepValue / chooseDiscardTile', () => {
     expect(keepValue(wind('east'), plan, [wind('east')]))
       .toBeGreaterThan(keepValue(wind('south'), plan, [wind('south')]));
   });
+
+  it('cleans off-suit suited tiles before guest winds (clean mode)', () => {
+    const plan = cleanPlan('bamboo', 'east');
+    const concealed = [bam(2), bam(3), chr(5), wind('south')];
+    const st = makeState([player(0, concealed), player(1, []), player(2, []), player(3, [])]);
+    // The off-suit 5-characters is shed before the guest south wind: clean first.
+    expect(chooseDiscardTile(st, 0, plan)).toBe(chr(5).id);
+  });
+
+  it('sheds a guest wind first in dirty mode (no suit to clean)', () => {
+    const plan: HandPlan = { ...cleanPlan(null, 'east'), mode: 'dirty' };
+    const concealed = [bam(2), chr(5), wind('south')];
+    const st = makeState([player(0, concealed), player(1, []), player(2, []), player(3, [])]);
+    expect(chooseDiscardTile(st, 0, plan)).toBe(wind('south').id);
+  });
 });
 
 // --- claims -----

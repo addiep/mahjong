@@ -2,10 +2,16 @@
  * Module 4.3 -- AI Action Selection: Discard
  *
  * Given a HandPlan, score every concealed tile by how much it helps the plan
- * and discard the least useful one. This single mechanism delivers most of the
- * agreed rules: off-suit tiles score low and go early; pairs and runs in the
- * target suit score high and stay; dragons and the AI's own seat wind are kept
- * (both double on a pung); other winds are shed early once the hand is clean.
+ * and discard the least useful one.
+ *
+ * Ordering rule (Adam, 2026-06-19): clean the hand FIRST. In clean mode the
+ * off-suit suited tiles are shed before guest (non-seat) winds -- you commit to
+ * your suit, then ditch the winds. Guest winds are still shed reasonably early
+ * (right after the off-suit junk, before any in-target tile), which keeps the
+ * "throw winds early so nobody pungs them" benefit without throwing them before
+ * the hand is clean. In DIRTY mode there is no off-suit to clean, so guest winds
+ * are the first to go. Dragons and the AI's own seat wind are always kept (both
+ * double on a pung).
  *
  * A later pass will overlay the inference safe-tile reads for defensive play
  * (DESIGN Module 4.3). The baseline plays to its own hand only.
@@ -21,21 +27,27 @@ import { GameState, SeatIndex } from '../game-state.js';
 import { HandPlan } from './assessment.js';
 
 // --- Keep-values (higher = more useful = keep; lowest is discarded) -----
+// Tuned so that, in clean mode, the discard order from first to last is:
+//   off-suit single -> off-suit pair -> guest wind -> guest wind pair ->
+//   in-target terminal -> in-target simple -> in-target run -> dragon/own wind
+//   -> in-target pair -> dragon/own-wind pair -> any triplet.
 const KEEP = {
-  dragon:        8,
-  dragonPair:    11,  // a dragon pair: very close to a scoring pung
-  ownWind:       8,
-  ownWindPair:   11,
-  otherWind:     1,   // shed early
-  otherWindPair: 4,   // hold briefly in case of a pung
-  honourTriplet: 12,
-  offSuit:       2,   // suited, wrong suit (clean mode)
-  offSuitPair:   3,
-  inTriplet:     12,
-  inPair:        8,
-  inRun:         6,   // part of a chow shape
-  inIsolated:    4,
-  inTerminal:    3,   // isolated terminal: fewer chow options
+  offSuit:            1,   // suited, wrong suit (clean mode): shed first to clean up
+  offSuitPair:        2,
+  guestWindClean:     3,   // a non-seat wind, clean mode: shed after the off-suit junk
+  guestWindCleanPair: 4,
+  guestWindDirty:     1,   // dirty mode: no suit to clean, so winds go first
+  guestWindDirtyPair: 4,
+  inTerminal:         5,   // isolated in-target terminal (fewer chow options)
+  inIsolated:         6,   // isolated in-target simple
+  inRun:              7,   // part of a chow shape
+  dragon:             8,   // lone dragon: worth holding for a pair/pung
+  ownWind:            8,   // lone own seat wind: same, its pung doubles
+  inPair:             9,
+  dragonPair:         11,
+  ownWindPair:        11,
+  honourTriplet:      12,
+  inTriplet:          12,
 } as const;
 
 function countByKey(tiles: readonly Tile[]): Map<string, number> {
@@ -64,10 +76,11 @@ export function keepValue(tile: Tile, plan: HandPlan, concealed: readonly Tile[]
   if (isDragon(tile)) return c >= 3 ? KEEP.honourTriplet : c >= 2 ? KEEP.dragonPair : KEEP.dragon;
 
   if (isWind(tile)) {
-    const own = tile.wind === plan.seatWind;
     if (c >= 3) return KEEP.honourTriplet;
-    if (c === 2) return own ? KEEP.ownWindPair : KEEP.otherWindPair;
-    return own ? KEEP.ownWind : KEEP.otherWind;
+    if (tile.wind === plan.seatWind) return c >= 2 ? KEEP.ownWindPair : KEEP.ownWind;
+    // Guest (non-seat) wind: ordering depends on whether we are cleaning a suit.
+    if (plan.mode === 'dirty') return c >= 2 ? KEEP.guestWindDirtyPair : KEEP.guestWindDirty;
+    return c >= 2 ? KEEP.guestWindCleanPair : KEEP.guestWindClean;
   }
 
   if (isSuited(tile)) {
