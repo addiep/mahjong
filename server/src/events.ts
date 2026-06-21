@@ -2,8 +2,10 @@
  * Typed Socket.io event definitions for the Mah Jong server.
  *
  * These interfaces define the full client-server protocol. The React client
- * (Module 3.2 frontend) will import these types to stay in sync.
+ * mirrors these types in OnlineLobby.tsx -- keep them in sync.
  */
+
+import type { GameState, ClaimDecision } from '@mahjong/engine';
 
 /** A human player occupying a seat in the waiting room. */
 export interface LobbySeat {
@@ -11,6 +13,15 @@ export interface LobbySeat {
   /** 0 = East (creator), 1 = South, 2 = West, 3 = North */
   seat: number;
 }
+
+/**
+ * A game action sent from a human client during an active hand.
+ * Maps to the engine's interactive action types.
+ */
+export type GameActionPayload =
+  | { type: 'DISCARD';        tileId: string }
+  | { type: 'DECLARE_WIN' }
+  | { type: 'CLAIM_RESPONSE'; decision: ClaimDecision };
 
 /** Events the server sends to clients. */
 export interface ServerToClientEvents {
@@ -41,11 +52,17 @@ export interface ServerToClientEvents {
   lobby_update: (data: { seats: LobbySeat[]; humanCount: number }) => void;
 
   // --- game start ---
-  /**
-   * Broadcast when the creator hits Deal. Carries the client's own seat number.
-   * Module 3.3 will extend this with the initial filtered GameState.
-   */
+  /** Broadcast when the creator hits Deal. Carries the client's own seat number. */
   game_start: (data: { seat: number }) => void;
+
+  // --- in-game (Module 3.3) ---
+  /**
+   * Sent after every engine dispatch. The payload is filtered for the receiving
+   * seat: opponent concealed tiles are replaced with wind-east placeholders
+   * (preserving the count), the private discardLog is stripped, and at
+   * HAND_OVER the winner's tiles are revealed for scoring.
+   */
+  game_state: (state: GameState) => void;
 }
 
 /** Events the client sends to the server. */
@@ -58,4 +75,10 @@ export interface ClientToServerEvents {
   joiner_join: (data: { name: string }) => void;
   /** Creator starts the game. Only valid when all human seats are filled. */
   creator_deal: () => void;
+
+  // --- in-game (Module 3.3) ---
+  /** Human player's action during DISCARDING, CLAIM_WINDOW, or ROBBING_KONG. */
+  game_action: (payload: GameActionPayload) => void;
+  /** Creator requests a new hand after HAND_OVER. Ignored from non-creator sockets. */
+  new_hand: () => void;
 }

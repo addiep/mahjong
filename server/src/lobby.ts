@@ -1,12 +1,15 @@
 /**
- * Lobby event handling -- Modules 3.1 / 3.2.
+ * Lobby event handling -- Modules 3.1 / 3.2 / 3.3.
  *
  * Manages the full connection lifecycle:
  *   - Creator auth + human-count config
  *   - Joiner name entry + seat assignment
  *   - Waiting-room broadcasts
- *   - Deal trigger (game start is stubbed; Module 3.3 wires the engine)
+ *   - Deal trigger → startGameSession (Module 3.3)
  *   - Disconnection: creator abort resets to idle; joiner drop frees the seat
+ *
+ * When startGameSession resolves (normally or on error), the server state is
+ * reset to idle and all clients are notified.
  */
 
 import type { Server, Socket } from 'socket.io';
@@ -17,13 +20,14 @@ import {
   nextAvailableSeat,
   isReadyToDeal,
 } from './server-state.js';
+import { startGameSession } from './game-session.js';
 
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents>;
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 function broadcastLobbyUpdate(io: TypedServer, state: ServerState): void {
   io.emit('lobby_update', {
-    seats: state.seats.map(s => ({ name: s.name, seat: s.seat })),
+    seats:      state.seats.map(s => ({ name: s.name, seat: s.seat })),
     humanCount: state.humanCount,
   });
 }
@@ -113,14 +117,23 @@ export function setupLobby(
 
       state.phase = 'in-progress';
 
-      // Notify each human player of their seat. Module 3.3 will extend
-      // game_start to carry the initial filtered GameState.
+      // Notify each human player of their assigned seat.
       for (const { socketId, seat } of state.seats) {
         io.to(socketId).emit('game_start', { seat });
       }
 
-      // TODO (Module 3.3): instantiate GameRunner with HeuristicController
-      // for AI seats (indices humanCount..3), wire dispatch and state broadcast.
+      // Run the game session. When it resolves (hand loop ends or creator leaves),
+      // reset the server and advertise idle so new players can connect.
+      void startGameSession(io, state)
+        .then(() => {
+          resetServerState(state);
+          io.emit('server_state', { phase: 'idle' });
+        })
+        .catch((err: unknown) => {
+          console.error('Game session error:', err);
+          resetServerState(state);
+          io.emit('server_state', { phase: 'idle' });
+        });
     });
 
     // -----------------------------------------------------------------
@@ -146,7 +159,8 @@ export function setupLobby(
         return;
       }
 
-      // in-progress disconnections are handled in Module 3.4.
+      // in-progress disconnections: the game session loop watches the creator
+      // socket directly; joiner disconnects are handled in Module 3.4.
     });
   });
 }
