@@ -17,20 +17,42 @@
  * One instance drives one seat. A "self-draw win first" check means the AI
  * declares Mah Jong as soon as its hand is legal rather than discarding.
  *
+ * Added kong (Module 4.4): when the AI draws the 4th tile of an exposed pung,
+ * it always promotes the pung to an open kong, opening a replacement draw.
+ * This is almost always correct: the extra draw is worth more than keeping the
+ * tile, and the pung's tiles are already exposed so there is no information cost.
+ *
  * Dependencies: game-state.ts, turn-engine.ts, game-runner.ts, inference.ts,
  * hand-evaluator.ts, and the ai/* layers. No UI, no side effects beyond the
  * controller's own private counters.
  */
 
-import { GameState, SeatIndex } from '../game-state.js';
+import { GameState, SeatIndex, PlayerState } from '../game-state.js';
 import { DiscardAction } from '../turn-engine.js';
 import { PlayerController } from '../game-runner.js';
 import { ClaimDecision } from '../game-state.js';
+import { tileKey, type TileId } from '../tiles.js';
 import { inferTable } from '../inference.js';
 import { isWinningHand } from '../hand-evaluator.js';
 import { assessHand, HandPlan, AiMode } from './assessment.js';
 import { chooseDiscardTile } from './discard.js';
 import { chooseClaimDecision, chooseRobDecision } from './claims.js';
+
+/**
+ * Returns the TileId of the first concealed tile that can promote an exposed
+ * pung to an open kong, or null if no such tile exists.
+ */
+function findAddedKong(player: PlayerState): TileId | null {
+  for (const meld of player.melds) {
+    if (meld.type !== 'pung') continue;
+    const pungTile = meld.tiles[0];
+    if (!pungTile) continue;
+    const key = tileKey(pungTile);
+    const match = player.concealed.find(t => tileKey(t) === key);
+    if (match) return match.id;
+  }
+  return null;
+}
 
 export class HeuristicController implements PlayerController {
   private mode:       AiMode = 'clean';
@@ -69,6 +91,13 @@ export class HeuristicController implements PlayerController {
     // Declare Mah Jong on a self-draw whenever the hand is already legal.
     if (isWinningHand(player.concealed, player.melds, state.config)) {
       return { type: 'DECLARE_WIN' };
+    }
+
+    // Added kong: promote an exposed pung to a kong using the matching drawn tile.
+    // An extra replacement draw is almost always better than discarding the tile.
+    const kongTileId = findAddedKong(player);
+    if (kongTileId !== null) {
+      return { type: 'DECLARE_ADDED_KONG', tileId: kongTileId };
     }
 
     const plan   = this.planFor(state, true);
