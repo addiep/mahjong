@@ -52,6 +52,11 @@
  *  - HAND_OVER scoring: winner tiles are revealed; non-winner concealed tiles are
  *    either real (local player) or undefined (placeholders avoided in scoring).
  *  - Creator emits new_hand; non-creators' panels clear when the new state arrives.
+ *
+ * Online resilience (Module 3.4, 2026-06-21):
+ *  - onlineConnected tracks socket state; red banner shown when reconnecting.
+ *  - On socket reconnect, App.tsx emits reconnect_attempt with stored creds.
+ *  - game_state receipt confirms the reconnect; banner clears.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -171,6 +176,8 @@ export function App() {
   const onlineHandOrderRef  = useRef<string[] | undefined>(undefined);
   // Guard: only score each HAND_OVER state once (React StrictMode double-invokes effects).
   const onlineScoredStateRef = useRef<GameState | null>(null);
+  // True while the socket is connected mid-game; false while reconnecting (Module 3.4).
+  const [onlineConnected, setOnlineConnected] = useState(true);
 
   // Number of AI opponents (the last N seats); the human is always seat 0.
   const [aiSeats, setAiSeats] = useState(0);
@@ -205,13 +212,14 @@ export function App() {
   const prevPhaseRef = useRef<string | null>(null);
   const prevSeatRef = useRef<number | null>(null);
 
-  // -- Online: listen for game_state events -----
+  // -- Online: listen for game_state, disconnect and reconnect events -----
 
   useEffect(() => {
     if (!onlineGameInfo) return;
     const { socket } = onlineGameInfo;
 
     socket.on('game_state', (newState: GameState) => {
+      setOnlineConnected(true); // receiving state confirms the connection is live
       setOnlineState(newState);
       // Clear the score panel as soon as the new hand starts.
       if (newState.phase !== 'HAND_OVER') {
@@ -219,7 +227,27 @@ export function App() {
       }
     });
 
-    return () => { socket.off('game_state'); };
+    // When the socket drops, show the reconnecting banner.
+    socket.on('disconnect', () => setOnlineConnected(false));
+
+    // When socket.io auto-reconnects, re-send stored credentials so the server
+    // can re-attach the socket to the ongoing hand (Module 3.4).
+    socket.on('connect', () => {
+      const storedSeat = sessionStorage.getItem('mj_seat');
+      const storedName = sessionStorage.getItem('mj_name');
+      if (storedSeat !== null && storedName !== null) {
+        socket.emit('reconnect_attempt', {
+          seat: parseInt(storedSeat, 10),
+          name: storedName,
+        });
+      }
+    });
+
+    return () => {
+      socket.off('game_state');
+      socket.off('disconnect');
+      socket.off('connect');
+    };
   }, [onlineGameInfo]);
 
   // -- Online: auto-sort tiles when the local seat becomes active -----
@@ -854,6 +882,18 @@ export function App() {
 
     return (
       <div className={styles.app}>
+        {/* Reconnecting banner (Module 3.4) -- fixed overlay, clears when state arrives */}
+        {!onlineConnected && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0,
+            background: '#b00', color: '#fff',
+            textAlign: 'center', padding: '6px 0',
+            fontSize: '13px', zIndex: 1000,
+          }}>
+            Connection lost — reconnecting...
+          </div>
+        )}
+
         <div className={styles.toolbar}>
           <span className={styles.title}>Mah Jong</span>
           <div className={styles.controls}>
