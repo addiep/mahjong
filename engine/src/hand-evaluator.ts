@@ -13,7 +13,7 @@
  * Scope (per DESIGN.md §3, Module 1.7):
  *   - Standard win: (4 - declaredMelds) melds + 1 pair from the concealed tiles.
  *   - Non-standard winning shapes that the meld decomposition cannot express:
- *     the seven-pairs family, Wriggling Snake, 13 Unique Wonders, and (only when
+ *     the seven-pairs family, Wriggly Snake, Unique Wonder, and (only when
  *     `knittingEnabled`) Knitting and Crocheting. These require a fully concealed
  *     hand (no declared melds).
  *
@@ -292,7 +292,7 @@ function asSevenPairs(tiles: readonly Tile[]): PairAnalysis {
   return { isSevenGroups: pairs === 7, tiles };
 }
 
-/** Seven-pairs family: Heavenly Twins, Clean Pairs, Honour Pairs, All Pairs Honours. */
+/** Seven-pairs family: Heavenly Twins, Clean Pairs, All Pairs Honours. */
 function isSevenPairsWin(tiles: readonly Tile[]): boolean {
   if (tiles.length !== 14) return false;
   if (!asSevenPairs(tiles).isSevenGroups) return false;
@@ -300,31 +300,46 @@ function isSevenPairsWin(tiles: readonly Tile[]): boolean {
   const allHonour = tiles.every(isHonour);
   const allTerminalOrHonour = tiles.every(t => isHonour(t) || isTerminal(t));
   const suitedAllOneSuit = suits.size <= 1; // honours allowed alongside
-  // Honour Pairs (all honours) or All Pairs Honours (terminals + honours) or
+  // All Pairs Honours (terminals + honours) or
   // Heavenly Twins / Clean Pairs (suited all one suit, honours permitted).
   return allHonour || allTerminalOrHonour || suitedAllOneSuit;
 }
 
-/** Wriggling Snake: 1–9 run in one suit with one value doubled, plus one of each wind. */
+/**
+ * Wriggly Snake: 1–9 run in one suit + one of each wind (13 distinct tiles) plus a
+ * 14th tile pairing any one of those 13. So EITHER (a) the suited run has one value
+ * doubled (10 suited) with four single winds, OR (b) an exact 1-9 run (9 suited) with
+ * the four winds and exactly one wind doubled (5 winds). No dragons; one suit.
+ */
 function isWrigglingSnake(tiles: readonly Tile[]): boolean {
   if (tiles.length !== 14) return false;
-  const winds = tiles.filter(t => t.category === 'wind');
-  if (winds.length !== 4) return false;
-  if (new Set(winds.map(tileKey)).size !== 4) return false; // one of each wind
-  const suitedTiles = tiles.filter(isSuited);
-  if (suitedTiles.length !== 10) return false;
   if (tiles.some(t => t.category === 'dragon')) return false;
+  const suitedTiles = tiles.filter(isSuited);
+  const winds = tiles.filter(t => t.category === 'wind');
+  if (suitedTiles.length + winds.length !== 14) return false;
   if (suitsOf(tiles).size !== 1) return false;
+
+  const windCounts = new Map<TileKey, number>();
+  for (const w of winds) windCounts.set(tileKey(w), (windCounts.get(tileKey(w)) ?? 0) + 1);
+  if (windCounts.size !== 4) return false; // all four winds present
+  let windDoubled = 0;
+  for (const c of windCounts.values()) { if (c === 2) windDoubled++; else if (c !== 1) return false; }
+
   const valCount = emptySuitArray();
   for (const t of suitedTiles) valCount[t.value] = (valCount[t.value] ?? 0) + 1;
-  let doubled = 0;
+  let runComplete = true, suitDoubled = 0;
   for (let v = 1; v <= 9; v++) {
     const c = valCount[v] ?? 0;
-    if (c === 0) return false;        // every value 1..9 must be present
-    if (c === 2) doubled++;
-    else if (c !== 1) return false;   // only counts of 1 or (exactly one) 2 allowed
+    if (c === 0) runComplete = false;
+    else if (c === 2) suitDoubled++;
+    else if (c !== 1) return false;
   }
-  return doubled === 1;
+
+  if (suitedTiles.length === 10 && suitDoubled === 1 && runComplete &&
+      winds.length === 4 && windDoubled === 0) return true;
+  if (suitedTiles.length === 9 && suitDoubled === 0 && runComplete &&
+      winds.length === 5 && windDoubled === 1) return true;
+  return false;
 }
 
 const THIRTEEN_KINDS: readonly TileKey[] = [
@@ -334,7 +349,7 @@ const THIRTEEN_KINDS: readonly TileKey[] = [
   'dragon:red', 'dragon:green', 'dragon:white',
 ].map(s => s as TileKey);
 
-/** 13 Unique Wonders: one of each terminal/honour kind, with exactly one doubled. */
+/** Unique Wonder: one of each terminal/honour kind, with exactly one doubled. */
 function isThirteenWonders(tiles: readonly Tile[]): boolean {
   if (tiles.length !== 14) return false;
   const counts = new Map<TileKey, number>();
@@ -425,7 +440,7 @@ function isNonStandardSpecialWin(tiles: readonly Tile[], config: GameConfig): bo
   return false;
 }
 
-// ─── Public API ────────────────────────────────────────────────────────────────
+// ─── Public API ──────────────────────────────────────────────────────────────────
 
 /**
  * The binary win detector. `hand` is the full concealed hand INCLUDING the

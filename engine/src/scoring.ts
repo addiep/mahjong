@@ -67,16 +67,10 @@ export interface ScoreInput {
   readonly wonByDiscard?:  boolean;
   /** Won by robbing an added kong. */
   readonly robbingKong?:   boolean;
-  /** Hand was waiting on exactly one tile (the only tile that could complete it). */
-  readonly onlyPossibleTile?: boolean;
   /** Declared fishing immediately after the player's very first discard. */
   readonly originalCall?:  boolean;
   /** Won on the very last discard of the hand. */
   readonly lastDiscard?:   boolean;
-  /** Dealer won on the opening deal before any discard (Heavenly Hand). */
-  readonly heavenlyHand?:  boolean;
-  /** Non-dealer won on East's very first discard (Earthly Hand). */
-  readonly earthlyHand?:   boolean;
 }
 
 /** One flat-points line in the breakdown. */
@@ -147,7 +141,7 @@ function buildFullHand(
   return { groups, pair: reading.pair };
 }
 
-// ─── Tile helpers ──────────────────────────────────────────────
+// ─── Tile helpers ───────────────────────────────────────────────
 
 function isMajorTile(t: Tile): boolean {
   return isHonour(t) || isTerminal(t);
@@ -228,10 +222,6 @@ function scoreNormalReading(hand: FullHand, input: ScoreInput, cfg: ScoringConfi
     lines.push({ label: 'won from the live wall', points: cfg.winFromLiveWall });
     base += cfg.winFromLiveWall;
   }
-  if (input.onlyPossibleTile) {
-    lines.push({ label: 'only possible tile', points: cfg.onlyPossibleTile });
-    base += cfg.onlyPossibleTile;
-  }
   if (noChows) { lines.push({ label: 'no chows', points: cfg.noChows }); base += cfg.noChows; }
 
   // ── Doublings ──
@@ -246,8 +236,8 @@ function scoreNormalReading(hand: FullHand, input: ScoreInput, cfg: ScoringConfi
   addDouble('pung/kong of dragon or own wind', honourMelds);
 
   // Complete set of flowers / seasons (doubles twice each).
-  if (hasCompleteSet(input.bonusTiles, isFlower)) addDouble('complete set of flowers', 2);
-  if (hasCompleteSet(input.bonusTiles, isSeason)) addDouble('complete set of seasons', 2);
+  if (hasCompleteSet(input.bonusTiles, isFlower)) addDouble('bouquet (flowers)', 3);
+  if (hasCompleteSet(input.bonusTiles, isSeason)) addDouble('bouquet (seasons)', 3);
 
   // Original call (applies to all players).
   if (input.originalCall) addDouble('original call', 1);
@@ -276,8 +266,10 @@ function scoreNormalReading(hand: FullHand, input: ScoreInput, cfg: ScoringConfi
     addDouble('purity', 3);
   }
 
-  // Winds and Dragons only (×3).
-  if (!hasSuited && all.every(isHonour)) addDouble('winds and dragons only', 3);
+  // All Honours (×3, winner only): no chows, every tile major (honour or terminal),
+  // and at least one honour. The pure-honours and pure-terminals cases are the
+  // All Winds and Dragons / Heads and Tails limit hands; this covers the mixed case.
+  if (noChows && all.every(isMajorTile) && hasHonour) addDouble('all honours', 3);
 
   const total = base * Math.pow(2, doublings);
   return { total, basePoints: base, doublings, lines, doublingLines };
@@ -295,16 +287,17 @@ interface SpecialHit { readonly name: string; readonly score: number; readonly p
 
 /**
  * Tie-break priority when several special hands pay the same score: the more
- * specific / prestigious hand wins the *label*. The generic All Pungs ranks
+ * specific / prestigious hand wins the *label*. The generic Mixed Pungs ranks
  * lowest; bespoke and circumstance hands rank highest. Payout is unaffected.
  */
 const PRIORITY = {
-  allPungs: 1,
+  mixedPungs: 1,
   allKongs: 2,
   buriedTreasure: 3,
-  bespokePungHand: 4, // Heads and Tails, All Honours, Three Great Scholars, Four Blessings, Imperial Jade
+  bespokePungHand: 4, // Heads and Tails, Three Great Scholars, Four Blessings, Imperial Jade, Chinese Odds, All Winds and Dragons
   bespokeShape: 5,    // seven pairs, snake, wonders, nine gates, windy dragons, dragonfly, knitting
-  circumstance: 6,
+  bespokeRunPung: 6,  // Run Pung and Pair, Sparrow's Sanctuary — win the label over Buried Treasure / seven-pairs
+  circumstance: 7,
 } as const;
 
 /** Detectors that work from the four-group + pair view (allow declared melds). */
@@ -312,71 +305,104 @@ function detectGroupSpecials(hand: FullHand, input: ScoreInput, cfg: ScoringConf
   const hits: SpecialHit[] = [];
   const { groups, pair } = hand;
   const noChows = groups.every(g => g.kind !== 'chow');
+  const fullyConcealed = groups.every(g => g.concealed);
   const all = allTilesOf(hand);
+  const hasHonour = all.some(isHonour);
 
-  if (groups.length === 4 && groups.every(g => g.kind === 'kong')) {
+  // All Kongs (Fourfold Plenty): four kongs + a pair; the suited tiles must be one suit.
+  if (groups.length === 4 && groups.every(g => g.kind === 'kong') && suitedSuits(all).size <= 1) {
     hits.push({ name: 'All Kongs (Fourfold Plenty)', score: cfg.limit, priority: PRIORITY.allKongs });
   }
 
-  // Three Great Scholars: pung/kong of all three dragons + any 4th meld + pair.
-  // Fires regardless of whether the 4th meld is a chow or pung/kong.
-  const dragonKinds = new Set(
-    groups
-      .filter(g => (g.kind === 'pung' || g.kind === 'kong') && isDragon(g.tiles[0]!))
-      .map(g => tileKey(g.tiles[0]!))
-  );
-  if (dragonKinds.size === 3) hits.push({ name: 'Three Great Scholars', score: cfg.limit, priority: PRIORITY.bespokePungHand });
+  // Three Great Scholars: pung/kong of all three dragons + one further meld + a pair,
+  // where the further (non-dragon) meld AND the pair are of the same suit.
+  const dragonMelds = groups.filter(g => (g.kind === 'pung' || g.kind === 'kong') && isDragon(g.tiles[0]!));
+  const dragonKinds = new Set(dragonMelds.map(g => tileKey(g.tiles[0]!)));
+  if (dragonKinds.size === 3) {
+    const otherMelds = groups.filter(g => !((g.kind === 'pung' || g.kind === 'kong') && isDragon(g.tiles[0]!)));
+    // Exactly one further meld; collect its suit plus the pair's suit; they must match (and be a suit).
+    const sameSuitFourth = otherMelds.length === 1 && (() => {
+      const m0 = otherMelds[0]!.tiles[0]!;
+      const p0 = pair[0]!;
+      return isSuited(m0) && isSuited(p0) && (m0 as { suit: Suit }).suit === (p0 as { suit: Suit }).suit;
+    })();
+    if (sameSuitFourth) hits.push({ name: 'Three Great Scholars', score: cfg.limit, priority: PRIORITY.bespokePungHand });
+  }
+
+  // Imperial Jade: all tiles green + a pung/kong of Green Dragons + a green-bamboo pair.
+  // Chows of green bamboos (2-3-4, 6-7-8) are allowed, so this lives outside the noChows gate.
+  if (all.every(isGreenTile)) {
+    const greenDragonMeld = groups.some(g =>
+      (g.kind === 'pung' || g.kind === 'kong') && isDragon(g.tiles[0]!) && (g.tiles[0]! as { dragon: string }).dragon === 'green');
+    const greenBambooPair = pair.length === 2 && isSuited(pair[0]!) && (pair[0]! as { suit: Suit }).suit === 'bamboo';
+    if (greenDragonMeld && greenBambooPair) {
+      hits.push({ name: 'Imperial Jade', score: cfg.limit, priority: PRIORITY.bespokePungHand });
+    }
+  }
+
+  // Buried Treasure: fully concealed CLEAN hand in a single suit, no honours, no kongs.
+  // Chows are allowed. (Self-draw of the winning tile is implied by fully concealed.)
+  if (fullyConcealed && suitedSuits(all).size === 1 && !hasHonour && groups.every(g => g.kind !== 'kong')) {
+    hits.push({ name: 'Buried Treasure', score: cfg.limit, priority: PRIORITY.buriedTreasure });
+  }
 
   if (noChows) {
-    hits.push({ name: 'All Pungs', score: cfg.limit, priority: PRIORITY.allPungs });
+    // Mixed Pungs: four pungs/kongs + a pair, fully self-drawn (fully concealed). Any tiles.
+    if (fullyConcealed) {
+      hits.push({ name: 'Mixed Pungs', score: cfg.limit, priority: PRIORITY.mixedPungs });
+    }
 
     // Four Blessings: pung/kong of each of the four winds + any pair.
     const windKinds = new Set(groups.filter(g => isWind(g.tiles[0]!)).map(g => tileKey(g.tiles[0]!)));
     if (windKinds.size === 4) hits.push({ name: 'Four Blessings Hovering Over the Door', score: cfg.limit, priority: PRIORITY.bespokePungHand });
 
-    // All Honours: every group + pair is honour-or-terminal, with at least one honour.
-    if (all.every(isMajorTile) && all.some(isHonour)) {
-      hits.push({ name: 'All Honours', score: cfg.limit, priority: PRIORITY.bespokePungHand });
-    }
     // Heads and Tails: terminals only (1s and 9s), no honours.
     if (all.every(t => isSuited(t) && isTerminal(t))) {
       hits.push({ name: 'Heads and Tails', score: cfg.limit, priority: PRIORITY.bespokePungHand });
     }
-    // Imperial Jade: all tiles green.
-    if (all.every(isGreenTile)) hits.push({ name: 'Imperial Jade', score: cfg.limit, priority: PRIORITY.bespokePungHand });
 
-    // Buried Treasure: any fully concealed pung/kong hand (any tile composition).
-    const fullyConcealed = groups.every(g => g.concealed);
-    if (fullyConcealed) {
-      hits.push({ name: 'Buried Treasure', score: cfg.limit, priority: PRIORITY.buriedTreasure });
+    // Chinese Odds: every tile suited, all one suit, every value odd (1,3,5,7,9).
+    if (all.every(isSuited) && suitedSuits(all).size === 1 &&
+        all.every(t => isSuited(t) && (t.value % 2 === 1))) {
+      hits.push({ name: 'Chinese Odds', score: cfg.limit, priority: PRIORITY.bespokePungHand });
+    }
+
+    // All Winds and Dragons: every tile an honour (no suited tiles).
+    if (all.every(isHonour)) {
+      hits.push({ name: 'All Winds and Dragons', score: cfg.limit, priority: PRIORITY.bespokePungHand });
     }
   }
-  void pair;
   return hits;
 }
 
-/** Detectors that need the raw 14-tile concealed hand (no declared melds, no kongs). */
+/** Detectors that need the raw 14-tile concealed hand (no declared melds). */
 function detectConcealedSpecials(tiles: readonly Tile[], input: ScoreInput, cfg: ScoringConfig): SpecialHit[] {
   const hits: SpecialHit[] = [];
   if (tiles.length !== 14) return hits;
 
   const P = PRIORITY.bespokeShape;
 
+  // Sparrow's Sanctuary: four 1-Bamboos + a pair each of 2,3,4,6,8 Bamboo.
+  // This also satisfies isSevenPairs, so detect (and suppress Heavenly Twins) first.
+  const sparrow = isSparrowsSanctuary(tiles);
+  if (sparrow) hits.push({ name: "Sparrow's Sanctuary", score: cfg.limit, priority: PRIORITY.bespokeRunPung });
+
   // Seven-pairs family.
-  if (isSevenPairs(tiles)) {
-    const allHonour = tiles.every(isHonour);
+  if (!sparrow && isSevenPairs(tiles)) {
     const allMajor = tiles.every(isMajorTile);
     const oneSuit = suitedSuits(tiles).size <= 1;
-    if (allHonour) hits.push({ name: 'Honour Pairs', score: cfg.limit, priority: P });
-    else if (allMajor) hits.push({ name: 'All Pairs Honours', score: cfg.allPairsHonours, priority: P });
+    if (allMajor) hits.push({ name: 'All Pairs Honours', score: cfg.allPairsHonours, priority: P });
     else if (oneSuit && !tiles.some(isHonour)) hits.push({ name: 'Heavenly Twins', score: cfg.limit, priority: P });
     else if (oneSuit) hits.push({ name: 'Clean Pairs', score: cfg.halfLimit, priority: P });
   }
 
-  if (isWrigglingSnake(tiles)) hits.push({ name: 'Wriggling Snake', score: cfg.limit, priority: P });
-  if (isThirteenWonders(tiles)) hits.push({ name: '13 Unique Wonders', score: cfg.limit, priority: P });
+  // Run, Pung and Pair: single suit, all of 1..9 present, plus a pung and a pair.
+  if (isRunPungAndPair(tiles)) hits.push({ name: 'Run, Pung and Pair', score: cfg.limit, priority: PRIORITY.bespokeRunPung });
+
+  if (isWrigglingSnake(tiles)) hits.push({ name: 'Wriggly Snake', score: cfg.limit, priority: P });
+  if (isThirteenWonders(tiles)) hits.push({ name: 'Unique Wonder', score: cfg.doubleLimit, priority: P });
   if (isWindyDragons(tiles)) hits.push({ name: 'Windy Dragons', score: cfg.limit, priority: P });
-  if (isDragonfly(tiles)) hits.push({ name: 'Dragonfly', score: cfg.limit, priority: P });
+  if (isDragonfly(tiles)) hits.push({ name: 'Dragonfly', score: cfg.halfLimit, priority: P });
   if (isNineGates(tiles)) hits.push({ name: 'Gates of Heaven (Nine Chances)', score: cfg.limit, priority: P });
   if (input.gameConfig.knittingEnabled) {
     if (isKnitting(tiles)) hits.push({ name: 'Knitting', score: cfg.limit, priority: P });
@@ -386,12 +412,8 @@ function detectConcealedSpecials(tiles: readonly Tile[], input: ScoreInput, cfg:
 }
 
 /** Detectors driven purely by circumstance (tile composition irrelevant). */
-function detectCircumstanceSpecials(input: ScoreInput, cfg: ScoringConfig): SpecialHit[] {
-  const hits: SpecialHit[] = [];
-  const P = PRIORITY.circumstance;
-  if (input.heavenlyHand) hits.push({ name: 'Heavenly Hand', score: cfg.limit, priority: P });
-  if (input.earthlyHand) hits.push({ name: 'Earthly Hand', score: cfg.limit, priority: P });
-  return hits;
+function detectCircumstanceSpecials(_input: ScoreInput, _cfg: ScoringConfig): SpecialHit[] {
+  return [];
 }
 
 // ── Raw-multiset special-hand predicates ──
@@ -414,21 +436,38 @@ function isSevenPairs(tiles: readonly Tile[]): boolean {
 function emptyVals(): number[] { return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; }
 
 function isWrigglingSnake(tiles: readonly Tile[]): boolean {
-  const winds = tiles.filter(isWind);
-  if (winds.length !== 4 || new Set(winds.map(tileKey)).size !== 4) return false;
+  if (tiles.length !== 14) return false;
   if (tiles.some(isDragon)) return false;
   const suited = tiles.filter(isSuited);
-  if (suited.length !== 10 || suitedSuits(tiles).size !== 1) return false;
+  const winds = tiles.filter(isWind);
+  if (suited.length + winds.length !== 14) return false;
+  if (suitedSuits(tiles).size !== 1) return false;
+
+  // Wind counts (each of the four winds present; possibly one doubled).
+  const windCounts = new Map<string, number>();
+  for (const w of winds) windCounts.set(tileKey(w), (windCounts.get(tileKey(w)) ?? 0) + 1);
+  const fourWindsPresent = windCounts.size === 4;
+  let windDoubled = 0;
+  for (const c of windCounts.values()) { if (c === 2) windDoubled++; else if (c !== 1) return false; }
+
+  // Suited value spread: each of 1..9 present; possibly one doubled.
   const v = emptyVals();
   for (const t of suited) if (isSuited(t)) v[t.value] = (v[t.value] ?? 0) + 1;
-  let doubled = 0;
+  let runComplete = true, suitDoubled = 0;
   for (let i = 1; i <= 9; i++) {
     const c = v[i] ?? 0;
-    if (c === 0) return false;
-    if (c === 2) doubled++;
+    if (c === 0) runComplete = false;
+    else if (c === 2) suitDoubled++;
     else if (c !== 1) return false;
   }
-  return doubled === 1;
+
+  // (a) suited run doubled (10 suited) + four single winds (4 winds).
+  if (suited.length === 10 && suitDoubled === 1 && runComplete &&
+      winds.length === 4 && fourWindsPresent && windDoubled === 0) return true;
+  // (b) suited run exactly 1-9 (9 suited) + four winds with one doubled (5 winds).
+  if (suited.length === 9 && suitDoubled === 0 && runComplete &&
+      winds.length === 5 && fourWindsPresent && windDoubled === 1) return true;
+  return false;
 }
 
 const THIRTEEN = new Set<string>([
@@ -490,16 +529,63 @@ function isDragonfly(tiles: readonly Tile[]): boolean {
   return pairsFound === 1;
 }
 
-/** Gates of Heaven (Nine Gates): 1112345678999 in one suit + any one extra of that suit. */
+/**
+ * Gates of Heaven (Nine Gates): pung of 1s + pung of 9s + each of 2..8 present,
+ * all one suit, with the completing tile a 2-8 (not a 1 or 9). So exactly:
+ * v[1]===3 && v[9]===3 && every v[2..8] in {1,2} with exactly one ===2.
+ */
 function isNineGates(tiles: readonly Tile[]): boolean {
   if (tiles.length !== 14) return false;
   if (!tiles.every(isSuited)) return false;
   if (suitedSuits(tiles).size !== 1) return false;
   const v = emptyVals();
   for (const t of tiles) if (isSuited(t)) v[t.value] = (v[t.value] ?? 0) + 1;
-  if ((v[1] ?? 0) < 3 || (v[9] ?? 0) < 3) return false;
-  for (let i = 2; i <= 8; i++) if ((v[i] ?? 0) < 1) return false;
-  return true; // 3+3+7 = 13 mandatory tiles + exactly one extra (total 14)
+  if ((v[1] ?? 0) !== 3 || (v[9] ?? 0) !== 3) return false;
+  let doubled = 0;
+  for (let i = 2; i <= 8; i++) {
+    const c = v[i] ?? 0;
+    if (c === 2) doubled++;
+    else if (c !== 1) return false; // each of 2..8 present exactly once or twice
+  }
+  return doubled === 1; // exactly one of 2..8 completed the hand
+}
+
+/**
+ * Sparrow's Sanctuary: four 1-Bamboos + a pair each of 2,3,4,6,8 Bamboo.
+ * counts: bamboo 1 = 4; bamboo 2,3,4,6,8 = 2 each; nothing else.
+ */
+function isSparrowsSanctuary(tiles: readonly Tile[]): boolean {
+  if (tiles.length !== 14) return false;
+  if (!tiles.every(t => isSuited(t) && t.suit === 'bamboo')) return false;
+  const v = emptyVals();
+  for (const t of tiles) if (isSuited(t)) v[t.value] = (v[t.value] ?? 0) + 1;
+  if ((v[1] ?? 0) !== 4) return false;
+  for (const val of [2, 3, 4, 6, 8]) if ((v[val] ?? 0) !== 2) return false;
+  for (const val of [5, 7, 9]) if ((v[val] ?? 0) !== 0) return false;
+  return true;
+}
+
+/**
+ * Run, Pung and Pair: single suit, no honours; counts are exactly one value ===4,
+ * one other value ===3, and the remaining seven values ===1. (The 4-count value is
+ * the run tile that also forms part of the pung; subtracting one of each 1..9 leaves
+ * a pung (3) and a pair (2).)
+ */
+function isRunPungAndPair(tiles: readonly Tile[]): boolean {
+  if (tiles.length !== 14) return false;
+  if (!tiles.every(isSuited)) return false;
+  if (suitedSuits(tiles).size !== 1) return false;
+  const v = emptyVals();
+  for (const t of tiles) if (isSuited(t)) v[t.value] = (v[t.value] ?? 0) + 1;
+  let fours = 0, threes = 0, ones = 0;
+  for (let i = 1; i <= 9; i++) {
+    const c = v[i] ?? 0;
+    if (c === 4) fours++;
+    else if (c === 3) threes++;
+    else if (c === 1) ones++;
+    else return false;
+  }
+  return fours === 1 && threes === 1 && ones === 7;
 }
 
 function isKnitting(tiles: readonly Tile[]): boolean {
@@ -590,19 +676,17 @@ export function scoreWinningHand(
     return acc;
   }, null);
 
-  // ── Combine: best of normal vs special, capped at the limit ──
+  // ── Combine: best of normal vs special ──
+  // The normal tally is capped at the limit. A special hand pays its full fixed
+  // score *uncapped* (so Unique Wonder pays the double limit), and wins the label
+  // whenever its uncapped score is at least the capped normal total.
   const normalTotal = best ? best.total : 0;
   const specialScore = bestSpecial ? bestSpecial.score : 0;
-  const cappedNormal  = Math.min(cfg.limit, normalTotal);
-  const cappedSpecial = Math.min(cfg.limit, specialScore);
+  const cappedNormal = Math.min(cfg.limit, normalTotal);
 
-  // Compare the *capped* totals. A limit special hand and a normal reading that
-  // doubles past the limit both pay the limit; in that case the special hand's
-  // name is the meaningful identity to surface, so the special wins the label
-  // on a capped tie.
-  if (bestSpecial && cappedSpecial >= cappedNormal) {
+  if (bestSpecial && specialScore >= cappedNormal) {
     return {
-      total:         Math.min(cfg.limit, specialScore),
+      total:         specialScore,
       specialHand:   bestSpecial.name,
       isLimitHand:   true,
       basePoints:    0,
@@ -720,10 +804,14 @@ export function scoreExposedMelds(
   const allTiles = [...melds.flatMap(m => [...m.tiles]), ...(concealedTiles ?? [])];
   const allSuits = suitedSuits(allTiles);
   const hasSuited = allTiles.some(isSuited);
+  const hasHonour = allTiles.some(isHonour);
   if (hasSuited && allSuits.size <= 1) addDouble('clean hand', 1);
 
-  if (hasCompleteSet(bonusTiles, isFlower)) addDouble('complete set of flowers', 2);
-  if (hasCompleteSet(bonusTiles, isSeason)) addDouble('complete set of seasons', 2);
+  // Purity (clean hand, no Winds or Dragons): ×3 — applies to all players.
+  if (hasSuited && !hasHonour && allSuits.size === 1) addDouble('purity', 3);
+
+  if (hasCompleteSet(bonusTiles, isFlower)) addDouble('bouquet (flowers)', 3);
+  if (hasCompleteSet(bonusTiles, isSeason)) addDouble('bouquet (seasons)', 3);
 
   // No base points means nothing to double; avoid returning a doubled zero.
   const total = base === 0 ? 0 : base * Math.pow(2, doublings);

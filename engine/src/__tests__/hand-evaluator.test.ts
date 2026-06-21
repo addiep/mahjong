@@ -60,7 +60,7 @@ describe('isWinningHand — with declared melds', () => {
     expect(isWinningHand(concealed, declared, cfg())).toBe(true);
   });
 
-  it('accepts four declared pungs + concealed pair (meldsNeeded 0, All Pungs bypass)', () => {
+  it('accepts four declared pungs + concealed pair (meldsNeeded 0)', () => {
     const declared = [dm('pung', x3(B, 1)), dm('pung', x3(C, 2)), dm('pung', x3(O, 3)), dm('pung', [D('red'), D('red'), D('red')])];
     expect(isWinningHand([D('green'), D('green')], declared, cfg())).toBe(true);
   });
@@ -103,22 +103,27 @@ describe('isWinningHand — seven pairs family', () => {
 
 // ─── Bespoke special hands ─────────────────────────────────────────────────────────────
 describe('isWinningHand — bespoke special hands', () => {
-  it('accepts Wriggling Snake (1-9 one suit, one doubled, four winds)', () => {
+  it('accepts Wriggly Snake (1-9 one suit, one suited doubled, four winds)', () => {
     const hand = [B(1), B(2), B(3), B(4), B(5), B(5), B(6), B(7), B(8), B(9), W('east'), W('south'), W('west'), W('north')];
     expect(isWinningHand(hand, [], cfg())).toBe(true);
   });
 
-  it('rejects Wriggling Snake missing a wind', () => {
+  it('rejects Wriggly Snake missing a wind', () => {
     const hand = [B(1), B(2), B(3), B(4), B(5), B(5), B(6), B(7), B(8), B(9), W('east'), W('south'), W('west'), W('east')];
     expect(isWinningHand(hand, [], cfg())).toBe(false);
   });
 
-  it('accepts 13 Unique Wonders', () => {
+  it('accepts Wriggly Snake with a doubled WIND (exact 1-9 run + four winds, one doubled)', () => {
+    const hand = [B(1), B(2), B(3), B(4), B(5), B(6), B(7), B(8), B(9), W('east'), W('east'), W('south'), W('west'), W('north')];
+    expect(isWinningHand(hand, [], cfg())).toBe(true);
+  });
+
+  it('accepts Unique Wonder', () => {
     const hand = [B(1), B(9), C(1), C(9), O(1), O(9), W('east'), W('south'), W('west'), W('north'), D('red'), D('green'), D('white'), B(1)];
     expect(isWinningHand(hand, [], cfg())).toBe(true);
   });
 
-  it('rejects 13 Unique Wonders with a simple tile', () => {
+  it('rejects Unique Wonder with a simple tile', () => {
     const hand = [B(1), B(9), C(1), C(9), O(1), O(5), W('east'), W('south'), W('west'), W('north'), D('red'), D('green'), D('white'), B(1)];
     expect(isWinningHand(hand, [], cfg())).toBe(false);
   });
