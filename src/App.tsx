@@ -58,10 +58,12 @@
  *  - On socket reconnect, App.tsx emits reconnect_attempt with stored creds.
  *  - game_state receipt confirms the reconnect; banner clears.
  *
- * Online Hint (2026-06-21):
- *  - Hint button added to the online toolbar.
- *  - handleOnlineHint uses onlineState + localSeat (mirrors local handleHint).
- *  - lastEvents passed to the online Board so hint messages are visible.
+ * Online Hint + event sidebar (2026-06-21):
+ *  - Hint button added to the online toolbar; handleOnlineHint mirrors handleHint.
+ *  - lastEvents={events} passed to the online Board.
+ *  - prevOnlineStateRef + useEffect diffs each game_state to detect discards,
+ *    pung/kong/chow claims, wins, and draws, then calls logEvent so they appear
+ *    in the sidebar (previously the array was always empty in online mode).
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -181,6 +183,8 @@ export function App() {
   const onlineHandOrderRef  = useRef<string[] | undefined>(undefined);
   // Guard: only score each HAND_OVER state once (React StrictMode double-invokes effects).
   const onlineScoredStateRef = useRef<GameState | null>(null);
+  // Tracks the previous online state for client-side event detection.
+  const prevOnlineStateRef = useRef<GameState | null>(null);
   // True while the socket is connected mid-game; false while reconnecting (Module 3.4).
   const [onlineConnected, setOnlineConnected] = useState(true);
 
@@ -270,6 +274,55 @@ export function App() {
     setOnlineCurrentOrder(sortedIds);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onlineState?.currentSeat, onlineState?.phase]);
+
+  // -- Online: detect game events for the event sidebar -----
+  // Diffs each incoming game_state against the previous one to infer what just
+  // happened (discard, claim, win/draw) and logs it for the sidebar.
+  // Discard pool tiles and meld tiles are always real (never placeholders), so
+  // tileName() is safe to call on them.
+
+  useEffect(() => {
+    if (!onlineState) return;
+    const prev = prevOnlineStateRef.current;
+    prevOnlineStateRef.current = onlineState;
+    if (!prev) return;
+
+    // Detect a new discard: pool grew by one tile.
+    if (onlineState.discardPool.length > prev.discardPool.length) {
+      const newTile = onlineState.discardPool[onlineState.discardPool.length - 1];
+      const discarder = onlineState.players[prev.currentSeat];
+      if (discarder && newTile) {
+        logEvent(`${discarder.name} discarded the ${tileName(newTile)}`);
+      }
+    }
+
+    // Detect a new meld (pung, kong, or chow claim): a player's meld array grew.
+    // The claimed tile is the last entry in the discard pool at the time of the claim.
+    onlineState.players.forEach((player, i) => {
+      const prevPlayer = prev.players[i];
+      if (!prevPlayer || player.melds.length <= prevPlayer.melds.length) return;
+      const newMeld = player.melds[player.melds.length - 1];
+      if (!newMeld) return;
+      const claimedTile = prev.discardPool[prev.discardPool.length - 1];
+      const verb = newMeld.kind === 'kong' ? 'konged'
+        : newMeld.kind === 'pung' ? 'punged'
+        : 'chowed';
+      if (claimedTile) {
+        logEvent(`${player.name} ${verb} the ${tileName(claimedTile)}`);
+      }
+    });
+
+    // Detect HAND_OVER transition.
+    if (onlineState.phase === 'HAND_OVER' && prev.phase !== 'HAND_OVER') {
+      const hr = onlineState.handResult;
+      if (hr?.reason === 'draw') {
+        logEvent('Wall exhausted — no winner this hand.');
+      } else if (hr && hr.winnerSeat !== null) {
+        const winner = onlineState.players[hr.winnerSeat];
+        if (winner) logEvent(`${winner.name} declared Mah Jong!`);
+      }
+    }
+  }, [onlineState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -- Online: score HAND_OVER -----
 
