@@ -40,6 +40,10 @@
  *  - Score labels now use human-readable tile names ('circles', 'south wind').
  *  - Non-winners' concealed pungs and scoring pairs now scored at HAND_OVER
  *    (scoreExposedMelds extended with optional concealedTiles param).
+ *
+ * Online mode (Module 3.2, 2026-06-21):
+ *  - VITE_ONLINE=true switches the app into online mode.
+ *  - Shows OnlineLobby until game_start; then a placeholder pending Module 3.3.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -47,6 +51,7 @@ import { Board } from './components/Board';
 import { ScorePanel } from './components/ScorePanel';
 import type { PlayerBonusInfo, WinnerHandInfo } from './components/ScorePanel';
 import { GameSetup } from './components/GameSetup';
+import { OnlineLobby, type OnlineSocket } from './components/OnlineLobby';
 import {
   buildWall,
   createGameState,
@@ -75,6 +80,10 @@ import {
   type ExposedMeldScoreResult,
 } from '@mahjong/engine';
 import styles from './App.module.css';
+
+// Whether the app is running in online multiplayer mode.
+// Set VITE_ONLINE=true in the Dockerfile builder stage (or a local .env).
+const ONLINE_MODE = import.meta.env.VITE_ONLINE === 'true';
 
 // --- Tile sort helpers (mirrored from PlayerHand.tsx) -----
 
@@ -122,6 +131,8 @@ interface HandScoreInfo {
   winnerHand: WinnerHandInfo | null;
 }
 
+const SEAT_NAMES = ['East', 'South', 'West', 'North'] as const;
+
 // --- App -----
 
 export function App() {
@@ -132,6 +143,13 @@ export function App() {
   const [state, setState] = useState<GameState | null>(null);
   const [handScore, setHandScore] = useState<HandScoreInfo | null>(null);
   const [runningTotals, setRunningTotals] = useState<number[]>([0, 0, 0, 0]);
+
+  // Online multiplayer: populated by OnlineLobby when game_start fires.
+  // Module 3.3 will use the socket to receive the live game state.
+  const [onlineGameInfo, setOnlineGameInfo] = useState<{
+    seat: number;
+    socket: OnlineSocket;
+  } | null>(null);
 
   // Number of AI opponents (the last N seats); the human is always seat 0.
   const [aiSeats, setAiSeats] = useState(0);
@@ -336,7 +354,7 @@ export function App() {
                 const pl = captured.players[pending];
                 const tile = captured.discardPool[captured.discardPool.length - 1];
                 if (pl && tile) {
-                  const verb = decision.type === 'win' ? 'won with'
+                  const verb = decision.type === 'win'  ? 'won with'
                     : decision.type === 'pung' ? 'punged'
                     : decision.type === 'kong' ? 'konged' : 'chowed';
                   logEvent(`${pl.name} ${verb} the ${tileName(tile)}`);
@@ -609,7 +627,32 @@ export function App() {
 
   // -- Render -----
 
-  // Setup screen.
+  // Online mode: show the lobby until game_start, then a placeholder
+  // pending Module 3.3 (which will wire the engine to the live server).
+  if (ONLINE_MODE) {
+    if (!onlineGameInfo) {
+      return (
+        <div className={styles.app}>
+          <OnlineLobby
+            onGameStart={(seat, socket) => setOnlineGameInfo({ seat, socket })}
+          />
+        </div>
+      );
+    }
+    return (
+      <div className={styles.app}>
+        <div className={styles.toolbar}>
+          <span className={styles.title}>Mah Jong</span>
+        </div>
+        <div className={styles.onlinePlaceholder}>
+          <p>Connected as {SEAT_NAMES[onlineGameInfo.seat] ?? `seat ${onlineGameInfo.seat + 1}`}.</p>
+          <p className={styles.onlineHint}>Waiting for the server to deal the tiles...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Local mode: setup screen.
   if (appPhase === 'setup' || !state) {
     return (
       <div className={styles.app}>
