@@ -14,6 +14,11 @@
  *     pung is still realistic. If copies of that pair's kind are already visible
  *     elsewhere (discards or exposed melds), the pung is unlikely, so take the
  *     chow to speed the hand up.
+ *   - Redundant chow suppression: if the concealed hand already contains exactly
+ *     one copy of the discarded tile's kind, claiming a chow would expose a meld
+ *     already virtually present in hand and leave a spare copy to throw away —
+ *     a wasted turn.  Two held copies are not suppressed: the claim leaves a
+ *     pair behind, which can be worth keeping.
  *
  * Dependencies: tiles.ts, game-state.ts, claim-window.ts, hand-evaluator.ts,
  * assessment.ts. No UI, no side effects.
@@ -82,8 +87,9 @@ export function chowOptions(concealed: readonly Tile[], discard: Tile): Array<[T
 }
 
 /**
- * Pick a chow that does not sacrifice a still-realistic pung. Returns the chosen
- * tile-id pair, or null if every option would break a good pair (suppress chow).
+ * Pick a chow that does not sacrifice a still-realistic pung, and does not
+ * claim a chow the hand already holds virtually.  Returns the chosen tile-id
+ * pair, or null if no option is worth taking.
  */
 function pickChow(state: GameState, concealed: readonly Tile[], discard: Tile): [TileId, TileId] | null {
   const options = chowOptions(concealed, discard);
@@ -94,6 +100,13 @@ function pickChow(state: GameState, concealed: readonly Tile[], discard: Tile): 
     const k = tileKey(t) as string;
     counts.set(k, (counts.get(k) ?? 0) + 1);
   }
+
+  // Redundant-chow guard: if the hand already holds exactly one copy of the
+  // discard's kind, claiming any chow would expose a sequence virtually already
+  // in hand and leave a spare copy of the discard tile to throw immediately —
+  // wasted turn.  (Two copies → the spare forms a pair, worth keeping.)
+  const discardKey = tileKey(discard) as string;
+  if ((counts.get(discardKey) ?? 0) === 1) return null;
 
   const breaksGoodPair = (pair: [TileId, TileId]): boolean =>
     pair.some(id => {
@@ -130,7 +143,8 @@ export function chooseClaimDecision(state: GameState, seat: SeatIndex, plan: Han
     return { type: 'pung' };
   }
 
-  // 3. Chow (right of discarder only) if it fits, subject to the pung tension.
+  // 3. Chow (right of discarder only) if it fits, subject to pung tension and
+  //    redundant-chow suppression.
   const count = state.config.playerCount;
   const rightSeat = ((state.currentSeat + 1) % count) as SeatIndex;
   if (seat === rightSeat && canChow(concealed, discard) && fitsForMeld(discard, plan)) {
