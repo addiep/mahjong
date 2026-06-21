@@ -65,6 +65,18 @@ export interface ServerToClientEvents {
    * HAND_OVER the winner's tiles are revealed for scoring.
    */
   game_state: (state: GameState) => void;
+
+  /**
+   * A single human-readable line describing a move that just happened (a
+   * discard, a pung/kong/chow claim, an added kong, or the end of the hand),
+   * for the client's event sidebar. Derived authoritatively on the server in
+   * broadcastState, which observes every engine dispatch, so it is reliable
+   * regardless of how the client batches incoming game_state events. The client
+   * simply appends each line; it no longer reconstructs events by diffing
+   * snapshots (that broke under React batching -- a chow followed by the
+   * claimer's discard nets zero pool-length change, so the discard was lost).
+   */
+  game_event: (message: string) => void;
 }
 
 /** Events the client sends to the server. */
