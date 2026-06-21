@@ -34,12 +34,13 @@ export interface ScoringConfig {
   // ── Going Mah-Jong bonuses (winner only, flat, added before doublings) ──
   readonly goingMahjong:     number;     // 20
   readonly winFromLiveWall:  number;     // +2  (winning tile self-drawn from the live wall)
-  readonly onlyPossibleTile: number;     // +2  (won on the only tile that completes the hand)
   readonly noChows:          number;     // +10 (hand contains no chows)
 
   // ── Limit (agreed maximum payout) and special-hand fixed scores ──
   /** The agreed maximum payout; also the cap on any single hand. */
   readonly limit:                  number; // 1000
+  /** Double-limit hands (currently only Unique Wonder). */
+  readonly doubleLimit:            number; // 2000
   /** Half-limit hands (Clean Pairs, Crocheting). */
   readonly halfLimit:              number; // 500
   readonly buriedTreasure:         number; // 1000
@@ -62,10 +63,10 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
 
   goingMahjong:     20,
   winFromLiveWall:  2,
-  onlyPossibleTile: 2,
   noChows:          10,
 
   limit:                  1000,
+  doubleLimit:            2000,
   halfLimit:              500,
   buriedTreasure:         1000,
   buriedTreasureFishing:  400,
