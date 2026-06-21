@@ -9,9 +9,12 @@
  *                        is immune to the client-side React batching that used
  *                        to drop the discard a player makes right after a claim.
  * FallbackController  -- bridges game_action socket events to PlayerController;
- *                        falls back to the AI on disconnect or turn timeout
- *                        (Module 3.4); supports mid-hand socket reattach for
- *                        reconnecting players (Module 3.4).
+ *                        falls back to the AI ONLY on disconnect (Module 3.4);
+ *                        supports mid-hand socket reattach for reconnecting
+ *                        players. A connected human seat waits indefinitely --
+ *                        there is no turn timeout (removed 2026-06-21 at Adam's
+ *                        request: the game must never move on for a player who
+ *                        is present but simply has not acted yet).
  * startGameSession    -- runs back-to-back hands until the creator leaves.
  *
  * Security note: the GAME_PASSWORD is checked in lobby.ts before any session
@@ -41,13 +44,6 @@ import type { ServerState } from './server-state.js';
 
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents>;
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Milliseconds a human seat gets to respond before the AI takes over. */
-const TURN_TIMEOUT_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // Event derivation (authoritative -- runs on every engine dispatch)
@@ -176,18 +172,21 @@ function filterStateForSeat(state: GameState, revealSeat: number): GameState {
 }
 
 // ---------------------------------------------------------------------------
-// FallbackController -- human seat with AI fallback (Module 3.4)
+// FallbackController -- human seat with AI fallback on disconnect (Module 3.4)
 // ---------------------------------------------------------------------------
 
 /**
- * Implements PlayerController for a human seat with three resilience features:
+ * Implements PlayerController for a human seat with two resilience features:
  *
- *  1. Turn timeout: if the human doesn't respond within TURN_TIMEOUT_MS, the AI
- *     resolves the pending promise so the hand can continue.
- *  2. Disconnect fallback: if the socket drops mid-turn, the AI resolves
- *     immediately; subsequent turns also fall back to AI until reconnection.
- *  3. Reconnect: attachSocket() wires (or rewires) a socket. After reconnect,
+ *  1. Disconnect fallback: if the socket drops mid-turn, the AI resolves the
+ *     pending decision immediately so the hand can continue; subsequent turns
+ *     also fall back to AI until the player reconnects.
+ *  2. Reconnect: attachSocket() wires (or rewires) a socket. After reconnect,
  *     future decision points wait for the human again.
+ *
+ * There is NO turn timeout: while the socket is connected, a decision promise
+ * stays unresolved until the human actually sends the action, so the game never
+ * advances on behalf of a present-but-idle player (Adam's rule, 2026-06-21).
  *
  * One instance per human seat; it persists for the full session (across hands).
  */
@@ -198,13 +197,11 @@ class FallbackController implements PlayerController {
   private pendingDiscard: {
     resolve: (a: DiscardAction) => void;
     state: GameState; seat: SeatIndex;
-    timer: ReturnType<typeof setTimeout>;
   } | null = null;
 
   private pendingClaim: {
     resolve: (d: ClaimDecision) => void;
     state: GameState; seat: SeatIndex;
-    timer: ReturnType<typeof setTimeout>;
   } | null = null;
 
   constructor(private readonly seatIdx: SeatIndex) {
@@ -229,15 +226,13 @@ class FallbackController implements PlayerController {
         payload.type === 'DECLARE_ADDED_KONG'
       ) {
         if (this.pendingDiscard) {
-          const { resolve, timer } = this.pendingDiscard;
-          clearTimeout(timer);
+          const { resolve } = this.pendingDiscard;
           this.pendingDiscard = null;
           resolve(payload as DiscardAction);
         }
       } else if (payload.type === 'CLAIM_RESPONSE') {
         if (this.pendingClaim) {
-          const { resolve, timer } = this.pendingClaim;
-          clearTimeout(timer);
+          const { resolve } = this.pendingClaim;
           this.pendingClaim = null;
           resolve(payload.decision);
         }
@@ -253,17 +248,15 @@ class FallbackController implements PlayerController {
     });
   }
 
-  /** Resolve any in-flight promise via the AI controller. */
+  /** Resolve any in-flight promise via the AI controller (used on disconnect). */
   private resolveViaAI(): void {
     if (this.pendingDiscard) {
-      const { resolve, state, seat, timer } = this.pendingDiscard;
-      clearTimeout(timer);
+      const { resolve, state, seat } = this.pendingDiscard;
       this.pendingDiscard = null;
       void this.ai.getDiscardAction(state, seat).then(resolve);
     }
     if (this.pendingClaim) {
-      const { resolve, state, seat, timer } = this.pendingClaim;
-      clearTimeout(timer);
+      const { resolve, state, seat } = this.pendingClaim;
       this.pendingClaim = null;
       void this.ai.getClaimDecision(state, seat).then(resolve);
     }
@@ -274,13 +267,11 @@ class FallbackController implements PlayerController {
     if (!this.socket) {
       return this.ai.getDiscardAction(state, seat);
     }
+    // Connected: wait for the human indefinitely. The promise resolves only
+    // when the player sends a discard action (or, if they disconnect first,
+    // via resolveViaAI). There is no timeout.
     return new Promise(resolve => {
-      const timer = setTimeout(() => {
-        // Timeout: AI takes this turn.
-        this.pendingDiscard = null;
-        void this.ai.getDiscardAction(state, seat).then(resolve);
-      }, TURN_TIMEOUT_MS);
-      this.pendingDiscard = { resolve, state, seat, timer };
+      this.pendingDiscard = { resolve, state, seat };
     });
   }
 
@@ -289,19 +280,13 @@ class FallbackController implements PlayerController {
       return this.ai.getClaimDecision(state, seat);
     }
     return new Promise(resolve => {
-      const timer = setTimeout(() => {
-        this.pendingClaim = null;
-        void this.ai.getClaimDecision(state, seat).then(resolve);
-      }, TURN_TIMEOUT_MS);
-      this.pendingClaim = { resolve, state, seat, timer };
+      this.pendingClaim = { resolve, state, seat };
     });
   }
 
-  /** Remove all listeners and cancel any pending timers. Call at session end. */
+  /** Remove all listeners and drop any pending decisions. Call at session end. */
   cleanup(): void {
     this.socket?.removeAllListeners('game_action');
-    if (this.pendingDiscard) clearTimeout(this.pendingDiscard.timer);
-    if (this.pendingClaim)   clearTimeout(this.pendingClaim.timer);
     this.pendingDiscard = null;
     this.pendingClaim   = null;
     this.socket         = null;
