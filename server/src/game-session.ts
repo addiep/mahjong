@@ -15,6 +15,10 @@
  *                        there is no turn timeout (removed 2026-06-21 at Adam's
  *                        request: the game must never move on for a player who
  *                        is present but simply has not acted yet).
+ *                        Exception: during ROBBING_KONG, if the player cannot
+ *                        win on the robbed tile the server auto-passes them
+ *                        immediately (the client ActionBar shows nothing, so
+ *                        no CLAIM_RESPONSE socket event would ever arrive).
  * startGameSession    -- runs back-to-back hands until the creator leaves.
  *
  * Security note: the GAME_PASSWORD is checked in lobby.ts before any session
@@ -38,6 +42,7 @@ import {
   isSuited,
   isWind,
   isDragon,
+  isWinningHand,
 } from '@mahjong/engine';
 import type { ServerToClientEvents, ClientToServerEvents, GameActionPayload } from './events.js';
 import type { ServerState } from './server-state.js';
@@ -195,6 +200,12 @@ function filterStateForSeat(state: GameState, revealSeat: number): GameState {
  * stays unresolved until the human actually sends the action, so the game never
  * advances on behalf of a present-but-idle player (Adam's rule, 2026-06-21).
  *
+ * Exception -- ROBBING_KONG auto-pass: when the player cannot win by robbing
+ * the kong tile, the server resolves with 'pass' immediately without waiting
+ * for a socket event.  The client's ActionBar returns null in this case (it
+ * only shows when canRob is true), so no CLAIM_RESPONSE would ever arrive and
+ * the game would deadlock otherwise.
+ *
  * One instance per human seat; it persists for the full session (across hands).
  */
 class FallbackController implements PlayerController {
@@ -283,9 +294,28 @@ class FallbackController implements PlayerController {
   }
 
   getClaimDecision(state: GameState, seat: SeatIndex): Promise<ClaimDecision> {
+    // During ROBBING_KONG, if the player cannot win on the robbed tile, pass
+    // immediately -- there is nothing to decide, and the client's ActionBar
+    // returns null (no buttons shown) when canRob is false.  Without this
+    // shortcut the server would wait forever for a CLAIM_RESPONSE socket event
+    // that the client will never send, freezing the game.
+    // If they CAN win, fall through to wait for the human's click.
+    if (state.phase === 'ROBBING_KONG' && state.robbingKong) {
+      const player = state.players[seat];
+      const tile   = state.robbingKong.tile;
+      if (
+        player && tile &&
+        !isWinningHand([...player.concealed, tile], player.melds, state.config)
+      ) {
+        return Promise.resolve({ type: 'pass' });
+      }
+    }
+
+    // No socket connected: resolve immediately via AI.
     if (!this.socket) {
       return this.ai.getClaimDecision(state, seat);
     }
+    // Connected: wait for the human indefinitely.
     return new Promise(resolve => {
       this.pendingClaim = { resolve, state, seat };
     });
