@@ -64,6 +64,18 @@
  *  - prevOnlineStateRef + useEffect diffs each game_state to detect discards,
  *    pung/kong/chow claims, wins, and draws, then calls logEvent so they appear
  *    in the sidebar (previously the array was always empty in online mode).
+ *
+ * Added kong (2026-06-21):
+ *  - Human player: "Add Kong" button shown during DISCARDING when a concealed tile
+ *    matches an existing exposed pung. Dispatches DECLARE_ADDED_KONG; optional
+ *    (player may prefer to keep the tile for a chow or discard it instead).
+ *  - AI: HeuristicController.getDiscardAction now declares DECLARE_ADDED_KONG
+ *    whenever the condition is met (Module 4.4 refinement).
+ *  - Online mode: handleOnlineAddKong emits the action to the server.
+ *  - Online event detection: added-kong events detected by diffing pung→open_kong
+ *    meld transitions and logged to the sidebar.
+ *  - Fixed a bug in the online meld detection that used newMeld.kind (which does
+ *    not exist on DeclaredMeld) instead of newMeld.type.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -84,6 +96,7 @@ import {
   scoreBonusTiles,
   scoreExposedMelds,
   inferTable,
+  tileKey,
   HeuristicController,
   adviseSeat,
   type GameState,
@@ -133,6 +146,25 @@ function tileName(tile: Tile): string {
 /** True when a tile's ID is a server-side placeholder (hidden opponent tile). */
 function isPlaceholder(id: string): boolean {
   return id.startsWith('__hid_');
+}
+
+/**
+ * Returns options for declaring an added kong during DISCARDING: tiles in the
+ * current player's concealed hand that match an existing exposed pung.
+ * Each option carries the tileId to dispatch and a display label.
+ */
+function getAddKongOptions(state: GameState): { tileId: TileId; label: string }[] {
+  const player = state.players[state.currentSeat];
+  if (!player) return [];
+  return player.melds
+    .filter(m => m.type === 'pung')
+    .flatMap(m => {
+      const pungTile = m.tiles[0];
+      if (!pungTile) return [];
+      const key = tileKey(pungTile);
+      const match = player.concealed.find(t => tileKey(t) === key);
+      return match ? [{ tileId: match.id, label: `Add Kong: ${tileName(pungTile)}` }] : [];
+    });
 }
 
 // --- Game initialisation -----
@@ -277,7 +309,7 @@ export function App() {
 
   // -- Online: detect game events for the event sidebar -----
   // Diffs each incoming game_state against the previous one to infer what just
-  // happened (discard, claim, win/draw) and logs it for the sidebar.
+  // happened (discard, claim, added kong, win/draw) and logs it for the sidebar.
   // Discard pool tiles and meld tiles are always real (never placeholders), so
   // tileName() is safe to call on them.
 
@@ -296,20 +328,33 @@ export function App() {
       }
     }
 
-    // Detect a new meld (pung, kong, or chow claim): a player's meld array grew.
-    // The claimed tile is the last entry in the discard pool at the time of the claim.
+    // Detect a new meld via discard claim (pung, kong, chow): meld count grew.
     onlineState.players.forEach((player, i) => {
       const prevPlayer = prev.players[i];
       if (!prevPlayer || player.melds.length <= prevPlayer.melds.length) return;
       const newMeld = player.melds[player.melds.length - 1];
       if (!newMeld) return;
       const claimedTile = prev.discardPool[prev.discardPool.length - 1];
-      const verb = newMeld.kind === 'kong' ? 'konged'
-        : newMeld.kind === 'pung' ? 'punged'
+      const verb = (newMeld.type === 'open_kong' || newMeld.type === 'concealed_kong')
+        ? 'konged'
+        : newMeld.type === 'pung' ? 'punged'
         : 'chowed';
       if (claimedTile) {
         logEvent(`${player.name} ${verb} the ${tileName(claimedTile)}`);
       }
+    });
+
+    // Detect an added kong: a pung meld promoted to open_kong (meld count stays the same).
+    onlineState.players.forEach((player, i) => {
+      const prevPlayer = prev.players[i];
+      if (!prevPlayer) return;
+      player.melds.forEach((meld, mi) => {
+        const prevMeld = prevPlayer.melds[mi];
+        if (prevMeld?.type === 'pung' && meld.type === 'open_kong') {
+          const addedTile = meld.tiles[meld.tiles.length - 1];
+          if (addedTile) logEvent(`${player.name} added a kong of ${tileName(addedTile)}s`);
+        }
+      });
     });
 
     // Detect HAND_OVER transition.
@@ -568,6 +613,9 @@ export function App() {
               if (player && tile) logEvent(`${player.name} discarded the ${tileName(tile)}`);
             } else if (action.type === 'DECLARE_WIN') {
               if (player) logEvent(`${player.name} declared Mah Jong!`);
+            } else if (action.type === 'DECLARE_ADDED_KONG') {
+              const tile = player?.concealed.find(t => t.id === action.tileId);
+              if (player && tile) logEvent(`${player.name} added a kong of ${tileName(tile)}s`);
             }
             setDrawnTileId(null);
             setState(s => {
@@ -815,6 +863,15 @@ export function App() {
     setState(s => s ? engineDispatch(s, { type: 'DECLARE_WIN' }) : s);
   };
 
+  const handleAddKong = (tileId: TileId) => {
+    if (!state) return;
+    const player = state.players[state.currentSeat];
+    const tile = player?.concealed.find(t => t.id === tileId);
+    if (player && tile) logEvent(`${player.name} added a kong of ${tileName(tile)}s`);
+    setDrawnTileId(null);
+    setState(s => s ? engineDispatch(s, { type: 'DECLARE_ADDED_KONG', tileId }) : s);
+  };
+
   const handleClaimResponse = (seat: SeatIndex, decision: ClaimDecision) => {
     if (decision.type !== 'pass' && state) {
       const player = state.players[seat];
@@ -899,6 +956,10 @@ export function App() {
       socket.emit('game_action', { type: 'DECLARE_WIN' });
     };
 
+    const handleOnlineAddKong = (tileId: TileId) => {
+      socket.emit('game_action', { type: 'DECLARE_ADDED_KONG', tileId });
+    };
+
     const handleOnlineClaimResponse = (_claimSeat: SeatIndex, decision: ClaimDecision) => {
       // The server knows which seat we are from the socket identity.
       socket.emit('game_action', { type: 'CLAIM_RESPONSE', decision });
@@ -955,6 +1016,12 @@ export function App() {
         ? (onlineState.lastDrawnTileId ?? null)
         : null;
 
+    // Added kong options: only offered when it's the local player's turn to discard.
+    const onlineKongOptions =
+      onlineState.phase === 'DISCARDING' && onlineState.currentSeat === localSeat
+        ? getAddKongOptions(onlineState)
+        : [];
+
     // Creator is always East (seat 0); only they can trigger a new hand.
     const isCreator = localSeat === 0;
 
@@ -995,6 +1062,8 @@ export function App() {
               onlineState.phase === 'DISCARDING' && onlineState.currentSeat === localSeat
                 ? handleOnlineDeclareWin : undefined
             }
+            onAddKong={onlineKongOptions.length > 0 ? handleOnlineAddKong : undefined}
+            addKongOptions={onlineKongOptions.length > 0 ? onlineKongOptions : undefined}
             onClaimResponse={handleOnlineClaimResponse}
             humanSeats={new Set([localSeat])}
             drawnTileId={onlineDrawnTileId}
@@ -1037,6 +1106,11 @@ export function App() {
   for (let s2 = 0; s2 < state.config.playerCount; s2++) {
     if (aiSeats <= 0 || s2 < aiStart) humanSeats.add(s2);
   }
+
+  // Added kong options: only offered to the current seat when it is human.
+  const isHumanDiscarding =
+    state.phase === 'DISCARDING' && (aiSeats <= 0 || state.currentSeat < aiStart);
+  const localKongOptions = isHumanDiscarding ? getAddKongOptions(state) : [];
 
   return (
     <div className={styles.app}>
@@ -1082,6 +1156,8 @@ export function App() {
           revealAll={revealAll}
           onDiscard={state.phase === 'DISCARDING' ? handleDiscard : undefined}
           onDeclareWin={state.phase === 'DISCARDING' ? handleDeclareWin : undefined}
+          onAddKong={localKongOptions.length > 0 ? handleAddKong : undefined}
+          addKongOptions={localKongOptions.length > 0 ? localKongOptions : undefined}
           onClaimResponse={handleClaimResponse}
           humanSeats={humanSeats}
           drawnTileId={drawnTileId}
