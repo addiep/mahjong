@@ -44,6 +44,14 @@
  * Online mode (Module 3.2, 2026-06-21):
  *  - VITE_ONLINE=true switches the app into online mode.
  *  - Shows OnlineLobby until game_start; then a placeholder pending Module 3.3.
+ *
+ * Online game rendering (Module 3.3, 2026-06-21):
+ *  - game_state events from the server drive the online Board.
+ *  - Opponent tiles are placeholders (hidden server-side); localSeat + revealAll=false
+ *    ensure the Board renders them face-down.
+ *  - HAND_OVER scoring: winner tiles are revealed; non-winner concealed tiles are
+ *    either real (local player) or undefined (placeholders avoided in scoring).
+ *  - Creator emits new_hand; non-creators' panels clear when the new state arrives.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -110,6 +118,11 @@ function tileName(tile: Tile): string {
   return 'bonus tile';
 }
 
+/** True when a tile's ID is a server-side placeholder (hidden opponent tile). */
+function isPlaceholder(id: string): boolean {
+  return id.startsWith('__hid_');
+}
+
 // --- Game initialisation -----
 
 function makeInitialState(config: GameConfig): GameState {
@@ -145,11 +158,19 @@ export function App() {
   const [runningTotals, setRunningTotals] = useState<number[]>([0, 0, 0, 0]);
 
   // Online multiplayer: populated by OnlineLobby when game_start fires.
-  // Module 3.3 will use the socket to receive the live game state.
   const [onlineGameInfo, setOnlineGameInfo] = useState<{
     seat: number;
     socket: OnlineSocket;
   } | null>(null);
+
+  // Online game state received from the server (filtered per seat).
+  const [onlineState, setOnlineState] = useState<GameState | null>(null);
+  const [onlineHandScore, setOnlineHandScore] = useState<HandScoreInfo | null>(null);
+  const [onlineRunningTotals, setOnlineRunningTotals] = useState<number[]>([0, 0, 0, 0]);
+  const [onlineCurrentOrder, setOnlineCurrentOrder] = useState<string[] | undefined>(undefined);
+  const onlineHandOrderRef  = useRef<string[] | undefined>(undefined);
+  // Guard: only score each HAND_OVER state once (React StrictMode double-invokes effects).
+  const onlineScoredStateRef = useRef<GameState | null>(null);
 
   // Number of AI opponents (the last N seats); the human is always seat 0.
   const [aiSeats, setAiSeats] = useState(0);
@@ -183,6 +204,147 @@ export function App() {
   // Track phase transitions to detect when a tile is newly drawn.
   const prevPhaseRef = useRef<string | null>(null);
   const prevSeatRef = useRef<number | null>(null);
+
+  // -- Online: listen for game_state events -----
+
+  useEffect(() => {
+    if (!onlineGameInfo) return;
+    const { socket } = onlineGameInfo;
+
+    socket.on('game_state', (newState: GameState) => {
+      setOnlineState(newState);
+      // Clear the score panel as soon as the new hand starts.
+      if (newState.phase !== 'HAND_OVER') {
+        setOnlineHandScore(null);
+      }
+    });
+
+    return () => { socket.off('game_state'); };
+  }, [onlineGameInfo]);
+
+  // -- Online: auto-sort tiles when the local seat becomes active -----
+
+  useEffect(() => {
+    if (!onlineState || !onlineGameInfo) return;
+    if (onlineState.phase !== 'DISCARDING') return;
+    if (onlineState.currentSeat !== onlineGameInfo.seat) return;
+    const player = onlineState.players[onlineGameInfo.seat];
+    if (!player) return;
+    const sortedIds = [...player.concealed]
+      .sort((a, b) => compareTileKeys(sortTileKey(a), sortTileKey(b)))
+      .map(t => t.id);
+    onlineHandOrderRef.current = sortedIds;
+    setOnlineCurrentOrder(sortedIds);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onlineState?.currentSeat, onlineState?.phase]);
+
+  // -- Online: score HAND_OVER -----
+
+  useEffect(() => {
+    if (!onlineState || !onlineGameInfo) return;
+    if (onlineState.phase !== 'HAND_OVER') return;
+    if (onlineScoredStateRef.current === onlineState) return;
+    onlineScoredStateRef.current = onlineState;
+
+    const hr = onlineState.handResult;
+    if (!hr) return;
+
+    if (hr.reason === 'draw') {
+      setOnlineHandScore({ winnerName: null, result: null, playerBonuses: [], winnerHand: null });
+      return;
+    }
+
+    let result: ScoreResult | null = null;
+
+    if (hr.winnerSeat !== null && hr.winningTile) {
+      const winner = onlineState.players[hr.winnerSeat];
+      if (winner) {
+        // Winner's tiles are revealed by the server at HAND_OVER.
+        const concealed = hr.selfDraw
+          ? winner.concealed
+          : [...winner.concealed, hr.winningTile];
+
+        const winContext: WinContext = {
+          source: hr.winSource ?? 'self-draw-wall',
+          isLastWallTile: hr.isLastWallTile ?? false,
+        };
+
+        try {
+          result = scoreWinningHand({
+            concealed,
+            declaredMelds:  winner.melds,
+            bonusTiles:     winner.bonusTiles,
+            winningTile:    hr.winningTile,
+            winContext,
+            seatWind:       winner.seatWind,
+            prevailingWind: onlineState.prevailingWind,
+            seat:           winner.seat,
+            gameConfig:     onlineState.config,
+            wonByDiscard:   !hr.selfDraw,
+            robbingKong:    hr.robbedKong ?? false,
+          });
+        } catch (err) {
+          console.error('Online scoring error:', err);
+        }
+      }
+    }
+
+    const winnerPlayer = hr.winnerSeat !== null ? onlineState.players[hr.winnerSeat] : null;
+    const winnerHand: WinnerHandInfo | null = winnerPlayer
+      ? {
+          concealed: hr.selfDraw
+            ? winnerPlayer.concealed
+            : hr.winningTile
+              ? [...winnerPlayer.concealed, hr.winningTile]
+              : winnerPlayer.concealed,
+          melds:        winnerPlayer.melds,
+          bonusTiles:   winnerPlayer.bonusTiles,
+          winningTileId: hr.winningTile?.id ?? null,
+        }
+      : null;
+
+    // For non-winner concealed scoring: only pass actual tiles (not placeholders).
+    // A placeholder tile starts with '__hid_'; passing those to scoreExposedMelds
+    // would incorrectly score them as east wind pungs.
+    const localSeatN = onlineGameInfo.seat;
+    const playerBonuses: PlayerBonusInfo[] = onlineState.players.map(p => {
+      const concealedForScoring =
+        p.seat !== hr.winnerSeat && p.seat !== localSeatN
+          ? undefined                                      // other opponents: placeholder tiles
+          : p.concealed.some(t => isPlaceholder(t.id))
+            ? undefined                                    // local seat somehow has placeholders
+            : p.concealed;                                 // real tiles
+      return {
+        name: p.name,
+        seat: p.seat,
+        bonus: scoreBonusTiles(p.bonusTiles),
+        meldScore: p.seat !== hr.winnerSeat
+          ? scoreExposedMelds(p.melds, p.bonusTiles, undefined, p.seatWind, concealedForScoring)
+          : null,
+      };
+    });
+
+    setOnlineRunningTotals(prev =>
+      prev.map((t, i) => {
+        const player = onlineState.players[i];
+        if (!player) return t;
+        const pb = playerBonuses[i];
+        const isWinnerLimit = i === hr.winnerSeat && result?.isLimitHand;
+        const bonusPts = isWinnerLimit ? 0 : (pb?.bonus.points ?? 0);
+        const handPts  = i === hr.winnerSeat && result ? result.total : 0;
+        const meldPts  = i !== hr.winnerSeat ? (pb?.meldScore?.total ?? 0) : 0;
+        return t + bonusPts + handPts + meldPts;
+      }),
+    );
+
+    setOnlineHandScore({
+      winnerName: hr.winnerSeat !== null ? (onlineState.players[hr.winnerSeat]?.name ?? null) : null,
+      result,
+      playerBonuses,
+      winnerHand,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onlineState]);
 
   // -- Start / new hand -----
 
@@ -627,8 +789,8 @@ export function App() {
 
   // -- Render -----
 
-  // Online mode: show the lobby until game_start, then a placeholder
-  // pending Module 3.3 (which will wire the engine to the live server).
+  // Online mode: show the lobby until game_start, then drive the Board from
+  // game_state events.
   if (ONLINE_MODE) {
     if (!onlineGameInfo) {
       return (
@@ -639,15 +801,102 @@ export function App() {
         </div>
       );
     }
+
+    const { seat: localSeat, socket } = onlineGameInfo;
+
+    // --- Online action handlers ---
+    const handleOnlineDiscard = (tileId: TileId) => {
+      socket.emit('game_action', { type: 'DISCARD', tileId });
+    };
+
+    const handleOnlineDeclareWin = () => {
+      socket.emit('game_action', { type: 'DECLARE_WIN' });
+    };
+
+    const handleOnlineClaimResponse = (_claimSeat: SeatIndex, decision: ClaimDecision) => {
+      // The server knows which seat we are from the socket identity.
+      socket.emit('game_action', { type: 'CLAIM_RESPONSE', decision });
+    };
+
+    const handleOnlineOrderChange = (ids: string[]) => {
+      onlineHandOrderRef.current = ids;
+    };
+
+    const handleOnlineNewHand = () => {
+      // Clear local panel; server will broadcast the next dealt state.
+      setOnlineHandScore(null);
+      setOnlineCurrentOrder(undefined);
+      onlineHandOrderRef.current = undefined;
+      socket.emit('new_hand');
+    };
+
+    // Waiting for the first game_state from the server.
+    if (!onlineState) {
+      return (
+        <div className={styles.app}>
+          <div className={styles.toolbar}><span className={styles.title}>Mah Jong</span></div>
+          <div className={styles.onlinePlaceholder}>
+            <p>Connected as {SEAT_NAMES[localSeat] ?? `seat ${localSeat + 1}`}.</p>
+            <p className={styles.onlineHint}>Waiting for the server to deal the tiles...</p>
+          </div>
+        </div>
+      );
+    }
+
+    // The drawn-tile gold border: only shown for the local player's own turn.
+    const onlineDrawnTileId =
+      onlineState.phase === 'DISCARDING' && onlineState.currentSeat === localSeat
+        ? (onlineState.lastDrawnTileId ?? null)
+        : null;
+
+    // Creator is always East (seat 0); only they can trigger a new hand.
+    const isCreator = localSeat === 0;
+
     return (
       <div className={styles.app}>
         <div className={styles.toolbar}>
           <span className={styles.title}>Mah Jong</span>
+          <div className={styles.controls}>
+            <span>{SEAT_NAMES[localSeat]} seat</span>
+          </div>
         </div>
-        <div className={styles.onlinePlaceholder}>
-          <p>Connected as {SEAT_NAMES[onlineGameInfo.seat] ?? `seat ${onlineGameInfo.seat + 1}`}.</p>
-          <p className={styles.onlineHint}>Waiting for the server to deal the tiles...</p>
+
+        <div className={styles.tableArea}>
+          <Board
+            state={onlineState}
+            localSeat={localSeat as SeatIndex}
+            revealAll={false}
+            onDiscard={
+              onlineState.phase === 'DISCARDING' && onlineState.currentSeat === localSeat
+                ? handleOnlineDiscard : undefined
+            }
+            onDeclareWin={
+              onlineState.phase === 'DISCARDING' && onlineState.currentSeat === localSeat
+                ? handleOnlineDeclareWin : undefined
+            }
+            onClaimResponse={handleOnlineClaimResponse}
+            humanSeats={new Set([localSeat])}
+            drawnTileId={onlineDrawnTileId}
+            savedOrder={onlineCurrentOrder}
+            onOrderChange={handleOnlineOrderChange}
+            scores={onlineRunningTotals}
+            inference={inferTable(onlineState)}
+          />
         </div>
+
+        {onlineState.phase === 'HAND_OVER' && onlineHandScore && (
+          <ScorePanel
+            winnerName={onlineHandScore.winnerName}
+            result={onlineHandScore.result}
+            playerBonuses={onlineHandScore.playerBonuses}
+            winnerHand={onlineHandScore.winnerHand}
+            runningTotals={onlineState.players.map((p, i) => ({
+              name:  p.name,
+              total: onlineRunningTotals[i] ?? 0,
+            }))}
+            onNewHand={isCreator ? handleOnlineNewHand : () => {}}
+          />
+        )}
       </div>
     );
   }

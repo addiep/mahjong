@@ -19,6 +19,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import type { GameState, ClaimDecision } from '@mahjong/engine';
 import styles from './OnlineLobby.module.css';
 
 // ---------------------------------------------------------------------------
@@ -26,6 +27,12 @@ import styles from './OnlineLobby.module.css';
 // ---------------------------------------------------------------------------
 
 interface LobbySeat { name: string; seat: number; }
+
+/** A game action emitted by the human client during an active hand. */
+type GameActionPayload =
+  | { type: 'DISCARD';        tileId: string }
+  | { type: 'DECLARE_WIN' }
+  | { type: 'CLAIM_RESPONSE'; decision: ClaimDecision };
 
 interface ServerToClientEvents {
   server_state: (d: { phase: 'idle' | 'waiting' | 'in-progress' }) => void;
@@ -36,6 +43,8 @@ interface ServerToClientEvents {
   join_fail:    (d: { reason: string }) => void;
   lobby_update: (d: { seats: LobbySeat[]; humanCount: number }) => void;
   game_start:   (d: { seat: number }) => void;
+  /** Filtered per-seat game state; sent after every engine dispatch. */
+  game_state:   (state: GameState) => void;
 }
 
 interface ClientToServerEvents {
@@ -43,6 +52,10 @@ interface ClientToServerEvents {
   creator_config: (d: { humanCount: number }) => void;
   joiner_join:    (d: { name: string }) => void;
   creator_deal:   () => void;
+  /** Human player's action during DISCARDING, CLAIM_WINDOW, or ROBBING_KONG. */
+  game_action:    (payload: GameActionPayload) => void;
+  /** Creator requests a new hand after HAND_OVER. */
+  new_hand:       () => void;
 }
 
 export type OnlineSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
