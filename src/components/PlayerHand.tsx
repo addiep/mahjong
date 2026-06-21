@@ -15,6 +15,11 @@
  *    complete (self-draw win). Calls onDeclareWin. Moved to the right end of
  *    the toolbar in playtesting round 2 to separate it from the Sort button.
  *
+ * 4. Add Kong button — shown during DISCARDING when addKongOptions is non-empty
+ *    (i.e. a drawn tile matches an existing exposed pung). Calls onAddKong with
+ *    the tile ID. The player can ignore it and discard normally instead (keeping
+ *    the tile for a chow, for example).
+ *
  * Order persistence: accepts savedOrder (restored IDs from a previous turn for
  * this seat) and onOrderChange (fires whenever the order changes) so App.tsx can
  * preserve each seat's arrangement across board rotations.
@@ -72,6 +77,17 @@ export interface PlayerHandProps {
    * Only shown when the hand is already complete.
    */
   readonly onDeclareWin?: () => void;
+  /**
+   * Options for declaring an added kong: tiles in the concealed hand that
+   * match an existing exposed pung. One button is rendered per option.
+   * Absent or empty means no button is shown.
+   */
+  readonly addKongOptions?: readonly { tileId: TileId; label: string }[];
+  /**
+   * Called when the player clicks an Add Kong button. The tileId is the
+   * concealed tile to add to the matching exposed pung.
+   */
+  readonly onAddKong?: (tileId: TileId) => void;
   /** ID of the tile just drawn from the wall — shown with a gold border. */
   readonly drawnTileId?: TileId | null;
   /** Saved display order from the player's previous turn (IDs). */
@@ -86,6 +102,8 @@ export function PlayerHand({
   isDiscarding = false,
   onDiscard,
   onDeclareWin,
+  addKongOptions,
+  onAddKong,
   drawnTileId,
   savedOrder,
   onOrderChange,
@@ -206,6 +224,17 @@ export function PlayerHand({
             Mah Jong!
           </button>
         )}
+        {onAddKong && addKongOptions && addKongOptions.map(opt => (
+          <button
+            key={opt.tileId}
+            type="button"
+            className={styles.mjBtn}
+            onClick={() => onAddKong(opt.tileId)}
+            title="Add drawn tile to your exposed pung, promoting it to a kong (and draw a replacement tile)"
+          >
+            {opt.label}
+          </button>
+        ))}
       </div>
 
       <div ref={rowRef} className={styles.row} role="list" aria-label="Your hand (drag to rearrange)">
