@@ -13,6 +13,11 @@ COPY index.html tsconfig.json vite.config.ts ./
 COPY src/ ./src/
 COPY engine/ ./engine/
 
+# VITE_ONLINE=true bakes online-mode into the React bundle.
+# The client connects to the Socket.io server on the same origin;
+# Caddy proxies both HTTP and WebSocket traffic to the Node.js server.
+ENV VITE_ONLINE=true
+
 RUN npm run build
 
 # ---------------------------------------------------------------------------
