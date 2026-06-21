@@ -57,6 +57,11 @@
  *  - onlineConnected tracks socket state; red banner shown when reconnecting.
  *  - On socket reconnect, App.tsx emits reconnect_attempt with stored creds.
  *  - game_state receipt confirms the reconnect; banner clears.
+ *
+ * Online Hint (2026-06-21):
+ *  - Hint button added to the online toolbar.
+ *  - handleOnlineHint uses onlineState + localSeat (mirrors local handleHint).
+ *  - lastEvents passed to the online Board so hint messages are visible.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -850,6 +855,26 @@ export function App() {
       onlineHandOrderRef.current = ids;
     };
 
+    const handleOnlineHint = () => {
+      if (!onlineState) return;
+      if (onlineState.phase !== 'DISCARDING' || onlineState.currentSeat !== localSeat) {
+        logEvent('Hint: wait until it is your turn to discard.');
+        return;
+      }
+      const advice = adviseSeat(onlineState, localSeat as SeatIndex);
+      if (advice.winNow) { logEvent('Hint: this hand is a winning hand -- declare Mah Jong!'); return; }
+      const planText = advice.plan.mode === 'dirty'
+        ? 'go for a dirty hand (build melds in any suit, fast)'
+        : `collect ${advice.plan.targetSuit}`;
+      let discardText = '';
+      if (advice.discard) {
+        const player = onlineState.players[localSeat];
+        const tile = player?.concealed.find(t => t.id === advice.discard);
+        if (tile) discardText = `; the AI would discard the ${tileName(tile)}`;
+      }
+      logEvent(`Hint: ${planText}${discardText}.`);
+    };
+
     const handleOnlineNewHand = () => {
       // Clear local panel; server will broadcast the next dealt state.
       setOnlineHandScore(null);
@@ -897,6 +922,9 @@ export function App() {
         <div className={styles.toolbar}>
           <span className={styles.title}>Mah Jong</span>
           <div className={styles.controls}>
+            <button type="button" className={styles.newHandBtn} onClick={handleOnlineHint}>
+              Hint
+            </button>
             <span>{SEAT_NAMES[localSeat]} seat</span>
           </div>
         </div>
@@ -921,6 +949,7 @@ export function App() {
             onOrderChange={handleOnlineOrderChange}
             scores={onlineRunningTotals}
             inference={inferTable(onlineState)}
+            lastEvents={events}
           />
         </div>
 
