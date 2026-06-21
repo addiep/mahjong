@@ -1,0 +1,31 @@
+# Mah Jong online game -- production deployment
+# Run with: docker compose up -d
+#
+# Prerequisites:
+#   1. Copy .env.example to .env and set GAME_PASSWORD.
+#   2. Point mj.adamsmith.cv at this server's IP.
+#   3. Caddy will obtain a Let's Encrypt TLS cert automatically on first start.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3 (QUIC)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data         # persists TLS certs across restarts
+      - caddy_config:/config
+    depends_on:
+      - game-server
+
+  game-server:
+    build: .
+    restart: unless-stopped
+    env_file: .env             # GAME_PASSWORD and PORT live here
+
+volumes:
+  caddy_data:
+  caddy_config:
