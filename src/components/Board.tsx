@@ -21,6 +21,10 @@
  * Phase 1 playtest fixes:
  * - drawnTileId, onDeclareWin, savedOrder/onOrderChange, bigger tiles.
  * - "Drawn clockwise" label removed.
+ *
+ * Added kong (2026-06-21):
+ * - onAddKong / addKongOptions props threaded through to PlayerHand so the
+ *   local player can declare an added kong during DISCARDING.
  */
 
 import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState } from 'react';
@@ -53,6 +57,8 @@ export interface BoardProps {
   readonly revealAll?: boolean;
   readonly onDiscard?: (tileId: TileId) => void;
   readonly onDeclareWin?: () => void;
+  readonly onAddKong?: (tileId: TileId) => void;
+  readonly addKongOptions?: readonly { tileId: TileId; label: string }[];
   readonly onClaimResponse?: (seat: SeatIndex, decision: ClaimDecision) => void;
   readonly drawnTileId?: TileId | null;
   readonly savedOrder?: string[];
@@ -72,6 +78,8 @@ export function Board({
   revealAll = true,
   onDiscard,
   onDeclareWin,
+  onAddKong,
+  addKongOptions,
   onClaimResponse,
   humanSeats,
   drawnTileId,
@@ -107,6 +115,8 @@ export function Board({
         isDiscarding={isDiscarding}
         onDiscard={isInteractive ? onDiscard : undefined}
         onDeclareWin={isDiscarding ? onDeclareWin : undefined}
+        onAddKong={isDiscarding ? onAddKong : undefined}
+        addKongOptions={isDiscarding ? addKongOptions : undefined}
         drawnTileId={isInteractive ? drawnTileId : undefined}
         savedOrder={isInteractive ? savedOrder : undefined}
         onOrderChange={isInteractive ? onOrderChange : undefined}
@@ -153,7 +163,7 @@ export function Board({
 
 function SeatPanel({
   player, position, isCurrent, faceDown, interactive, isDiscarding,
-  onDiscard, onDeclareWin, drawnTileId, savedOrder, onOrderChange,
+  onDiscard, onDeclareWin, onAddKong, addKongOptions, drawnTileId, savedOrder, onOrderChange,
 }: {
   player: PlayerState;
   position: SeatPosition;
@@ -163,6 +173,8 @@ function SeatPanel({
   isDiscarding?: boolean;
   onDiscard?: (tileId: TileId) => void;
   onDeclareWin?: () => void;
+  onAddKong?: (tileId: TileId) => void;
+  addKongOptions?: readonly { tileId: TileId; label: string }[];
   drawnTileId?: TileId | null;
   savedOrder?: string[];
   onOrderChange?: (ids: string[]) => void;
@@ -177,6 +189,8 @@ function SeatPanel({
       isDiscarding={isDiscarding}
       onDiscard={onDiscard}
       onDeclareWin={onDeclareWin}
+      onAddKong={onAddKong}
+      addKongOptions={addKongOptions}
       drawnTileId={drawnTileId}
       savedOrder={savedOrder}
       onOrderChange={onOrderChange}
