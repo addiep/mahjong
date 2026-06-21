@@ -131,7 +131,11 @@ class FallbackController implements PlayerController {
     this.socket = socket;
 
     socket.on('game_action', (payload: GameActionPayload) => {
-      if (payload.type === 'DISCARD' || payload.type === 'DECLARE_WIN') {
+      if (
+        payload.type === 'DISCARD' ||
+        payload.type === 'DECLARE_WIN' ||
+        payload.type === 'DECLARE_ADDED_KONG'
+      ) {
         if (this.pendingDiscard) {
           const { resolve, timer } = this.pendingDiscard;
           clearTimeout(timer);

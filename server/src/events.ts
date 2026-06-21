@@ -19,9 +19,10 @@ export interface LobbySeat {
  * Maps to the engine's interactive action types.
  */
 export type GameActionPayload =
-  | { type: 'DISCARD';        tileId: string }
+  | { type: 'DISCARD';             tileId: string }
   | { type: 'DECLARE_WIN' }
-  | { type: 'CLAIM_RESPONSE'; decision: ClaimDecision };
+  | { type: 'DECLARE_ADDED_KONG';  tileId: string }
+  | { type: 'CLAIM_RESPONSE';      decision: ClaimDecision };
 
 /** Events the server sends to clients. */
 export interface ServerToClientEvents {
