@@ -12,6 +12,11 @@
  * The event interface types below are intentionally duplicated from
  * server/src/events.ts to avoid cross-package imports. Keep them in sync.
  *
+ * Reconnection (Module 3.4):
+ *   Player name and seat are stored in sessionStorage on auth/join so that a
+ *   refreshed page or a dropped connection can send reconnect_attempt and
+ *   re-enter the game without going through the lobby again.
+ *
  * Environment:
  *   VITE_SERVER_URL  -- optional; defaults to same-origin (production).
  *                       Set to http://localhost:3000 for local dev.
@@ -48,14 +53,20 @@ interface ServerToClientEvents {
 }
 
 interface ClientToServerEvents {
-  creator_auth:   (d: { name: string; password: string }) => void;
-  creator_config: (d: { humanCount: number }) => void;
-  joiner_join:    (d: { name: string }) => void;
-  creator_deal:   () => void;
+  creator_auth:      (d: { name: string; password: string }) => void;
+  creator_config:    (d: { humanCount: number }) => void;
+  joiner_join:       (d: { name: string }) => void;
+  creator_deal:      () => void;
   /** Human player's action during DISCARDING, CLAIM_WINDOW, or ROBBING_KONG. */
-  game_action:    (payload: GameActionPayload) => void;
+  game_action:       (payload: GameActionPayload) => void;
   /** Creator requests a new hand after HAND_OVER. */
-  new_hand:       () => void;
+  new_hand:          () => void;
+  /**
+   * Reconnecting player identifies their seat (Module 3.4).
+   * Sent on connection when sessionStorage has stored credentials and the server
+   * reports in-progress. Also sent by App.tsx on socket auto-reconnect.
+   */
+  reconnect_attempt: (d: { seat: number; name: string }) => void;
 }
 
 export type OnlineSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -79,6 +90,10 @@ type LobbyView =
 const SEAT_NAMES = ['East', 'South', 'West', 'North'] as const;
 const SERVER_URL = import.meta.env.VITE_SERVER_URL as string | undefined;
 
+/** sessionStorage keys for reconnection credentials. */
+const SK_SEAT = 'mj_seat';
+const SK_NAME = 'mj_name';
+
 export function OnlineLobby({ onGameStart }: Props) {
   const socketRef = useRef<OnlineSocket | null>(null);
   const [view, setView] = useState<LobbyView>({ kind: 'connecting' });
@@ -92,17 +107,43 @@ export function OnlineLobby({ onGameStart }: Props) {
   // avoiding the stale-closure problem with the humanCount state variable.
   const submittedHumanCountRef = useRef(4);
 
+  // Guard: once game_start fires, App.tsx owns the socket. The cleanup must
+  // NOT call socket.disconnect() or the connection drops immediately.
+  const gameStartedRef = useRef(false);
+
   useEffect(() => {
     const socket: OnlineSocket = SERVER_URL ? io(SERVER_URL) : io();
     socketRef.current = socket;
 
     socket.on('server_state', ({ phase }) => {
+      // In-progress: attempt reconnection if we have stored credentials.
+      if (phase === 'in-progress') {
+        const storedSeat = sessionStorage.getItem(SK_SEAT);
+        const storedName = sessionStorage.getItem(SK_NAME);
+        if (storedSeat !== null && storedName !== null) {
+          socket.emit('reconnect_attempt', {
+            seat: parseInt(storedSeat, 10),
+            name: storedName,
+          });
+          // Stay in 'connecting' view until game_start arrives from the server.
+          return;
+        }
+        setView({ kind: 'error', message: 'A game is already in progress. Please try again later.' });
+        return;
+      }
+
+      // Session ended: clear reconnect credentials.
+      if (phase === 'idle') {
+        sessionStorage.removeItem(SK_SEAT);
+        sessionStorage.removeItem(SK_NAME);
+      }
+
       setView(prev => {
         // Initial connection: route to the right screen.
         if (prev.kind === 'connecting') {
           if (phase === 'idle')    return { kind: 'creator_auth' };
           if (phase === 'waiting') return { kind: 'joiner_name' };
-          return { kind: 'error', message: 'A game is already in progress. Please try again later.' };
+          return prev; // shouldn't reach here after the early returns above
         }
         // Creator aborted while a joiner was in the waiting room.
         if (phase === 'idle' && prev.kind === 'waiting' && !prev.isCreator) {
@@ -119,11 +160,15 @@ export function OnlineLobby({ onGameStart }: Props) {
     );
 
     socket.on('config_ok', ({ seat }) => {
+      // Store seat for reconnection (name was stored in handleCreatorAuth).
+      sessionStorage.setItem(SK_SEAT, String(seat));
       // humanCount is immediately corrected by the lobby_update that follows.
       setView({ kind: 'waiting', seats: [], humanCount: submittedHumanCountRef.current, isCreator: true, mySeat: seat });
     });
 
     socket.on('join_ok', ({ seat }) => {
+      // Store seat for reconnection (name was stored in handleJoin).
+      sessionStorage.setItem(SK_SEAT, String(seat));
       setView(prev => ({
         kind: 'waiting',
         seats:      prev.kind === 'waiting' ? prev.seats      : [],
@@ -146,6 +191,9 @@ export function OnlineLobby({ onGameStart }: Props) {
     });
 
     socket.on('game_start', ({ seat }) => {
+      // Mark that the game has started so cleanup does not disconnect the socket
+      // (App.tsx now owns it and needs it for the live game).
+      gameStartedRef.current = true;
       onGameStart(seat, socket);
     });
 
@@ -157,7 +205,24 @@ export function OnlineLobby({ onGameStart }: Props) {
       );
     });
 
-    return () => { socket.disconnect(); };
+    return () => {
+      // Remove lobby event listeners.
+      socket.off('server_state');
+      socket.off('auth_ok');
+      socket.off('auth_fail');
+      socket.off('config_ok');
+      socket.off('join_ok');
+      socket.off('join_fail');
+      socket.off('lobby_update');
+      socket.off('game_start');
+      socket.off('disconnect');
+
+      // Only disconnect if the game never started. After game_start, App.tsx
+      // owns the socket and we must leave it alive for the active session.
+      if (!gameStartedRef.current) {
+        socket.disconnect();
+      }
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------------------
@@ -166,8 +231,11 @@ export function OnlineLobby({ onGameStart }: Props) {
 
   const handleCreatorAuth = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-    socketRef.current?.emit('creator_auth', { name: name.trim(), password });
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    // Store name now so it is available for reconnection even before config_ok.
+    sessionStorage.setItem(SK_NAME, trimmed);
+    socketRef.current?.emit('creator_auth', { name: trimmed, password });
   };
 
   const handleCreatorConfig = (e: React.FormEvent) => {
@@ -178,8 +246,11 @@ export function OnlineLobby({ onGameStart }: Props) {
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-    socketRef.current?.emit('joiner_join', { name: name.trim() });
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    // Store name now so it is available for reconnection even before join_ok.
+    sessionStorage.setItem(SK_NAME, trimmed);
+    socketRef.current?.emit('joiner_join', { name: trimmed });
   };
 
   const handleDeal = () => {
