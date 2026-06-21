@@ -16,6 +16,12 @@
  * claim, chow is suppressed for remaining seats (a pung always beats a chow;
  * no point asking). A win claim always stays available since it beats
  * everything.
+ *
+ * ROBBING_KONG: the ActionBar is only shown when the pending player can
+ * actually win on the robbed tile (canRob check). Non-winning players are
+ * auto-passed by the local auto-advance or the online auto-pass useEffect
+ * in App.tsx. This also prevents the engine crash that occurred when the
+ * server received a 'win' CLAIM_RESPONSE from a player with a non-winning hand.
  */
 
 import {
@@ -148,6 +154,16 @@ export function ActionBar({ state, onClaim, humanSeats }: ActionBarProps) {
     if (humanSeats && !humanSeats.has(pendingSeat)) return null;
     const claimer = players[pendingSeat];
     if (!claimer) return null;
+
+    // Only show this ActionBar if the player can actually win on the robbed tile.
+    // Non-winning seats are handled by the local auto-advance (local mode) or the
+    // online ROBBING_KONG auto-pass useEffect in App.tsx (online mode).
+    // Without this guard, a player who clicks "Mah Jong" with a non-winning hand
+    // causes the engine to throw, crashing the GameRunner and freezing the game.
+    const canRob = isWinningHand(
+      [...claimer.concealed, robbingKong.tile], claimer.melds, config,
+    );
+    if (!canRob) return null;
 
     const respond = (decision: ClaimDecision) => onClaim(pendingSeat, decision);
 
