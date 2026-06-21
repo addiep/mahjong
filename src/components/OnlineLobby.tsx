@@ -35,9 +35,10 @@ interface LobbySeat { name: string; seat: number; }
 
 /** A game action emitted by the human client during an active hand. */
 type GameActionPayload =
-  | { type: 'DISCARD';        tileId: string }
+  | { type: 'DISCARD';            tileId: string }
   | { type: 'DECLARE_WIN' }
-  | { type: 'CLAIM_RESPONSE'; decision: ClaimDecision };
+  | { type: 'DECLARE_ADDED_KONG';  tileId: string }
+  | { type: 'CLAIM_RESPONSE';      decision: ClaimDecision };
 
 interface ServerToClientEvents {
   server_state: (d: { phase: 'idle' | 'waiting' | 'in-progress' }) => void;

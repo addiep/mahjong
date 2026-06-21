@@ -46,6 +46,13 @@ type TypedServer = Server<ClientToServerEvents, ServerToClientEvents>;
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+// (Turn-timeout constant removed 2026-06-21: a connected human seat waits
+// indefinitely; the AI only takes over on a genuine disconnect.)
+
+// ---------------------------------------------------------------------------
 // Event derivation (authoritative -- runs on every engine dispatch)
 // ---------------------------------------------------------------------------
 
@@ -135,12 +142,12 @@ function computeEvents(prev: GameState | null, next: GameState): string[] {
 
 /**
  * A face-down placeholder tile. The Board renders it face-down regardless of
- * tile identity, so the kind/wind values are arbitrary -- only the count and
- * the fake unique ID matter.
+ * tile identity, so the wind value is arbitrary -- only the count and the fake
+ * unique ID matter.
  */
 function placeholder(idx: number): Tile {
   return {
-    kind: 'wind',
+    category: 'wind',
     wind: 'east',
     id:   `__hid_${idx}` as unknown as TileId,
   };
