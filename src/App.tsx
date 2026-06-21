@@ -77,6 +77,14 @@
  *    it skipped intermediate states, so the discard a player makes right after
  *    a chow/pung -- which nets zero change to the discard-pool length -- was
  *    never logged. `prevOnlineStateRef` is gone with it.
+ *
+ * AI driver robustness fix (2026-06-21):
+ *  - aiActedRef.current reset to null in the AI driver effect cleanup so that
+ *    if React cancels and re-runs the effect for the same state (possible in
+ *    concurrent mode), the guard does not permanently block rescheduling.
+ *  - ROBBING_KONG AI handler: added try/catch inside the setState updater and
+ *    a .catch() fallback so a rejected promise or engine throw cannot silently
+ *    freeze the game.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -224,6 +232,9 @@ export function App() {
   // One HeuristicController per AI seat, rebuilt each hand so strategy state resets.
   const aiControllers = useRef<Map<number, HeuristicController>>(new Map());
   // Guard so the AI acts on each distinct state at most once.
+  // Reset to null in the effect cleanup so that if React re-runs the effect for
+  // the same state (possible in concurrent mode), the guard does not block
+  // rescheduling after the timer was cancelled.
   const aiActedRef = useRef<GameState | null>(null);
   // Step-through mode (test aid): when on, each AI move waits for the Step button.
   const [stepMode, setStepMode] = useState(false);
@@ -543,6 +554,10 @@ export function App() {
   // IMPORTANT: logEvent must be called BEFORE setState, not inside the updater.
   // React StrictMode double-invokes functional updaters, so any logEvent call
   // inside setState would fire twice and duplicate the event entry.
+  //
+  // aiActedRef guard: reset to null in the cleanup so that if React cancels and
+  // re-runs this effect for the same state (concurrent mode), the guard does not
+  // permanently block rescheduling after the timer was cleared.
 
   useEffect(() => {
     if (!state) return;
@@ -628,11 +643,31 @@ export function App() {
         const ctrl = aiControllers.current.get(pending);
         if (canWin && ctrl) {
           act = () => {
-            void ctrl.getClaimDecision(captured, pending as SeatIndex).then(decision => {
-              setState(s => s === captured
-                ? engineDispatch(s, { type: 'CLAIM_RESPONSE', seat: pending as SeatIndex, decision })
-                : s);
-            });
+            void ctrl.getClaimDecision(captured, pending as SeatIndex)
+              .then(decision => {
+                setState(s => {
+                  if (s !== captured) return s;
+                  try {
+                    return engineDispatch(s, { type: 'CLAIM_RESPONSE', seat: pending as SeatIndex, decision });
+                  } catch (err) {
+                    console.error('AI rob-kong error:', err);
+                    return s;
+                  }
+                });
+              })
+              .catch(err => {
+                console.error('AI rob-kong decision error:', err);
+                // Fall back to passing so the game is never permanently frozen.
+                setState(s => {
+                  if (s !== captured) return s;
+                  try {
+                    return engineDispatch(s, { type: 'CLAIM_RESPONSE', seat: pending as SeatIndex, decision: { type: 'pass' } });
+                  } catch (e) {
+                    console.error('AI rob-kong fallback error:', e);
+                    return s;
+                  }
+                });
+              });
           };
         }
       }
@@ -647,7 +682,9 @@ export function App() {
       return;
     }
     const handle = setTimeout(act, 500);
-    return () => clearTimeout(handle);
+    // Reset the guard on cleanup so that if React cancels and re-runs this effect
+    // for the same state (concurrent mode), the guard does not block rescheduling.
+    return () => { clearTimeout(handle); aiActedRef.current = null; };
   }, [state, aiSeats, stepMode]);
 
   // -- Track drawn tile (gold border) -----
