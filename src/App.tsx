@@ -61,9 +61,6 @@
  * Online Hint + event sidebar (2026-06-21):
  *  - Hint button added to the online toolbar; handleOnlineHint mirrors handleHint.
  *  - lastEvents={events} passed to the online Board.
- *  - prevOnlineStateRef + useEffect diffs each game_state to detect discards,
- *    pung/kong/chow claims, wins, and draws, then calls logEvent so they appear
- *    in the sidebar (previously the array was always empty in online mode).
  *
  * Added kong (2026-06-21):
  *  - Human player: "Add Kong" button shown during DISCARDING when a concealed tile
@@ -72,32 +69,14 @@
  *  - AI: HeuristicController.getDiscardAction now declares DECLARE_ADDED_KONG
  *    whenever the condition is met (Module 4.4 refinement).
  *  - Online mode: handleOnlineAddKong emits the action to the server.
- *  - Online event detection: added-kong events detected by diffing pung->open_kong
- *    meld transitions and logged to the sidebar.
- *  - Fixed a bug in the online meld detection that used newMeld.kind (which does
- *    not exist on DeclaredMeld) instead of newMeld.type.
  *
- * Online event attribution fixes (2026-06-21):
- *  - Discard attribution: prev.currentSeat was stale when React batched rapid AI
- *    state updates, causing discards to be credited to the wrong player. Fixed by
- *    using onlineState.currentSeat when phase is CLAIM_WINDOW (where currentSeat
- *    is always the discarder).
- *  - Meld claim attribution: prev.discardPool[last] was stale for the same reason,
- *    causing phantom claims like "AI West chowed the white dragon". Fixed by reading
- *    the tile name from newMeld.tiles[0] (the meld itself) instead.
- *
- * ROBBING_KONG fixes (2026-06-21):
- *  - Online: added auto-pass useEffect so the local player's CLAIM_RESPONSE is sent
- *    automatically when they cannot win on the robbed tile, rather than waiting for
- *    a button click that is never shown (ActionBar suppresses the bar when !canRob).
- *  - ActionBar.tsx: canRob guard prevents showing "Mah Jong" to a player who cannot
- *    complete their hand with the robbed tile, avoiding an engine crash.
- *
- * DECLARE_ADDED_KONG protocol fix (2026-06-21):
- *  - Added DECLARE_ADDED_KONG to server GameActionPayload (events.ts) and wired it
- *    into FallbackController.attachSocket (game-session.ts) so the server handles
- *    the human player's added-kong declaration correctly instead of silently dropping
- *    it and waiting indefinitely for a DISCARD.
+ * Authoritative online event feed (2026-06-21):
+ *  - The online event sidebar is now fed by server-emitted `game_event` lines
+ *    (see server/src/game-session.ts), which the client simply appends.
+ *  - The old client-side snapshot diffing was removed. Under React 18 batching
+ *    it skipped intermediate states, so the discard a player makes right after
+ *    a chow/pung -- which nets zero change to the discard-pool length -- was
+ *    never logged. `prevOnlineStateRef` is gone with it.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -237,8 +216,6 @@ export function App() {
   const onlineHandOrderRef  = useRef<string[] | undefined>(undefined);
   // Guard: only score each HAND_OVER state once (React StrictMode double-invokes effects).
   const onlineScoredStateRef = useRef<GameState | null>(null);
-  // Tracks the previous online state for client-side event detection.
-  const prevOnlineStateRef = useRef<GameState | null>(null);
   // True while the socket is connected mid-game; false while reconnecting (Module 3.4).
   const [onlineConnected, setOnlineConnected] = useState(true);
 
@@ -275,7 +252,7 @@ export function App() {
   const prevPhaseRef = useRef<string | null>(null);
   const prevSeatRef = useRef<number | null>(null);
 
-  // -- Online: listen for game_state, disconnect and reconnect events -----
+  // -- Online: listen for game_state, game_event, disconnect and reconnect -----
 
   useEffect(() => {
     if (!onlineGameInfo) return;
@@ -288,7 +265,23 @@ export function App() {
       if (newState.phase !== 'HAND_OVER') {
         setOnlineHandScore(null);
       }
+      // A fresh deal (empty pool, no melds yet) clears the previous hand's log.
+      // The meld guard matters: a claim on the very first discard empties the
+      // pool mid-hand, and that must NOT wipe the log.
+      if (
+        newState.discardPool.length === 0 &&
+        newState.players.every(p => p.melds.length === 0) &&
+        newState.phase !== 'HAND_OVER'
+      ) {
+        setEvents([]);
+      }
     });
+
+    // Authoritative event feed: the server emits one ready-to-display line per
+    // move (discard, claim, added kong, win/draw); the client just appends it.
+    // This replaces the old client-side snapshot diffing, which dropped events
+    // when React batched several game_state messages into a single render.
+    socket.on('game_event', (message: string) => logEvent(message));
 
     // When the socket drops, show the reconnecting banner.
     socket.on('disconnect', () => setOnlineConnected(false));
@@ -308,6 +301,7 @@ export function App() {
 
     return () => {
       socket.off('game_state');
+      socket.off('game_event');
       socket.off('disconnect');
       socket.off('connect');
     };
@@ -328,107 +322,6 @@ export function App() {
     setOnlineCurrentOrder(sortedIds);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onlineState?.currentSeat, onlineState?.phase]);
-
-  // -- Online: detect game events for the event sidebar -----
-  // Diffs each incoming game_state against the previous one to infer what just
-  // happened (discard, claim, added kong, win/draw) and logs it for the sidebar.
-  //
-  // Important: React 18 automatic batching means that when the server sends
-  // several game_state events in rapid succession (e.g. multiple AI moves),
-  // multiple setOnlineState calls can collapse into a single render, making
-  // prevOnlineStateRef skip intermediate states. The attribution logic below
-  // accounts for this:
-  //
-  //  - Discard: use onlineState.currentSeat when phase is CLAIM_WINDOW, because
-  //    currentSeat is always the discarder in that phase, regardless of batching.
-  //  - Meld claims: read the tile name from newMeld.tiles[0] (the meld itself)
-  //    rather than from prev.discardPool, which may point to a tile from several
-  //    turns ago if states were batched.
-
-  useEffect(() => {
-    if (!onlineState) return;
-    const prev = prevOnlineStateRef.current;
-    prevOnlineStateRef.current = onlineState;
-    if (!prev) return;
-
-    // Detect a new discard: pool grew by exactly one tile.
-    if (onlineState.discardPool.length === prev.discardPool.length + 1) {
-      const newTile = onlineState.discardPool[onlineState.discardPool.length - 1];
-      // In CLAIM_WINDOW the currentSeat is always the discarder, so use it
-      // directly. prev.currentSeat can be stale when React batches rapid AI
-      // state updates and skips intermediate DISCARDING states.
-      const discarderSeat = onlineState.phase === 'CLAIM_WINDOW'
-        ? onlineState.currentSeat
-        : prev.currentSeat;
-      const discarder = onlineState.players[discarderSeat];
-      if (discarder && newTile) {
-        logEvent(`${discarder.name} discarded the ${tileName(newTile)}`);
-      }
-    }
-
-    // Detect a new meld via discard claim (pung, kong, chow): meld count grew.
-    // Read the tile name from the meld itself, not from prev.discardPool, which
-    // may be stale when multiple states are batched (causing the wrong tile --
-    // e.g. a dragon discarded two turns ago -- to be attributed to a new claim).
-    onlineState.players.forEach((player, i) => {
-      const prevPlayer = prev.players[i];
-      if (!prevPlayer || player.melds.length <= prevPlayer.melds.length) return;
-      const newMeld = player.melds[player.melds.length - 1];
-      if (!newMeld) return;
-      const representativeTile = newMeld.tiles[0];
-      if (!representativeTile) return;
-      const verb = (newMeld.type === 'open_kong' || newMeld.type === 'concealed_kong')
-        ? 'konged'
-        : newMeld.type === 'pung' ? 'punged'
-        : 'chowed';
-      logEvent(`${player.name} ${verb} the ${tileName(representativeTile)}`);
-    });
-
-    // Detect an added kong: a pung meld promoted to open_kong (meld count stays the same).
-    onlineState.players.forEach((player, i) => {
-      const prevPlayer = prev.players[i];
-      if (!prevPlayer) return;
-      player.melds.forEach((meld, mi) => {
-        const prevMeld = prevPlayer.melds[mi];
-        if (prevMeld?.type === 'pung' && meld.type === 'open_kong') {
-          const addedTile = meld.tiles[meld.tiles.length - 1];
-          if (addedTile) logEvent(`${player.name} added a kong of ${tileName(addedTile)}s`);
-        }
-      });
-    });
-
-    // Detect HAND_OVER transition.
-    if (onlineState.phase === 'HAND_OVER' && prev.phase !== 'HAND_OVER') {
-      const hr = onlineState.handResult;
-      if (hr?.reason === 'draw') {
-        logEvent('Wall exhausted — no winner this hand.');
-      } else if (hr && hr.winnerSeat !== null) {
-        const winner = onlineState.players[hr.winnerSeat];
-        if (winner) logEvent(`${winner.name} declared Mah Jong!`);
-      }
-    }
-  }, [onlineState]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // -- Online: auto-pass ROBBING_KONG when the local player cannot win -----
-  // Mirrors local mode's auto-advance. If the local seat cannot complete their
-  // hand with the robbed tile, send a 'pass' CLAIM_RESPONSE automatically.
-  // The ActionBar is also suppressed in this case (canRob guard in ActionBar.tsx),
-  // but this useEffect is required so the server's FallbackController receives the
-  // response and can advance the phase -- without it the server waits indefinitely.
-  useEffect(() => {
-    if (!onlineState || !onlineGameInfo) return;
-    if (onlineState.phase !== 'ROBBING_KONG') return;
-    const rk = onlineState.robbingKong;
-    if (!rk) return;
-    const { seat: localSeat, socket } = onlineGameInfo;
-    if (rk.responses[localSeat] !== null) return;  // already responded
-    const player = onlineState.players[localSeat];
-    if (!player) return;
-    // If the local player can win on the robbed tile, let them decide (ActionBar shows).
-    if (isWinningHand([...player.concealed, rk.tile], player.melds, onlineState.config)) return;
-    // Cannot win: auto-pass so the server can advance the phase.
-    socket.emit('game_action', { type: 'CLAIM_RESPONSE', decision: { type: 'pass' } });
-  }, [onlineState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -- Online: score HAND_OVER -----
 
