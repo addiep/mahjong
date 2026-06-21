@@ -18,9 +18,10 @@
  * declares Mah Jong as soon as its hand is legal rather than discarding.
  *
  * Added kong (Module 4.4): when the AI draws the 4th tile of an exposed pung,
- * it always promotes the pung to an open kong, opening a replacement draw.
- * This is almost always correct: the extra draw is worth more than keeping the
- * tile, and the pung's tiles are already exposed so there is no information cost.
+ * it promotes the pung to an open kong — unless the tile can complete a chow
+ * sequence with two other tiles already in hand, in which case it keeps the tile
+ * for the chow instead.  Honours (winds, dragons) can never form chows, so they
+ * always trigger the kong.
  *
  * Dependencies: game-state.ts, turn-engine.ts, game-runner.ts, inference.ts,
  * hand-evaluator.ts, and the ai/* layers. No UI, no side effects beyond the
@@ -31,7 +32,7 @@ import { GameState, SeatIndex, PlayerState } from '../game-state.js';
 import { DiscardAction } from '../turn-engine.js';
 import { PlayerController } from '../game-runner.js';
 import { ClaimDecision } from '../game-state.js';
-import { tileKey, type TileId } from '../tiles.js';
+import { tileKey, isSuited, type TileId } from '../tiles.js';
 import { inferTable } from '../inference.js';
 import { isWinningHand } from '../hand-evaluator.js';
 import { assessHand, HandPlan, AiMode } from './assessment.js';
@@ -52,6 +53,39 @@ function findAddedKong(player: PlayerState): TileId | null {
     if (match) return match.id;
   }
   return null;
+}
+
+/**
+ * Returns true when the tile with the given ID can complete a chow sequence
+ * with two other tiles already in the player's concealed hand.
+ *
+ * Checks all three patterns where the tile sits as the low, middle, or high
+ * piece of a run.  Honours (winds, dragons) always return false — they can
+ * never form chows.
+ */
+function canFormCompleteChow(player: PlayerState, tileId: TileId): boolean {
+  const tile = player.concealed.find(t => t.id === tileId);
+  if (!tile || !isSuited(tile)) return false;
+
+  const { suit, value } = tile;
+
+  // Collect values of all other suited tiles of the same suit in hand.
+  const otherVals: number[] = [];
+  for (const t of player.concealed) {
+    if (t.id !== tileId && isSuited(t) && t.suit === suit) {
+      otherVals.push(t.value);
+    }
+  }
+
+  // Three chow patterns: tile as high, middle, or low piece.
+  const patterns: [number, number][] = [
+    [value - 2, value - 1],  // tile is the high piece  (e.g. 5 completes 3-4-5)
+    [value - 1, value + 1],  // tile is the middle piece (e.g. 5 completes 4-5-6)
+    [value + 1, value + 2],  // tile is the low piece    (e.g. 5 completes 5-6-7)
+  ];
+  return patterns.some(
+    ([v1, v2]) => v1 >= 1 && v2 <= 9 && otherVals.includes(v1) && otherVals.includes(v2)
+  );
 }
 
 export class HeuristicController implements PlayerController {
@@ -93,10 +127,13 @@ export class HeuristicController implements PlayerController {
       return { type: 'DECLARE_WIN' };
     }
 
-    // Added kong: promote an exposed pung to a kong using the matching drawn tile.
-    // An extra replacement draw is almost always better than discarding the tile.
+    // Added kong: promote an exposed pung to a kong using the matching drawn tile —
+    // but only when the tile cannot complete a chow with tiles already in hand.
+    // If a complete chow sequence is available (the tile sits as low, middle, or
+    // high piece of a run), keep the tile for the chow instead: it is likely to
+    // contribute to winning faster than the extra kong replacement draw.
     const kongTileId = findAddedKong(player);
-    if (kongTileId !== null) {
+    if (kongTileId !== null && !canFormCompleteChow(player, kongTileId)) {
       return { type: 'DECLARE_ADDED_KONG', tileId: kongTileId };
     }
 
