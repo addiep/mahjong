@@ -85,6 +85,19 @@
  *  - Meld claim attribution: prev.discardPool[last] was stale for the same reason,
  *    causing phantom claims like "AI West chowed the white dragon". Fixed by reading
  *    the tile name from newMeld.tiles[0] (the meld itself) instead.
+ *
+ * ROBBING_KONG fixes (2026-06-21):
+ *  - Online: added auto-pass useEffect so the local player's CLAIM_RESPONSE is sent
+ *    automatically when they cannot win on the robbed tile, rather than waiting for
+ *    a button click that is never shown (ActionBar suppresses the bar when !canRob).
+ *  - ActionBar.tsx: canRob guard prevents showing "Mah Jong" to a player who cannot
+ *    complete their hand with the robbed tile, avoiding an engine crash.
+ *
+ * DECLARE_ADDED_KONG protocol fix (2026-06-21):
+ *  - Added DECLARE_ADDED_KONG to server GameActionPayload (events.ts) and wired it
+ *    into FallbackController.attachSocket (game-session.ts) so the server handles
+ *    the human player's added-kong declaration correctly instead of silently dropping
+ *    it and waiting indefinitely for a DISCARD.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -394,6 +407,27 @@ export function App() {
         if (winner) logEvent(`${winner.name} declared Mah Jong!`);
       }
     }
+  }, [onlineState]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -- Online: auto-pass ROBBING_KONG when the local player cannot win -----
+  // Mirrors local mode's auto-advance. If the local seat cannot complete their
+  // hand with the robbed tile, send a 'pass' CLAIM_RESPONSE automatically.
+  // The ActionBar is also suppressed in this case (canRob guard in ActionBar.tsx),
+  // but this useEffect is required so the server's FallbackController receives the
+  // response and can advance the phase -- without it the server waits indefinitely.
+  useEffect(() => {
+    if (!onlineState || !onlineGameInfo) return;
+    if (onlineState.phase !== 'ROBBING_KONG') return;
+    const rk = onlineState.robbingKong;
+    if (!rk) return;
+    const { seat: localSeat, socket } = onlineGameInfo;
+    if (rk.responses[localSeat] !== null) return;  // already responded
+    const player = onlineState.players[localSeat];
+    if (!player) return;
+    // If the local player can win on the robbed tile, let them decide (ActionBar shows).
+    if (isWinningHand([...player.concealed, rk.tile], player.melds, onlineState.config)) return;
+    // Cannot win: auto-pass so the server can advance the phase.
+    socket.emit('game_action', { type: 'CLAIM_RESPONSE', decision: { type: 'pass' } });
   }, [onlineState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -- Online: score HAND_OVER -----
