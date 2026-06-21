@@ -6,12 +6,15 @@
  *
  * Ordering rule (Adam, 2026-06-19): clean the hand FIRST. In clean mode the
  * off-suit suited tiles are shed before guest (non-seat) winds -- you commit to
- * your suit, then ditch the winds. Among off-suit tiles the weakest suit goes
- * first (a 2-tile suit before a developed 3+ tile suit), so a strong second
- * suit is held longer than scraps of a third. Guest winds are still shed early
- * (before any in-target tile). In DIRTY mode there is no off-suit to clean, so
- * guest winds are the first to go. Dragons and the AI's own seat wind are
- * always kept (both double on a pung).
+ * your suit, then ditch the winds. Among off-suit tiles, tiles forming pairs or
+ * genuine run shapes are held longer than isolated tiles; within each shape tier
+ * the weakest suit by count goes first (a 2-tile suit before a 4-tile one).
+ * Committed triplets (3+ of the same tile) are excluded from run-partner
+ * detection so a tile adjacent only to a pung/kong is not falsely ranked as
+ * part of a chow shape. Guest winds are shed after all off-suit suited tiles in
+ * clean mode. In DIRTY mode there is no off-suit to clean, so guest winds are
+ * the first to go. Dragons and the AI's own seat wind are always kept (both
+ * double on a pung).
  *
  * A later pass will overlay the inference safe-tile reads for defensive play
  * (DESIGN Module 4.3). The baseline plays to its own hand only.
@@ -27,25 +30,37 @@ import { GameState, SeatIndex } from '../game-state.js';
 import { HandPlan } from './assessment.js';
 
 // --- Keep-values (higher = more useful = keep; lowest is discarded) -----
+//
+// Off-suit suited tiles (clean mode only -- in dirty mode all suited tiles are
+// in-plan so these values are never reached for suited tiles):
+//   offSuitLone    -- 1 tile of this suit held: scraps, shed immediately
+//   offSuitWeak    -- 2 tiles, no pair, no run: a thin holding
+//   offSuitStrong  -- 3+ tiles, no pair, no run: a developed suit, but not shaped
+//   offSuitRun     -- tile with a genuine adjacent/gap-2 run partner in its suit
+//   offSuitPair    -- tile held in pairs (c >= 2): worth keeping for a declared meld
+//
+// Guest winds come after ALL off-suit suited tiles in clean mode.
+// In-plan tiles come last (highest keep values).
 const KEEP = {
-  offSuitLone:        1,   // off-suit tile, only 1 of its suit held: deadest, shed first
-  offSuitWeak:        2,   // off-suit tile in a 2-tile suit: weak, shed early
-  offSuitStrong:      4,   // off-suit tile in a 3+ tile suit: a developed second
-                          //   suit, held longer than a lone guest wind
-  guestWindClean:     3,   // a non-seat wind, clean mode: shed after the off-suit junk
-  guestWindCleanPair: 4,
-  guestWindDirty:     1,   // dirty mode: no suit to clean, so winds go first
+  offSuitLone:        1,
+  offSuitWeak:        2,
+  offSuitStrong:      3,
+  offSuitRun:         4,   // off-suit tile with a genuine run partner
+  offSuitPair:        5,   // off-suit tile forming a pair or better
+  guestWindClean:     6,   // non-seat wind, clean mode -- shed after all off-suit junk
+  guestWindCleanPair: 7,
+  guestWindDirty:     1,   // dirty mode -- no suit to clean; winds go first
   guestWindDirtyPair: 4,
-  inTerminal:         5,   // isolated in-target terminal (fewer chow options)
-  inIsolated:         6,   // isolated in-target simple
-  inRun:              7,   // part of a chow shape
-  dragon:             8,   // lone dragon: worth holding for a pair/pung
-  ownWind:            8,   // lone own seat wind: same, its pung doubles
-  inPair:             9,
-  dragonPair:         11,
-  ownWindPair:        11,
-  honourTriplet:      12,
-  inTriplet:          12,
+  inTerminal:         8,   // isolated in-plan terminal (1 or 9: fewer chow options)
+  inIsolated:         9,   // isolated in-plan simple tile
+  inRun:             10,   // part of a genuine chow shape
+  dragon:            11,   // lone dragon: worth holding for a pair/pung
+  ownWind:           11,   // lone own seat wind: its pung doubles
+  inPair:            12,
+  dragonPair:        14,
+  ownWindPair:       14,
+  honourTriplet:     15,
+  inTriplet:         15,
 } as const;
 
 function countByKey(tiles: readonly Tile[]): Map<string, number> {
@@ -57,11 +72,23 @@ function countByKey(tiles: readonly Tile[]): Map<string, number> {
   return m;
 }
 
-/** Per-suit value-presence set, for detecting chow (run) shapes. */
-function valueSet(tiles: readonly Tile[], suit: string): Set<number> {
+/**
+ * Per-suit value-presence set for detecting run (chow) shapes.
+ * Excludes values where count >= 3 so that a tile adjacent only to a committed
+ * triplet (pung / kong) is not treated as having a genuine chow partner.
+ */
+function runValueSet(
+  tiles: readonly Tile[],
+  suit: string,
+  counts: Map<string, number>,
+): Set<number> {
   const s = new Set<number>();
   for (const t of tiles) {
-    if (isSuited(t) && (t as SuitedTile).suit === suit) s.add((t as SuitedTile).value);
+    if (isSuited(t) && (t as SuitedTile).suit === suit) {
+      if ((counts.get(tileKey(t) as string) ?? 0) < 3) {
+        s.add((t as SuitedTile).value);
+      }
+    }
   }
   return s;
 }
@@ -84,9 +111,20 @@ export function keepValue(tile: Tile, plan: HandPlan, concealed: readonly Tile[]
   if (isSuited(tile)) {
     const st = tile as SuitedTile;
     const inPlan = plan.mode === 'dirty' || st.suit === plan.targetSuit;
+
     if (!inPlan) {
-      // Shed the weakest off-suit suit first: rank an off-suit tile by how
-      // many tiles of its suit we hold (a 2-tile suit goes before a 4-tile one).
+      // Off-suit in clean mode.
+      // 1. A pair (or better) is worth holding -- it can become a declared pung.
+      if (c >= 2) return KEEP.offSuitPair;
+      // 2. A genuine run shape is worth holding -- exclude triplet values so a
+      //    tile adjacent only to a committed pung is not falsely counted.
+      const vs = runValueSet(concealed, st.suit, counts);
+      const hasOffRun =
+        vs.has(st.value - 1) || vs.has(st.value + 1) ||
+        vs.has(st.value - 2) || vs.has(st.value + 2);
+      if (hasOffRun) return KEEP.offSuitRun;
+      // 3. Fallback: rank by how many tiles of this suit we hold.
+      //    Shed the weakest (fewest tiles) suit first.
       const suitCount = concealed.filter(
         t => isSuited(t) && (t as SuitedTile).suit === st.suit,
       ).length;
@@ -94,9 +132,11 @@ export function keepValue(tile: Tile, plan: HandPlan, concealed: readonly Tile[]
       if (suitCount === 2) return KEEP.offSuitWeak;
       return KEEP.offSuitStrong;
     }
+
     if (c >= 3) return KEEP.inTriplet;
     if (c === 2) return KEEP.inPair;
-    const vs = valueSet(concealed, st.suit);
+    // Exclude committed triplets from run detection (bug 3 fix).
+    const vs = runValueSet(concealed, st.suit, counts);
     const hasRun =
       vs.has(st.value - 1) || vs.has(st.value + 1) ||
       vs.has(st.value - 2) || vs.has(st.value + 2);

@@ -145,10 +145,11 @@ describe('keepValue / chooseDiscardTile', () => {
 
   it('sheds the weaker off-suit suit first (2 characters before 4 bamboo)', () => {
     // Target circles. Off-suit: 4 bamboo (a developed second suit) vs 2 characters.
-    // The characters should go before any bamboo.
+    // Characters have no pair or run shape (1 and 9 are too far apart), so they
+    // rank as offSuitWeak=2 while bamboo tiles with run shapes rank higher.
     const plan = cleanPlan('circles', 'east');
     const concealed = [
-      bam(1), bam(2), bam(3), bam(4), chr(3), chr(5),
+      bam(1), bam(2), bam(3), bam(4), chr(1), chr(9),
       cir(2), cir(2,1), cir(5), cir(5,1),
     ];
     const st = makeState([player(0, concealed), player(1, []), player(2, []), player(3, [])]);
@@ -156,6 +157,47 @@ describe('keepValue / chooseDiscardTile', () => {
     const discarded = concealed.find(t => t.id === id)!;
     expect(discarded.category).toBe('suited');
     expect((discarded as SuitedTile).suit).toBe('characters');
+  });
+
+  // --- bug-fix regression tests (2026-06-21) ---
+
+  it('holds an off-suit pair over an isolated off-suit of equal count (bug 1)', () => {
+    // Both off-suit suits have 3 tiles, but characters hold a pair of 3s + run partner
+    // while circles are fully isolated. Old code ranked both as offSuitStrong and used
+    // alphabetical tiebreak (chr < cir), discarding characters first (wrong).
+    // Fix: circles -> offSuitStrong=3; chr(3) -> offSuitPair=5; chr(4) -> offSuitRun=4.
+    const plan = cleanPlan('bamboo', 'east');
+    const concealed = [
+      bam(1), bam(2), bam(3),
+      cir(1), cir(5), cir(9),   // 3 isolated circles: offSuitStrong
+      chr(3), chr(3,1), chr(4), // 3 characters: a pair of 3s + run partner
+    ];
+    const st = makeState([player(0, concealed), player(1, []), player(2, []), player(3, [])]);
+    const id = chooseDiscardTile(st, 0, plan);
+    const t = concealed.find(tile => tile.id === id)!;
+    expect((t as SuitedTile).suit).toBe('circles');
+  });
+
+  it('sheds a developed off-suit suit (3+ tiles) before a guest wind in clean mode (bug 2)', () => {
+    // Old code: guestWindClean=3 < offSuitStrong=4, so the wind was shed first (wrong).
+    // Fix: guestWindClean raised to 6, above all off-suit suited-tile values.
+    const plan = cleanPlan('bamboo', 'east');
+    const concealed = [bam(1), bam(2), bam(3), cir(1), cir(5), cir(9), wind('south')];
+    const st = makeState([player(0, concealed), player(1, []), player(2, []), player(3, [])]);
+    const id = chooseDiscardTile(st, 0, plan);
+    const t = concealed.find(tile => tile.id === id)!;
+    // A circle tile should be shed before the guest south wind.
+    expect((t as SuitedTile).suit).toBe('circles');
+  });
+
+  it('does not count a tile adjacent only to a triplet as having a run partner (bug 3)', () => {
+    // Old valueSet() included values where count >= 3, so bam(6) adjacent to the
+    // bam(7) triplet falsely got inRun. Fix: runValueSet() excludes count >= 3 values.
+    const plan = cleanPlan('bamboo', 'east');
+    const withTriplet  = [bam(6), bam(7), bam(7,1), bam(7,2)];
+    const trulyIsolated = [bam(6)];
+    // Both should return inIsolated, not inRun.
+    expect(keepValue(bam(6), plan, withTriplet)).toBe(keepValue(bam(6), plan, trulyIsolated));
   });
 });
 
