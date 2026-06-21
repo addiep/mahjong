@@ -1,12 +1,14 @@
 /**
- * Lobby event handling -- Modules 3.1 / 3.2 / 3.3.
+ * Lobby event handling -- Modules 3.1 / 3.2 / 3.3 / 3.4.
  *
  * Manages the full connection lifecycle:
  *   - Creator auth + human-count config
  *   - Joiner name entry + seat assignment
  *   - Waiting-room broadcasts
- *   - Deal trigger → startGameSession (Module 3.3)
+ *   - Deal trigger -> startGameSession (Module 3.3)
  *   - Disconnection: creator abort resets to idle; joiner drop frees the seat
+ *   - Reconnection (Module 3.4): in-progress connections get a 1 s window to
+ *     send reconnect_attempt before being disconnected.
  *
  * When startGameSession resolves (normally or on error), the server state is
  * reset to idle and all clients are notified.
@@ -48,8 +50,19 @@ export function setupLobby(
     socket.emit('server_state', { phase: state.phase });
 
     if (state.phase === 'in-progress') {
-      // Game running -- reject immediately.
-      socket.disconnect();
+      // Game running. Give the client a brief window to identify as a reconnecting
+      // player (Module 3.4). If no reconnect_attempt arrives within 1 s, disconnect.
+      const kickTimer = setTimeout(() => socket.disconnect(), 1000);
+
+      socket.once('reconnect_attempt', ({ seat, name }) => {
+        clearTimeout(kickTimer);
+        const ok = state.reconnectHandler?.(socket.id, seat, name) ?? false;
+        if (!ok) {
+          // Name or seat didn't match -- reject.
+          socket.disconnect();
+        }
+        // If ok: game-session emitted game_start + game_state to the socket.
+      });
       return;
     }
 
@@ -159,8 +172,8 @@ export function setupLobby(
         return;
       }
 
-      // in-progress disconnections: the game session loop watches the creator
-      // socket directly; joiner disconnects are handled in Module 3.4.
+      // in-progress disconnections are handled by FallbackController (Module 3.4).
+      // The game session loop watches the creator socket directly for new_hand.
     });
   });
 }

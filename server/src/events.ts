@@ -29,7 +29,7 @@ export interface ServerToClientEvents {
    * Sent immediately on connection. The client adapts its UI:
    *   'idle'        -> show creator screen (name + password)
    *   'waiting'     -> show joiner screen (name only)
-   *   'in-progress' -> socket is disconnected immediately after this
+   *   'in-progress' -> socket gets a brief window to send reconnect_attempt
    */
   server_state: (data: { phase: 'idle' | 'waiting' | 'in-progress' }) => void;
 
@@ -51,8 +51,9 @@ export interface ServerToClientEvents {
   /** Sent whenever a seat is added, removed, or the human count changes. */
   lobby_update: (data: { seats: LobbySeat[]; humanCount: number }) => void;
 
-  // --- game start ---
+  // --- game start / reconnect ---
   /** Broadcast when the creator hits Deal. Carries the client's own seat number. */
+  /** Also sent on successful reconnect so the client can re-enter the game view. */
   game_start: (data: { seat: number }) => void;
 
   // --- in-game (Module 3.3) ---
@@ -81,4 +82,12 @@ export interface ClientToServerEvents {
   game_action: (payload: GameActionPayload) => void;
   /** Creator requests a new hand after HAND_OVER. Ignored from non-creator sockets. */
   new_hand: () => void;
+
+  // --- reconnection (Module 3.4) ---
+  /**
+   * Sent immediately on connection when the client has stored session credentials
+   * (seat number + name from a previous connection). Only processed while the
+   * server is in-progress; ignored (and the socket disconnected) otherwise.
+   */
+  reconnect_attempt: (data: { seat: number; name: string }) => void;
 }

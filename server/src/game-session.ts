@@ -1,13 +1,13 @@
 /**
- * Module 3.3 -- Authoritative Game Session
+ * Module 3.3/3.4 -- Authoritative Game Session + Resilience
  *
- * Wires the engine's GameRunner to Socket.io:
- *
- *   filterStateForSeat  -- strips opponent concealed tiles before broadcasting;
- *                          at HAND_OVER also reveals the winner's hand.
- *   HumanSocketController -- bridges `game_action` socket events to the
- *                            PlayerController interface the GameRunner expects.
- *   startGameSession    -- runs back-to-back hands until the creator leaves.
+ * filterStateForSeat  -- strips opponent concealed tiles before broadcasting;
+ *                        at HAND_OVER also reveals the winner's hand.
+ * FallbackController  -- bridges game_action socket events to PlayerController;
+ *                        falls back to the AI on disconnect or turn timeout
+ *                        (Module 3.4); supports mid-hand socket reattach for
+ *                        reconnecting players (Module 3.4).
+ * startGameSession    -- runs back-to-back hands until the creator leaves.
  *
  * Security note: the GAME_PASSWORD is checked in lobby.ts before any session
  * starts; this module never sees the password.
@@ -33,6 +33,13 @@ import type { ServerState } from './server-state.js';
 
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents>;
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Milliseconds a human seat gets to respond before the AI takes over. */
+const TURN_TIMEOUT_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // Per-seat state filtering
@@ -77,51 +84,131 @@ function filterStateForSeat(state: GameState, revealSeat: number): GameState {
 }
 
 // ---------------------------------------------------------------------------
-// Human seat controller
+// FallbackController -- human seat with AI fallback (Module 3.4)
 // ---------------------------------------------------------------------------
 
 /**
- * Implements PlayerController by parking a pending Promise for each decision
- * point and resolving it when the human client emits `game_action`.
+ * Implements PlayerController for a human seat with three resilience features:
  *
- * One instance per connected human socket; it persists across hands (the
- * `game_action` listener stays active throughout the session).
+ *  1. Turn timeout: if the human doesn't respond within TURN_TIMEOUT_MS, the AI
+ *     resolves the pending promise so the hand can continue.
+ *  2. Disconnect fallback: if the socket drops mid-turn, the AI resolves
+ *     immediately; subsequent turns also fall back to AI until reconnection.
+ *  3. Reconnect: attachSocket() wires (or rewires) a socket. After reconnect,
+ *     future decision points wait for the human again.
+ *
+ * One instance per human seat; it persists for the full session (across hands).
  */
-class HumanSocketController implements PlayerController {
-  private pendingDiscard: ((a: DiscardAction) => void) | null = null;
-  private pendingClaim:   ((d: ClaimDecision) => void) | null = null;
+class FallbackController implements PlayerController {
+  private readonly ai: HeuristicController;
+  private socket: TypedSocket | null = null;
 
-  constructor(private readonly socket: TypedSocket) {
+  private pendingDiscard: {
+    resolve: (a: DiscardAction) => void;
+    state: GameState; seat: SeatIndex;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+
+  private pendingClaim: {
+    resolve: (d: ClaimDecision) => void;
+    state: GameState; seat: SeatIndex;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+
+  constructor(private readonly seatIdx: SeatIndex) {
+    this.ai = new HeuristicController(seatIdx);
+  }
+
+  /**
+   * Wire up (or rewire) a socket. Safe to call mid-hand on reconnect:
+   * the old socket's listeners are removed and the new socket takes over.
+   * Any in-flight promise from a previous disconnect will have already been
+   * resolved via AI, so there is no pending work to transfer.
+   */
+  attachSocket(socket: TypedSocket): void {
+    // Remove listeners from the previous socket if any.
+    this.socket?.removeAllListeners('game_action');
+    this.socket = socket;
+
     socket.on('game_action', (payload: GameActionPayload) => {
       if (payload.type === 'DISCARD' || payload.type === 'DECLARE_WIN') {
         if (this.pendingDiscard) {
-          const resolve       = this.pendingDiscard;
+          const { resolve, timer } = this.pendingDiscard;
+          clearTimeout(timer);
           this.pendingDiscard = null;
           resolve(payload as DiscardAction);
         }
       } else if (payload.type === 'CLAIM_RESPONSE') {
         if (this.pendingClaim) {
-          const resolve     = this.pendingClaim;
+          const { resolve, timer } = this.pendingClaim;
+          clearTimeout(timer);
           this.pendingClaim = null;
           resolve(payload.decision);
         }
       }
     });
+
+    socket.once('disconnect', () => {
+      // Guard: if attachSocket was called again before this fires, ignore.
+      if (this.socket !== socket) return;
+      this.socket = null;
+      socket.removeAllListeners('game_action');
+      this.resolveViaAI();
+    });
   }
 
-  getDiscardAction(_state: GameState, _seat: SeatIndex): Promise<DiscardAction> {
-    return new Promise(resolve => { this.pendingDiscard = resolve; });
+  /** Resolve any in-flight promise via the AI controller. */
+  private resolveViaAI(): void {
+    if (this.pendingDiscard) {
+      const { resolve, state, seat, timer } = this.pendingDiscard;
+      clearTimeout(timer);
+      this.pendingDiscard = null;
+      void this.ai.getDiscardAction(state, seat).then(resolve);
+    }
+    if (this.pendingClaim) {
+      const { resolve, state, seat, timer } = this.pendingClaim;
+      clearTimeout(timer);
+      this.pendingClaim = null;
+      void this.ai.getClaimDecision(state, seat).then(resolve);
+    }
   }
 
-  getClaimDecision(_state: GameState, _seat: SeatIndex): Promise<ClaimDecision> {
-    return new Promise(resolve => { this.pendingClaim = resolve; });
+  getDiscardAction(state: GameState, seat: SeatIndex): Promise<DiscardAction> {
+    // No socket connected: resolve immediately via AI.
+    if (!this.socket) {
+      return this.ai.getDiscardAction(state, seat);
+    }
+    return new Promise(resolve => {
+      const timer = setTimeout(() => {
+        // Timeout: AI takes this turn.
+        this.pendingDiscard = null;
+        void this.ai.getDiscardAction(state, seat).then(resolve);
+      }, TURN_TIMEOUT_MS);
+      this.pendingDiscard = { resolve, state, seat, timer };
+    });
   }
 
-  /** Removes the `game_action` listener and cancels any in-flight promise. */
+  getClaimDecision(state: GameState, seat: SeatIndex): Promise<ClaimDecision> {
+    if (!this.socket) {
+      return this.ai.getClaimDecision(state, seat);
+    }
+    return new Promise(resolve => {
+      const timer = setTimeout(() => {
+        this.pendingClaim = null;
+        void this.ai.getClaimDecision(state, seat).then(resolve);
+      }, TURN_TIMEOUT_MS);
+      this.pendingClaim = { resolve, state, seat, timer };
+    });
+  }
+
+  /** Remove all listeners and cancel any pending timers. Call at session end. */
   cleanup(): void {
-    this.socket.removeAllListeners('game_action');
+    this.socket?.removeAllListeners('game_action');
+    if (this.pendingDiscard) clearTimeout(this.pendingDiscard.timer);
+    if (this.pendingClaim)   clearTimeout(this.pendingClaim.timer);
     this.pendingDiscard = null;
     this.pendingClaim   = null;
+    this.socket         = null;
   }
 }
 
@@ -134,8 +221,8 @@ const HAND_CONFIG = { ...DEFAULT_CONFIG, deadWall: false };
 /**
  * Runs back-to-back hands for the current session.
  *
- * Resolves when the creator disconnects or the server state leaves
- * 'in-progress' (lobby.ts resets state on normal exit and on errors).
+ * Resolves when the creator disconnects (between hands) or the server state
+ * leaves 'in-progress'.
  */
 export async function startGameSession(
   io: TypedServer,
@@ -143,9 +230,9 @@ export async function startGameSession(
 ): Promise<void> {
   const { seats } = serverState;
 
-  // Build one PlayerController per seat.
-  const humanControllers = new Map<number, HumanSocketController>();
-  const humanSockets     = new Map<number, TypedSocket>();
+  // Build one FallbackController per human seat, AI for the rest.
+  const fallbackControllers = new Map<number, FallbackController>();
+  const humanSockets        = new Map<number, TypedSocket>();
   const controllers: PlayerController[] = [];
 
   for (let seat = 0; seat < 4; seat++) {
@@ -153,15 +240,16 @@ export async function startGameSession(
     if (humanSeat) {
       const raw = io.sockets.sockets.get(humanSeat.socketId);
       if (raw) {
-        const socket = raw as unknown as TypedSocket;
-        const ctrl   = new HumanSocketController(socket);
-        humanControllers.set(seat, ctrl);
+        const socket  = raw as unknown as TypedSocket;
+        const ctrl    = new FallbackController(seat as SeatIndex);
+        ctrl.attachSocket(socket);
+        fallbackControllers.set(seat, ctrl);
         humanSockets.set(seat, socket);
         controllers.push(ctrl);
         continue;
       }
     }
-    // AI fallback: seat has no connected human (or socket was lost).
+    // Seat has no connected human -- use a pure AI controller.
     controllers.push(new HeuristicController(seat as SeatIndex));
   }
 
@@ -170,48 +258,81 @@ export async function startGameSession(
     `AI ${(['East', 'South', 'West', 'North'] as const)[i]!}`,
   );
 
+  // Track the most recent state so reconnectors receive it immediately.
+  let lastKnownState: GameState | null = null;
+
   /** Emit a filtered snapshot to every connected human socket. */
   function broadcastState(state: GameState): void {
+    lastKnownState = state;
     for (const [seat, socket] of humanSockets) {
       socket.emit('game_state', filterStateForSeat(state, seat));
     }
   }
 
-  // Run hands in a loop until the session ends.
-  while (serverState.phase === 'in-progress') {
-    const deal         = buildWall(4, false);
-    const initialState = createGameState(HAND_CONFIG, deal, names);
+  // Register the reconnect handler so lobby.ts can call it when a socket
+  // sends reconnect_attempt during in-progress.
+  serverState.reconnectHandler = (socketId: string, seatIdx: number, nameAttempt: string): boolean => {
+    const ctrl     = fallbackControllers.get(seatIdx);
+    const expected = seats.find(s => s.seat === seatIdx);
+    if (!ctrl || !expected || expected.name !== nameAttempt) return false;
 
-    // Broadcast the initial dealt state before the game loop runs.
-    broadcastState(initialState);
+    const raw = io.sockets.sockets.get(socketId);
+    if (!raw) return false;
+    const socket = raw as unknown as TypedSocket;
 
-    const runner     = new GameRunner(initialState, controllers, broadcastState);
-    const finalState = await runner.run();
+    // Update socket map so future broadcasts reach the reconnected client.
+    humanSockets.set(seatIdx, socket);
+    ctrl.attachSocket(socket);
 
-    // Broadcast the HAND_OVER state (winner's tiles revealed for scoring).
-    broadcastState(finalState);
+    // If this is the creator, update the tracked socket ID so the between-hand
+    // new_hand listener finds the right socket.
+    if (seatIdx === 0) {
+      serverState.creatorSocketId = socketId;
+    }
 
-    // Wait for the creator to request another hand (or disconnect).
-    const creatorSocket = serverState.creatorSocketId
-      ? (io.sockets.sockets.get(serverState.creatorSocketId) as unknown as TypedSocket | undefined)
-      : undefined;
+    // Re-send game_start so the client leaves the lobby view, then send state.
+    socket.emit('game_start', { seat: seatIdx });
+    if (lastKnownState) {
+      socket.emit('game_state', filterStateForSeat(lastKnownState, seatIdx));
+    }
+    return true;
+  };
 
-    if (!creatorSocket) break;
+  try {
+    // Run hands in a loop until the session ends.
+    while (serverState.phase === 'in-progress') {
+      const deal         = buildWall(4, false);
+      const initialState = createGameState(HAND_CONFIG, deal, names);
 
-    const shouldContinue = await new Promise<boolean>(resolve => {
-      const cleanup = () => {
-        creatorSocket.off('new_hand',   onNewHand);
-        creatorSocket.off('disconnect', onDisconnect);
-      };
-      const onNewHand    = () => { cleanup(); resolve(true);  };
-      const onDisconnect = () => { cleanup(); resolve(false); };
-      creatorSocket.once('new_hand',   onNewHand);
-      creatorSocket.once('disconnect', onDisconnect);
-    });
+      broadcastState(initialState);
 
-    if (!shouldContinue) break;
+      const runner     = new GameRunner(initialState, controllers, broadcastState);
+      const finalState = await runner.run();
+
+      // Broadcast the HAND_OVER state (winner's tiles revealed for scoring).
+      broadcastState(finalState);
+
+      // Wait for the creator to request another hand (or disconnect).
+      // Re-read from humanSockets so we pick up a reconnected creator socket.
+      const creatorSocket = humanSockets.get(0);
+      if (!creatorSocket) break;
+
+      const shouldContinue = await new Promise<boolean>(resolve => {
+        const cleanup = () => {
+          creatorSocket.off('new_hand',   onNewHand);
+          creatorSocket.off('disconnect', onDisconnect);
+        };
+        const onNewHand    = () => { cleanup(); resolve(true);  };
+        const onDisconnect = () => { cleanup(); resolve(false); };
+        creatorSocket.once('new_hand',   onNewHand);
+        creatorSocket.once('disconnect', onDisconnect);
+      });
+
+      if (!shouldContinue) break;
+    }
+  } finally {
+    // Always clear the reconnect handler and all per-seat listeners.
+    serverState.reconnectHandler = null;
+    for (const ctrl of fallbackControllers.values()) ctrl.cleanup();
   }
-
-  // Remove game_action listeners from all human sockets.
-  for (const ctrl of humanControllers.values()) ctrl.cleanup();
 }

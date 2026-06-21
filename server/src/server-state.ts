@@ -5,7 +5,8 @@
  *   idle        -- No game running. The server accepts exactly one creator.
  *   waiting     -- Creator has configured a game; waiting for human players.
  *                  Joiners connect without a password.
- *   in-progress -- Game is running. No new connections are accepted.
+ *   in-progress -- Game is running. New connections are held briefly to allow
+ *                  reconnect_attempt; otherwise they are disconnected.
  */
 
 export type ServerPhase = 'idle' | 'waiting' | 'in-progress';
@@ -25,6 +26,14 @@ export interface ServerState {
   seats: ConnectedSeat[];
   /** Socket id of the creator; only they may send creator_config / creator_deal. */
   creatorSocketId: string | null;
+  /**
+   * Set by startGameSession (Module 3.4) while a hand is running.
+   * Called by lobby.ts when a socket sends reconnect_attempt during in-progress.
+   * Returns true if the reconnect was accepted (seat matched, name matched);
+   * the game-session handler will have already emitted game_start + game_state
+   * to the reconnecting socket.
+   */
+  reconnectHandler: ((socketId: string, seat: number, name: string) => boolean) | null;
 }
 
 export function createServerState(): ServerState {
@@ -33,15 +42,17 @@ export function createServerState(): ServerState {
     humanCount: 0,
     seats: [],
     creatorSocketId: null,
+    reconnectHandler: null,
   };
 }
 
 /** Reset to idle (after a game ends or the creator aborts during setup). */
 export function resetServerState(state: ServerState): void {
-  state.phase = 'idle';
-  state.humanCount = 0;
-  state.seats = [];
+  state.phase           = 'idle';
+  state.humanCount      = 0;
+  state.seats           = [];
   state.creatorSocketId = null;
+  state.reconnectHandler = null;
 }
 
 /**
