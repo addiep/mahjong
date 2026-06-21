@@ -72,10 +72,19 @@
  *  - AI: HeuristicController.getDiscardAction now declares DECLARE_ADDED_KONG
  *    whenever the condition is met (Module 4.4 refinement).
  *  - Online mode: handleOnlineAddKong emits the action to the server.
- *  - Online event detection: added-kong events detected by diffing pung→open_kong
+ *  - Online event detection: added-kong events detected by diffing pung->open_kong
  *    meld transitions and logged to the sidebar.
  *  - Fixed a bug in the online meld detection that used newMeld.kind (which does
  *    not exist on DeclaredMeld) instead of newMeld.type.
+ *
+ * Online event attribution fixes (2026-06-21):
+ *  - Discard attribution: prev.currentSeat was stale when React batched rapid AI
+ *    state updates, causing discards to be credited to the wrong player. Fixed by
+ *    using onlineState.currentSeat when phase is CLAIM_WINDOW (where currentSeat
+ *    is always the discarder).
+ *  - Meld claim attribution: prev.discardPool[last] was stale for the same reason,
+ *    causing phantom claims like "AI West chowed the white dragon". Fixed by reading
+ *    the tile name from newMeld.tiles[0] (the meld itself) instead.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -310,8 +319,18 @@ export function App() {
   // -- Online: detect game events for the event sidebar -----
   // Diffs each incoming game_state against the previous one to infer what just
   // happened (discard, claim, added kong, win/draw) and logs it for the sidebar.
-  // Discard pool tiles and meld tiles are always real (never placeholders), so
-  // tileName() is safe to call on them.
+  //
+  // Important: React 18 automatic batching means that when the server sends
+  // several game_state events in rapid succession (e.g. multiple AI moves),
+  // multiple setOnlineState calls can collapse into a single render, making
+  // prevOnlineStateRef skip intermediate states. The attribution logic below
+  // accounts for this:
+  //
+  //  - Discard: use onlineState.currentSeat when phase is CLAIM_WINDOW, because
+  //    currentSeat is always the discarder in that phase, regardless of batching.
+  //  - Meld claims: read the tile name from newMeld.tiles[0] (the meld itself)
+  //    rather than from prev.discardPool, which may point to a tile from several
+  //    turns ago if states were batched.
 
   useEffect(() => {
     if (!onlineState) return;
@@ -319,29 +338,37 @@ export function App() {
     prevOnlineStateRef.current = onlineState;
     if (!prev) return;
 
-    // Detect a new discard: pool grew by one tile.
-    if (onlineState.discardPool.length > prev.discardPool.length) {
+    // Detect a new discard: pool grew by exactly one tile.
+    if (onlineState.discardPool.length === prev.discardPool.length + 1) {
       const newTile = onlineState.discardPool[onlineState.discardPool.length - 1];
-      const discarder = onlineState.players[prev.currentSeat];
+      // In CLAIM_WINDOW the currentSeat is always the discarder, so use it
+      // directly. prev.currentSeat can be stale when React batches rapid AI
+      // state updates and skips intermediate DISCARDING states.
+      const discarderSeat = onlineState.phase === 'CLAIM_WINDOW'
+        ? onlineState.currentSeat
+        : prev.currentSeat;
+      const discarder = onlineState.players[discarderSeat];
       if (discarder && newTile) {
         logEvent(`${discarder.name} discarded the ${tileName(newTile)}`);
       }
     }
 
     // Detect a new meld via discard claim (pung, kong, chow): meld count grew.
+    // Read the tile name from the meld itself, not from prev.discardPool, which
+    // may be stale when multiple states are batched (causing the wrong tile --
+    // e.g. a dragon discarded two turns ago -- to be attributed to a new claim).
     onlineState.players.forEach((player, i) => {
       const prevPlayer = prev.players[i];
       if (!prevPlayer || player.melds.length <= prevPlayer.melds.length) return;
       const newMeld = player.melds[player.melds.length - 1];
       if (!newMeld) return;
-      const claimedTile = prev.discardPool[prev.discardPool.length - 1];
+      const representativeTile = newMeld.tiles[0];
+      if (!representativeTile) return;
       const verb = (newMeld.type === 'open_kong' || newMeld.type === 'concealed_kong')
         ? 'konged'
         : newMeld.type === 'pung' ? 'punged'
         : 'chowed';
-      if (claimedTile) {
-        logEvent(`${player.name} ${verb} the ${tileName(claimedTile)}`);
-      }
+      logEvent(`${player.name} ${verb} the ${tileName(representativeTile)}`);
     });
 
     // Detect an added kong: a pung meld promoted to open_kong (meld count stays the same).
