@@ -79,7 +79,7 @@ function buildCounts(tiles: readonly Tile[]): Counts {
   return { suited, honours, hasBonus, total };
 }
 
-// ─── Structural decomposition (count space) ─────────────────────────────────────
+// ─── Structural decomposition (count space) ─────────────────────────────────
 
 type SuitedValue = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
@@ -440,7 +440,7 @@ function isNonStandardSpecialWin(tiles: readonly Tile[], config: GameConfig): bo
   return false;
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────────
+// ─── Public API ────────────────────────────────────────────────────────────────
 
 /**
  * The binary win detector. `hand` is the full concealed hand INCLUDING the

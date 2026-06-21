@@ -217,7 +217,7 @@ describe('special & limit hands', () => {
   });
 });
 
-// ─── New & changed special hands ─────────────────────────────────────────────
+// ─── New & changed special hands ──────────────────────────────────────────────
 describe('rule-change special hands', () => {
   it('Mixed Pungs fires for a fully-concealed no-chow hand', () => {
     const concealed = [...x3(B, 2), ...x3(C, 3), ...x3(O, 4), ...x3(B, 6), ...pr(C, 7)];
