@@ -3,6 +3,11 @@
  *
  * filterStateForSeat  -- strips opponent concealed tiles before broadcasting;
  *                        at HAND_OVER also reveals the winner's hand.
+ * computeEvents       -- derives the human-readable event lines for the sidebar
+ *                        by diffing consecutive states. Runs server-side in
+ *                        broadcastState, which sees every engine dispatch, so it
+ *                        is immune to the client-side React batching that used
+ *                        to drop the discard a player makes right after a claim.
  * FallbackController  -- bridges game_action socket events to PlayerController;
  *                        falls back to the AI on disconnect or turn timeout
  *                        (Module 3.4); supports mid-hand socket reattach for
@@ -27,6 +32,9 @@ import {
   buildWall,
   createGameState,
   DEFAULT_CONFIG,
+  isSuited,
+  isWind,
+  isDragon,
 } from '@mahjong/engine';
 import type { ServerToClientEvents, ClientToServerEvents, GameActionPayload } from './events.js';
 import type { ServerState } from './server-state.js';
@@ -40,6 +48,90 @@ type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 /** Milliseconds a human seat gets to respond before the AI takes over. */
 const TURN_TIMEOUT_MS = 60_000;
+
+// ---------------------------------------------------------------------------
+// Event derivation (authoritative -- runs on every engine dispatch)
+// ---------------------------------------------------------------------------
+
+/** Human-readable tile name, e.g. '3 of bamboo', 'east wind', 'red dragon'. */
+function tileName(tile: Tile): string {
+  if (isSuited(tile)) return `${tile.value} of ${tile.suit}`;
+  if (isWind(tile))   return `${tile.wind} wind`;
+  if (isDragon(tile)) return `${tile.dragon} dragon`;
+  return 'bonus tile';
+}
+
+/**
+ * Diffs the previous state against the next one and returns the event lines to
+ * show in the sidebar. Called from broadcastState after every dispatch, so
+ * `prev` is always the immediately preceding state -- no intermediate state is
+ * ever skipped (unlike the old client-side diff, which lost events whenever
+ * React batched several game_state messages into one render).
+ *
+ * Detected events:
+ *   - a discard (pool grew by one);
+ *   - a claimed meld pung/kong/chow (a player's meld count grew);
+ *   - an added kong (an existing pung promoted to an open kong in place);
+ *   - the end of the hand (a win or a wall-exhaustion draw).
+ */
+function computeEvents(prev: GameState | null, next: GameState): string[] {
+  if (!prev) return [];
+  const out: string[] = [];
+
+  // New discard: the pool grew by exactly one tile. After a DISCARD the phase
+  // is CLAIM_WINDOW with currentSeat = the discarder (claiming a tile shrinks
+  // the pool instead, so this never misfires on a claim).
+  if (next.discardPool.length === prev.discardPool.length + 1) {
+    const tile = next.discardPool[next.discardPool.length - 1];
+    const seat = next.phase === 'CLAIM_WINDOW' ? next.currentSeat : prev.currentSeat;
+    const player = next.players[seat];
+    if (player && tile) out.push(`${player.name} discarded the ${tileName(tile)}`);
+  }
+
+  // New claimed meld (pung / kong / chow): a player's meld count grew. The
+  // claimed tile is appended last by the engine's resolve helpers, so name it
+  // from the meld itself.
+  next.players.forEach((player, i) => {
+    const prevPlayer = prev.players[i];
+    if (!prevPlayer || player.melds.length <= prevPlayer.melds.length) return;
+    const newMeld = player.melds[player.melds.length - 1];
+    if (!newMeld) return;
+    const tile = newMeld.tiles[newMeld.tiles.length - 1];
+    if (!tile) return;
+    const verb =
+      newMeld.type === 'open_kong' || newMeld.type === 'concealed_kong' ? 'konged'
+      : newMeld.type === 'pung' ? 'punged'
+      : 'chowed';
+    out.push(`${player.name} ${verb} the ${tileName(tile)}`);
+  });
+
+  // Added kong: an existing pung was promoted to an open kong in place, so the
+  // meld count stays the same and the loop above does not catch it.
+  next.players.forEach((player, i) => {
+    const prevPlayer = prev.players[i];
+    if (!prevPlayer) return;
+    player.melds.forEach((meld, mi) => {
+      const prevMeld = prevPlayer.melds[mi];
+      if (prevMeld?.type === 'pung' && meld.type === 'open_kong') {
+        const tile = meld.tiles[meld.tiles.length - 1];
+        if (tile) out.push(`${player.name} added a kong of ${tileName(tile)}s`);
+      }
+    });
+  });
+
+  // Hand over: a win or a wall-exhaustion draw.
+  if (next.phase === 'HAND_OVER' && prev.phase !== 'HAND_OVER') {
+    const hr = next.handResult;
+    if (hr?.reason === 'draw') {
+      out.push('Wall exhausted -- no winner this hand.');
+    } else if (hr && hr.winnerSeat !== null) {
+      const winner = next.players[hr.winnerSeat];
+      if (winner) out.push(`${winner.name} declared Mah Jong!`);
+    }
+  }
+
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Per-seat state filtering
@@ -264,10 +356,25 @@ export async function startGameSession(
 
   // Track the most recent state so reconnectors receive it immediately.
   let lastKnownState: GameState | null = null;
+  // Previous state for authoritative event detection. Reset to null at the
+  // start of each hand so event lines never bleed across the deal boundary.
+  let prevEventState: GameState | null = null;
+
+  /** Send a one-line event description to every connected human socket. */
+  function emitEvent(message: string): void {
+    for (const socket of humanSockets.values()) {
+      socket.emit('game_event', message);
+    }
+  }
 
   /** Emit a filtered snapshot to every connected human socket. */
   function broadcastState(state: GameState): void {
     lastKnownState = state;
+    // Derive and send event lines BEFORE the state snapshot. This runs after
+    // every single engine dispatch, so prevEventState is always the immediately
+    // preceding state and no move is ever missed.
+    for (const message of computeEvents(prevEventState, state)) emitEvent(message);
+    prevEventState = state;
     for (const [seat, socket] of humanSockets) {
       socket.emit('game_state', filterStateForSeat(state, seat));
     }
@@ -308,6 +415,8 @@ export async function startGameSession(
       const deal         = buildWall(4, false);
       const initialState = createGameState(HAND_CONFIG, deal, names);
 
+      // Fresh hand: do not carry event diffing across the deal boundary.
+      prevEventState = null;
       broadcastState(initialState);
 
       const runner     = new GameRunner(initialState, controllers, broadcastState);
