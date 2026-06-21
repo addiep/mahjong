@@ -32,7 +32,7 @@ export interface TileProps {
    * - 'gold'  — newly drawn tile
    * - 'red'   — most recently discarded tile (claim window)
    */
-  readonly highlight?: 'gold' | 'red';
+  readonly highlight?: 'gold' | 'red' | undefined;
   readonly onClick?: () => void;
   readonly className?: string;
   /** Accessible label; defaults to a generated description of the tile. */

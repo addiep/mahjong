@@ -53,21 +53,21 @@ function seatPositions(playerCount: number): SeatPosition[] {
 
 export interface BoardProps {
   readonly state: GameState;
-  readonly localSeat?: SeatIndex;
-  readonly revealAll?: boolean;
-  readonly onDiscard?: (tileId: TileId) => void;
-  readonly onDeclareWin?: () => void;
-  readonly onAddKong?: (tileId: TileId) => void;
-  readonly addKongOptions?: readonly { tileId: TileId; label: string }[];
-  readonly onClaimResponse?: (seat: SeatIndex, decision: ClaimDecision) => void;
-  readonly drawnTileId?: TileId | null;
-  readonly savedOrder?: string[];
-  readonly onOrderChange?: (ids: string[]) => void;
-  readonly lastEvents?: readonly string[];
+  readonly localSeat?: SeatIndex | undefined;
+  readonly revealAll?: boolean | undefined;
+  readonly onDiscard?: ((tileId: TileId) => void) | undefined;
+  readonly onDeclareWin?: (() => void) | undefined;
+  readonly onAddKong?: ((tileId: TileId) => void) | undefined;
+  readonly addKongOptions?: readonly { tileId: TileId; label: string }[] | undefined;
+  readonly onClaimResponse?: ((seat: SeatIndex, decision: ClaimDecision) => void) | undefined;
+  readonly drawnTileId?: TileId | null | undefined;
+  readonly savedOrder?: string[] | undefined;
+  readonly onOrderChange?: ((ids: string[]) => void) | undefined;
+  readonly lastEvents?: readonly string[] | undefined;
   /** Running totals from App -- indexed by seat number. Used instead of player.score. */
-  readonly scores?: readonly number[];
+  readonly scores?: readonly number[] | undefined;
   /** Module 5.2 opponent-modelling read-out, shown beneath the scoreboard. */
-  readonly inference?: TableInference;
+  readonly inference?: TableInference | undefined;
   /** Seats a human controls; the ActionBar is hidden for AI pending seats. */
   readonly humanSeats?: ReadonlySet<number> | undefined;
 }
@@ -170,14 +170,14 @@ function SeatPanel({
   isCurrent: boolean;
   faceDown: boolean;
   interactive: boolean;
-  isDiscarding?: boolean;
-  onDiscard?: (tileId: TileId) => void;
-  onDeclareWin?: () => void;
-  onAddKong?: (tileId: TileId) => void;
-  addKongOptions?: readonly { tileId: TileId; label: string }[];
-  drawnTileId?: TileId | null;
-  savedOrder?: string[];
-  onOrderChange?: (ids: string[]) => void;
+  isDiscarding?: boolean | undefined;
+  onDiscard?: ((tileId: TileId) => void) | undefined;
+  onDeclareWin?: (() => void) | undefined;
+  onAddKong?: ((tileId: TileId) => void) | undefined;
+  addKongOptions?: readonly { tileId: TileId; label: string }[] | undefined;
+  drawnTileId?: TileId | null | undefined;
+  savedOrder?: string[] | undefined;
+  onOrderChange?: ((ids: string[]) => void) | undefined;
 }) {
   const vertical = position === 'left' || position === 'right';
   const handSize = position === 'bottom' ? 68 : 50;
@@ -341,9 +341,9 @@ function ScoreSidebar({
   players: readonly PlayerState[];
   prevailingWind: Wind;
   handNumber: number;
-  lastEvents?: readonly string[];
-  scores?: readonly number[];
-  inference?: TableInference;
+  lastEvents?: readonly string[] | undefined;
+  scores?: readonly number[] | undefined;
+  inference?: TableInference | undefined;
   currentSeat: SeatIndex;
 }) {
   return (

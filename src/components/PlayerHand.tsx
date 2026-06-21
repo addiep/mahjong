@@ -69,31 +69,31 @@ export interface PlayerHandProps {
    * the tile), second tap on the same tile calls onDiscard.
    * Upward drag also triggers discard directly.
    */
-  readonly isDiscarding?: boolean;
+  readonly isDiscarding?: boolean | undefined;
   /** Called with the chosen tile's ID when the player confirms a discard. */
-  readonly onDiscard?: (tileId: TileId) => void;
+  readonly onDiscard?: ((tileId: TileId) => void) | undefined;
   /**
    * Called when the player clicks the Mah Jong button (self-draw win).
    * Only shown when the hand is already complete.
    */
-  readonly onDeclareWin?: () => void;
+  readonly onDeclareWin?: (() => void) | undefined;
   /**
    * Options for declaring an added kong: tiles in the concealed hand that
    * match an existing exposed pung. One button is rendered per option.
    * Absent or empty means no button is shown.
    */
-  readonly addKongOptions?: readonly { tileId: TileId; label: string }[];
+  readonly addKongOptions?: readonly { tileId: TileId; label: string }[] | undefined;
   /**
    * Called when the player clicks an Add Kong button. The tileId is the
    * concealed tile to add to the matching exposed pung.
    */
-  readonly onAddKong?: (tileId: TileId) => void;
+  readonly onAddKong?: ((tileId: TileId) => void) | undefined;
   /** ID of the tile just drawn from the wall — shown with a gold border. */
-  readonly drawnTileId?: TileId | null;
+  readonly drawnTileId?: TileId | null | undefined;
   /** Saved display order from the player's previous turn (IDs). */
-  readonly savedOrder?: string[];
+  readonly savedOrder?: string[] | undefined;
   /** Fires whenever the display order changes, for the caller to persist. */
-  readonly onOrderChange?: (ids: string[]) => void;
+  readonly onOrderChange?: ((ids: string[]) => void) | undefined;
 }
 
 export function PlayerHand({
