@@ -50,6 +50,8 @@ interface ServerToClientEvents {
   game_start:   (d: { seat: number }) => void;
   /** Filtered per-seat game state; sent after every engine dispatch. */
   game_state:   (state: GameState) => void;
+  /** One human-readable line per move, for the event sidebar (server-derived). */
+  game_event:   (message: string) => void;
 }
 
 interface ClientToServerEvents {
