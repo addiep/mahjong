@@ -1,3 +1,7 @@
 mj.adamsmith.cv {
     reverse_proxy game-server:3000
 }
+
+chat.adamsmith.cv {
+    reverse_proxy open-webui:8080
+}
