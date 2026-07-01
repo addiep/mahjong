@@ -19,6 +19,7 @@ export * from './inference.js';
 
 
 // Module 4.x -- AI players (Phase 3)
+export * from './ai/targets.js';
 export * from './ai/assessment.js';
 export * from './ai/discard.js';
 export * from './ai/claims.js';

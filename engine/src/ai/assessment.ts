@@ -22,8 +22,22 @@ import {
 } from '../tiles.js';
 import { GameState, SeatIndex } from '../game-state.js';
 import { TableInference } from '../inference.js';
+import {
+  TargetAssessment, scanTargets, buildScanContext, targetSpecByName,
+} from './targets.js';
 
 export type AiMode = 'clean' | 'dirty';
+
+/**
+ * A special hand the AI has committed to this turn (Module 4.6). The target's
+ * keep / seek sets override the keep-values in discard.ts and bias the claim
+ * choices in claims.ts. Re-evaluated every turn, so the AI can adopt or
+ * abandon a target as the hand drifts.
+ */
+export interface SpecialPlan extends TargetAssessment {
+  /** Claiming any meld kills this target (first-group wall-draw rule). */
+  readonly concealedOnly: boolean;
+}
 
 /** The per-turn plan that drives an AI seat's discards and claims. */
 export interface HandPlan {
@@ -33,8 +47,8 @@ export interface HandPlan {
   readonly targetSuit: Suit | null;
   /** The AI's own seat wind (kept like a dragon, since its pung doubles). */
   readonly seatWind:   Wind;
-  /** Special-hand targeting is disabled in the baseline (Module 4.6). */
-  readonly special:    false;
+  /** The special hand the AI is chasing, or null for the normal suit plan (Module 4.6). */
+  readonly special:    SpecialPlan | null;
   /** Per-suit usefulness scores, for tests and the hint panel. */
   readonly suitScores: Readonly<Record<Suit, number>>;
 }
@@ -45,6 +59,50 @@ export interface HandPlan {
  * baseline; tunable (DESIGN Module 4.2 / Decisions Log 2026-06-19).
  */
 export const DIRTY_SWITCH_TURN = 5;
+
+// --- Special-hand commit policy (Module 4.6) -----
+
+/**
+ * pComplete: a small calibrated table of the chance of completing a target
+ * that is `away` tile-swaps from done, given enough turns. Indexed by `away`
+ * (0-4); 5+ away is treated as hopeless. Deliberately rough -- special scores
+ * dwarf normal hands, so feasibility matters more than precise probabilities.
+ */
+const P_COMPLETE = [1, 0.45, 0.2, 0.08, 0.03] as const;
+
+/** Rough expected value of playing on with the normal suit plan. */
+const NORMAL_PLAN_EV = 40;
+
+/** A special must clearly win: commit only when its EV is this multiple of normal. */
+const COMMIT_MARGIN = 2;
+
+/**
+ * Decide whether to commit to a special hand this turn. Runs scanTargets on
+ * the seat's own hand; for each non-blocked target computes
+ * `EV = pComplete(away) x score` and commits to the best only when it clearly
+ * beats the normal plan and is still feasible in the turns remaining.
+ */
+export function chooseSpecialTarget(state: GameState, seat: SeatIndex): SpecialPlan | null {
+  const player = state.players[seat]!;
+  const ctx = buildScanContext(state, seat);
+  const ranked = scanTargets({ concealed: player.concealed, melds: player.melds }, ctx);
+
+  const turnsLeft = Math.floor(state.wall.live.length / state.config.playerCount);
+
+  let best: { plan: SpecialPlan; ev: number } | null = null;
+  for (const t of ranked) {
+    if (t.blocked || t.away >= P_COMPLETE.length) continue;
+    if (t.away > turnsLeft) continue;                 // cannot finish in time
+    const ev = P_COMPLETE[t.away]! * t.score;
+    if (!best || ev > best.ev) {
+      const spec = targetSpecByName(t.name);
+      best = { plan: { ...t, concealedOnly: spec?.concealedOnly ?? true }, ev };
+    }
+  }
+
+  if (best && best.ev >= NORMAL_PLAN_EV * COMMIT_MARGIN) return best.plan;
+  return null;
+}
 
 // --- Weights (tunable) -----
 const W = {
@@ -196,7 +254,7 @@ export function assessHand(
     mode,
     targetSuit: mode === 'dirty' ? null : targetSuit,
     seatWind:   player.seatWind,
-    special:    false,
+    special:    chooseSpecialTarget(state, seat),
     suitScores,
   };
 }
