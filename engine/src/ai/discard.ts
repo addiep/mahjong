@@ -63,6 +63,17 @@ const KEEP = {
   inTriplet:         15,
 } as const;
 
+// --- Special-hand keep-value override (Module 4.6) -----
+//
+// When the plan carries a committed special target, its keep set (one entry
+// per copy needed) overrides the normal keep-values entirely: needed copies
+// rank far above everything (SPECIAL_KEEP), spare copies of a needed kind
+// rank above the ordinary junk ordering (SPECIAL_SPARE) so genuine offenders
+// are shed first, and tiles the target does not use fall through to the
+// normal ordering (all of which sits below SPECIAL_SPARE).
+const SPECIAL_KEEP  = 100;
+const SPECIAL_SPARE = 50;
+
 function countByKey(tiles: readonly Tile[]): Map<string, number> {
   const m = new Map<string, number>();
   for (const t of tiles) {
@@ -97,6 +108,14 @@ function runValueSet(
 export function keepValue(tile: Tile, plan: HandPlan, concealed: readonly Tile[]): number {
   const counts = countByKey(concealed);
   const c = counts.get(tileKey(tile) as string) ?? 0;
+
+  if (plan.special) {
+    const key = tileKey(tile);
+    let needed = 0;
+    for (const k of plan.special.keep) if (k === key) needed += 1;
+    if (needed > 0) return c <= needed ? SPECIAL_KEEP : SPECIAL_SPARE;
+    // Not part of the target: fall through to the normal ordering (junk first).
+  }
 
   if (isDragon(tile)) return c >= 3 ? KEEP.honourTriplet : c >= 2 ? KEEP.dragonPair : KEEP.dragon;
 

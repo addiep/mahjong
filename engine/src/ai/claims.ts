@@ -19,6 +19,8 @@
  *     already virtually present in hand and leave a spare copy to throw away —
  *     a wasted turn.  Two held copies are not suppressed: the claim leaves a
  *     pair behind, which can be worth keeping.
+ *   - Committed special target (Module 4.6): the target's seek set drives the
+ *     claim; concealed-only targets never claim anything short of the win.
  *
  * Dependencies: tiles.ts, game-state.ts, claim-window.ts, hand-evaluator.ts,
  * assessment.ts. No UI, no side effects.
@@ -32,6 +34,12 @@ import { GameState, SeatIndex, ClaimDecision } from '../game-state.js';
 import { canPung, canChow } from '../claim-window.js';
 import { isWinningHand } from '../hand-evaluator.js';
 import { HandPlan } from './assessment.js';
+
+/** Green tiles for Imperial Jade: bamboo 2,3,4,6,8 and the Green Dragon. */
+function isGreen(t: Tile): boolean {
+  if (isSuited(t)) return t.suit === 'bamboo' && [2, 3, 4, 6, 8].includes(t.value);
+  return isDragon(t) && t.dragon === 'green';
+}
 
 /** The discard currently on offer (last tile of the pool), or null. */
 function tileOnOffer(state: GameState): Tile | null {
@@ -136,6 +144,29 @@ export function chooseClaimDecision(state: GameState, seat: SeatIndex, plan: Han
   // 1. Win whenever legal.
   if (isWinningHand([...concealed, discard], player.melds, state.config)) {
     return { type: 'win' };
+  }
+
+  // 1b. Committed special target (Module 4.6): the target's seek set drives
+  //     the claim, and the concealed-only rule is absolute -- never claim a
+  //     discard if it would kill the first-group hand being chased.
+  if (plan.special) {
+    if (plan.special.concealedOnly) return { type: 'pass' };
+    const key = tileKey(discard);
+    if (canPung(concealed, discard) && plan.special.seek.includes(key)) {
+      return { type: 'pung' };
+    }
+    // Chows only help Imperial Jade (the one 4.6a target that allows them),
+    // and only when every tile of the sequence is green.
+    if (plan.special.name === 'Imperial Jade' && isGreen(discard)) {
+      const count = state.config.playerCount;
+      const rightSeat = ((state.currentSeat + 1) % count) as SeatIndex;
+      if (seat === rightSeat && canChow(concealed, discard)) {
+        const green = chowOptions(concealed, discard).find(pair =>
+          pair.every(id => { const t = concealed.find(x => x.id === id); return t !== undefined && isGreen(t); }));
+        if (green) return { type: 'chow', chowTiles: green };
+      }
+    }
+    return { type: 'pass' };
   }
 
   // 2. Pung if it fits the plan.
