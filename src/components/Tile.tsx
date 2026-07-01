@@ -1,11 +1,18 @@
 /**
- * Module 2.1 — UI: Tile Component
+ * Module 2.1 — UI: Tile Component (visual polish pass, Module 2.7)
  *
  * Renders any engine `Tile` as a self-contained, scalable SVG. No external
  * assets and no licensing concerns: every one of the 36 designs is drawn here
- * (Chinese numerals/characters as text, geometric pips for Dots, stick motifs
- * for Bamboo with a bird for the 1, and labelled bonus tiles). The tile face
- * uses fixed physical colours so it looks identical in light and dark mode.
+ * (Chinese numerals/characters as text, rosette pips for Dots, jointed stick
+ * motifs for Bamboo with a bird for the 1, and labelled bonus tiles). The tile
+ * face uses fixed physical colours so it looks identical in light and dark mode.
+ *
+ * Visual polish (2026-07-01): tiles are drawn as physical objects — an ivory
+ * face layer with a subtle vertical gradient and bevel sits on a coloured
+ * resin base that shows along the bottom edge (the classic two-layer tile).
+ * Dots are proper rosettes (the 1-Dot a large ornate one), Bamboo sticks are
+ * jointed capsules, the White Dragon has a stepped frame, and the face-down
+ * back carries a lattice motif on the reversed layer scheme.
  *
  * Characters carry a small Latin digit (1–9) and Winds an E/S/W/N letter in the
  * corner, so players who can't read the Chinese can still identify them at a glance.
@@ -42,11 +49,16 @@ export interface TileProps {
 // ─── Palette (fixed physical colours; identical in light/dark mode) ─────────────
 
 const COL = {
-  faceFill: '#F7F4EA', faceEdge: '#CFC8B4', faceInner: '#E7E1D0', ink: '#2A2A22',
+  faceHi: '#FBF8EF', faceFill: '#F4F0E2', faceLo: '#E9E3D0',
+  faceEdge: '#C6BEA6', bevelHi: '#FFFFFF', bevelLo: '#D8D1BC', ink: '#2A2A22',
   corner: '#6B6657',
-  red: '#C2362B', green: '#2E7D32', greenDk: '#1B5E20', blue: '#225E9B', navy: '#1F3A5F',
+  baseHi: '#2E8A70', baseLo: '#1B5646', baseEdge: '#123F34',
+  red: '#C2362B', redDk: '#8E2118',
+  green: '#2E7D32', greenDk: '#1B5E20', greenHi: '#4C9B50',
+  blue: '#225E9B', navy: '#1F3A5F',
   purple: '#6E4FA3', amber: '#BD8A18', selected: '#2E7D32',
-  back: '#1F6F5C', backEdge: '#15523F', backMotif: '#52A98F',
+  backHi: '#27836C', backFill: '#1F6F5C', backLo: '#164F41', backEdge: '#0F3B30',
+  backMotif: '#57B294', backMotifDim: '#3D8F76',
   gold: '#D4A017', highlightRed: '#C2362B',
 } as const;
 
@@ -55,15 +67,15 @@ const CJK = "'Noto Serif SC','Songti SC','SimSun','STSong',serif";
 // ─── Pip / stick layouts (cx, cy within the 54×74 face) ─────────────────────────
 
 const LAYOUTS: Record<number, ReadonlyArray<readonly [number, number]>> = {
-  1: [[27, 37]],
-  2: [[27, 21], [27, 53]],
-  3: [[14, 18], [27, 37], [40, 56]],
-  4: [[16, 21], [38, 21], [16, 53], [38, 53]],
-  5: [[16, 21], [38, 21], [27, 37], [16, 53], [38, 53]],
-  6: [[16, 19], [38, 19], [16, 37], [38, 37], [16, 55], [38, 55]],
-  7: [[14, 16], [27, 16], [40, 16], [16, 40], [38, 40], [16, 57], [38, 57]],
-  8: [[16, 15], [16, 30], [16, 44], [16, 59], [38, 15], [38, 30], [38, 44], [38, 59]],
-  9: [[14, 18], [27, 18], [40, 18], [14, 37], [27, 37], [40, 37], [14, 56], [27, 56], [40, 56]],
+  1: [[27, 35]],
+  2: [[27, 20], [27, 50]],
+  3: [[14, 17], [27, 35], [40, 53]],
+  4: [[16, 20], [38, 20], [16, 50], [38, 50]],
+  5: [[16, 20], [38, 20], [27, 35], [16, 50], [38, 50]],
+  6: [[16, 18], [38, 18], [16, 35], [38, 35], [16, 52], [38, 52]],
+  7: [[14, 15], [27, 15], [40, 15], [16, 38], [38, 38], [16, 54], [38, 54]],
+  8: [[16, 13], [16, 28], [16, 43], [16, 58], [38, 13], [38, 28], [38, 43], [38, 58]],
+  9: [[14, 17], [27, 17], [40, 17], [14, 35], [27, 35], [40, 35], [14, 53], [27, 53], [40, 53]],
 };
 
 const NUMERALS = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'] as const;
@@ -80,41 +92,111 @@ function CjkGlyph({ ch, x, y, size, fill }: { ch: string; x: number; y: number; 
 /** Small Latin label in the top-left corner (digit for Characters, letter for Winds). */
 function CornerLabel({ text }: { text: string }) {
   return (
-    <text x={9} y={12} fontFamily="sans-serif" fontSize={11} fontWeight={500} fill={COL.corner}
+    <text x={9} y={11} fontFamily="sans-serif" fontSize={10} fontWeight={600} fill={COL.corner}
       textAnchor="middle" dominantBaseline="central">{text}</text>
   );
 }
 
-function Pip({ cx, cy }: { cx: number; cy: number }) {
+/**
+ * A dot pip drawn as a rosette: outer ring, a circle of petals, and a red
+ * centre — much closer to real circle tiles than plain concentric rings.
+ */
+function Pip({ cx, cy, r = 5.4 }: { cx: number; cy: number; r?: number }) {
+  const petals = 6;
+  const petalR = r * 0.62;
+  const petalSize = r * 0.30;
   return (
     <g>
-      <circle cx={cx} cy={cy} r={4.9} fill={COL.blue} />
-      <circle cx={cx} cy={cy} r={2.8} fill={COL.faceFill} />
-      <circle cx={cx} cy={cy} r={1.4} fill={COL.red} />
+      <circle cx={cx} cy={cy} r={r} fill={COL.blue} />
+      <circle cx={cx} cy={cy} r={r * 0.82} fill={COL.faceFill} />
+      {Array.from({ length: petals }, (_, i) => {
+        const a = (i / petals) * Math.PI * 2 - Math.PI / 2;
+        return (
+          <circle key={i}
+            cx={cx + Math.cos(a) * petalR} cy={cy + Math.sin(a) * petalR}
+            r={petalSize} fill={i % 2 === 0 ? COL.green : COL.blue} />
+        );
+      })}
+      <circle cx={cx} cy={cy} r={r * 0.3} fill={COL.red} />
     </g>
   );
 }
 
+/** The 1-Dot: a single large ornate rosette filling the face. */
+function BigPip() {
+  const cx = 27, cy = 36;
+  const petals = 8;
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={17.5} fill={COL.blue} />
+      <circle cx={cx} cy={cy} r={16} fill={COL.faceFill} />
+      <circle cx={cx} cy={cy} r={13.5} fill="none" stroke={COL.blue} strokeWidth={0.8}
+        strokeDasharray="2.4 1.6" />
+      {Array.from({ length: petals }, (_, i) => {
+        const a = (i / petals) * Math.PI * 2 - Math.PI / 2;
+        return (
+          <g key={i}>
+            <circle cx={cx + Math.cos(a) * 10} cy={cy + Math.sin(a) * 10} r={2.6}
+              fill={i % 2 === 0 ? COL.red : COL.green} />
+            <circle cx={cx + Math.cos(a) * 10} cy={cy + Math.sin(a) * 10} r={1.1}
+              fill={COL.faceFill} />
+          </g>
+        );
+      })}
+      <circle cx={cx} cy={cy} r={5} fill={COL.red} />
+      <circle cx={cx} cy={cy} r={3.2} fill={COL.amber} />
+      <circle cx={cx} cy={cy} r={1.5} fill={COL.red} />
+    </g>
+  );
+}
+
+/**
+ * A bamboo stick drawn as two jointed capsule segments with a node band and a
+ * light highlight, rather than a flat rounded rectangle.
+ */
 function Stick({ cx, cy, colour }: { cx: number; cy: number; colour: string }) {
+  const dark = colour === COL.red ? COL.redDk : COL.greenDk;
+  const hi = colour === COL.red ? '#E06B5F' : COL.greenHi;
   return (
     <g>
-      <rect x={cx - 2.8} y={cy - 8} width={5.6} height={16} rx={2.8} fill={colour} />
-      <line x1={cx - 2.8} y1={cy - 2.5} x2={cx + 2.8} y2={cy - 2.5} stroke={COL.greenDk} strokeWidth={0.9} />
-      <line x1={cx - 2.8} y1={cy + 2.5} x2={cx + 2.8} y2={cy + 2.5} stroke={COL.greenDk} strokeWidth={0.9} />
+      {/* two capsule segments (total height 11 so dense layouts never touch) */}
+      <rect x={cx - 2.5} y={cy - 5.5} width={5} height={4.9} rx={1.8} fill={colour} stroke={dark} strokeWidth={0.5} />
+      <rect x={cx - 2.5} y={cy + 0.6} width={5} height={4.9} rx={1.8} fill={colour} stroke={dark} strokeWidth={0.5} />
+      {/* node band */}
+      <rect x={cx - 3} y={cy - 0.8} width={6} height={1.6} rx={0.8} fill={dark} />
+      {/* highlight */}
+      <line x1={cx - 1.1} y1={cy - 4.3} x2={cx - 1.1} y2={cy - 1.6} stroke={hi} strokeWidth={0.8} strokeLinecap="round" />
+      <line x1={cx - 1.1} y1={cy + 1.8} x2={cx - 1.1} y2={cy + 4.5} stroke={hi} strokeWidth={0.8} strokeLinecap="round" />
     </g>
   );
 }
 
+/** The 1-Bamboo bird (a sparrow perched on a bamboo shoot). */
 function Bird() {
   return (
     <g>
-      <ellipse cx={27} cy={42} rx={11} ry={8} fill={COL.green} />
-      <circle cx={34} cy={31} r={6} fill={COL.green} />
-      <path d="M39 30 L46 28 L40 34 Z" fill={COL.amber} />
-      <circle cx={35.5} cy={30} r={1.4} fill={COL.ink} />
-      <path d="M16 40 Q9 36 8 47 Q15 46 19 44 Z" fill={COL.red} />
-      <path d="M22 49 Q24 58 20 60 M30 49 Q31 58 27 60" stroke={COL.greenDk} strokeWidth={1.5} fill="none" />
-      <path d="M20 44 Q27 50 34 45" stroke={COL.greenDk} strokeWidth={1} fill="none" />
+      {/* bamboo shoot it perches on */}
+      <rect x={12} y={52} width={30} height={3.6} rx={1.8} fill={COL.green} stroke={COL.greenDk} strokeWidth={0.6} />
+      <rect x={25} y={51.4} width={4} height={4.8} rx={1} fill={COL.greenDk} />
+      {/* tail feathers */}
+      <path d="M14 42 Q5 36 6 48 Q12 47 18 44 Z" fill={COL.red} stroke={COL.redDk} strokeWidth={0.6} />
+      <path d="M15 44 Q8 42 8 50 Q14 49 19 46 Z" fill={COL.amber} stroke={COL.redDk} strokeWidth={0.4} />
+      {/* body */}
+      <path d="M16 40 Q16 31 25 30 Q36 29 37 38 Q37 47 27 48 Q17 48 16 40 Z"
+        fill={COL.green} stroke={COL.greenDk} strokeWidth={0.8} />
+      {/* wing */}
+      <path d="M20 38 Q26 33 33 37 Q28 43 21 42 Q19 40 20 38 Z"
+        fill={COL.greenDk} opacity={0.85} />
+      <path d="M22 39.5 Q27 36 31 38.5" stroke={COL.greenHi} strokeWidth={0.8} fill="none" />
+      {/* head */}
+      <circle cx={36} cy={28} r={6.2} fill={COL.green} stroke={COL.greenDk} strokeWidth={0.8} />
+      {/* beak */}
+      <path d="M41.5 26.5 L48.5 25 L42.5 30.5 Z" fill={COL.amber} stroke={COL.redDk} strokeWidth={0.4} />
+      {/* eye */}
+      <circle cx={37.5} cy={27} r={1.6} fill="#fff" />
+      <circle cx={37.9} cy={27.2} r={0.9} fill={COL.ink} />
+      {/* legs */}
+      <path d="M24 48 L23 52.5 M29 48 L29.5 52.5" stroke={COL.redDk} strokeWidth={1.3} strokeLinecap="round" />
     </g>
   );
 }
@@ -123,7 +205,8 @@ function Badge({ n, colour }: { n: number; colour: string }) {
   return (
     <g>
       <circle cx={12} cy={13} r={7} fill={colour} />
-      <text x={12} y={13} fontFamily="sans-serif" fontSize={9} fill="#fff" fontWeight={500}
+      <circle cx={12} cy={13} r={7} fill="none" stroke="rgba(0,0,0,0.25)" strokeWidth={0.8} />
+      <text x={12} y={13} fontFamily="sans-serif" fontSize={9} fill="#fff" fontWeight={600}
         textAnchor="middle" dominantBaseline="central">{n}</text>
     </g>
   );
@@ -134,13 +217,15 @@ function Badge({ n, colour }: { n: number; colour: string }) {
 function Characters({ value }: { value: SuitedValue }) {
   return (<>
     <CornerLabel text={String(value)} />
-    <CjkGlyph ch={NUMERALS[value]} x={27} y={28} size={22} fill={COL.ink} />
-    <CjkGlyph ch="萬" x={27} y={56} size={21} fill={COL.red} />
+    <CjkGlyph ch={NUMERALS[value]} x={27} y={26} size={22} fill={COL.ink} />
+    <CjkGlyph ch="萬" x={27} y={52} size={22} fill={COL.red} />
   </>);
 }
 
 function Dots({ value }: { value: SuitedValue }) {
-  return <>{LAYOUTS[value]!.map(([cx, cy], i) => <Pip key={i} cx={cx} cy={cy} />)}</>;
+  if (value === 1) return <BigPip />;
+  const r = value >= 8 ? 4.6 : value >= 6 ? 5.0 : 5.6;
+  return <>{LAYOUTS[value]!.map(([cx, cy], i) => <Pip key={i} cx={cx} cy={cy} r={r} />)}</>;
 }
 
 function Bamboo({ value }: { value: SuitedValue }) {
@@ -162,17 +247,30 @@ function WindFace({ wind }: { wind: Wind }) {
   const w = WINDS[wind];
   return (<>
     <CornerLabel text={w.letter} />
-    <CjkGlyph ch={w.glyph} x={28} y={40} size={29} fill={COL.navy} />
+    <circle cx={27} cy={37} r={19} fill="none" stroke={COL.navy} strokeWidth={0.9} opacity={0.35} />
+    <CjkGlyph ch={w.glyph} x={27} y={37} size={28} fill={COL.navy} />
   </>);
 }
 
+/** The White Dragon's classic stepped frame. */
+function WhiteDragonFrame() {
+  // A rectangular frame with notched (stepped) corners, drawn as one path.
+  const outer = `
+    M 18 12 H 36 V 16 H 40 V 20 H 44 V 54 H 40 V 58 H 36 V 62 H 18 V 58 H 14 V 54 H 10 V 20 H 14 V 16 H 18 Z`;
+  const inner = `
+    M 20.5 17 H 33.5 V 20.5 H 37 V 24 H 39 V 50 H 37 V 53.5 H 33.5 V 57 H 20.5 V 53.5 H 17 V 50 H 15 V 24 H 17 V 20.5 H 20.5 Z`;
+  return (
+    <g>
+      <path d={outer} fill="none" stroke={COL.blue} strokeWidth={2} strokeLinejoin="miter" />
+      <path d={inner} fill="none" stroke={COL.blue} strokeWidth={0.9} strokeLinejoin="miter" opacity={0.75} />
+    </g>
+  );
+}
+
 function DragonFace({ dragon }: { dragon: Dragon }) {
-  if (dragon === 'red') return <CjkGlyph ch="中" x={27} y={38} size={30} fill={COL.red} />;
-  if (dragon === 'green') return <CjkGlyph ch="發" x={27} y={38} size={28} fill={COL.green} />;
-  return (<>
-    <rect x={13} y={15} width={28} height={44} rx={3} fill="none" stroke={COL.blue} strokeWidth={1.6} />
-    <rect x={16.5} y={18.5} width={21} height={37} rx={2} fill="none" stroke={COL.blue} strokeWidth={0.8} />
-  </>);
+  if (dragon === 'red') return <CjkGlyph ch="中" x={27} y={36} size={31} fill={COL.red} />;
+  if (dragon === 'green') return <CjkGlyph ch="發" x={27} y={36} size={29} fill={COL.green} />;
+  return <WhiteDragonFrame />;
 }
 
 const FLOWER: Record<Flower, { ch: string; colour: string; index: number }> = {
@@ -192,7 +290,16 @@ const SEASON: Record<Season, { ch: string; colour: string; index: number }> = {
 function BonusFace({ ch, colour, index }: { ch: string; colour: string; index: number }) {
   return (<>
     <Badge n={index} colour={colour} />
-    <CjkGlyph ch={ch} x={28} y={41} size={26} fill={colour} />
+    {/* a soft petal wash behind the glyph so bonus tiles read as special */}
+    <g opacity={0.14}>
+      {Array.from({ length: 5 }, (_, i) => {
+        const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
+        return <ellipse key={i} cx={27 + Math.cos(a) * 9} cy={39 + Math.sin(a) * 9}
+          rx={7} ry={4.5} fill={colour}
+          transform={`rotate(${(a * 180) / Math.PI + 90} ${27 + Math.cos(a) * 9} ${39 + Math.sin(a) * 9})`} />;
+      })}
+    </g>
+    <CjkGlyph ch={ch} x={27} y={39} size={26} fill={colour} />
   </>);
 }
 
@@ -223,6 +330,73 @@ function Face({ tile }: { tile: Tile }): React.ReactElement {
   }
 }
 
+// ─── Shared defs (gradients). Duplicate IDs across tile instances are fine:
+//     every instance defines identical gradients, so whichever the browser
+//     resolves, the result is the same. ───────────────────────────────────────────
+
+function Defs() {
+  return (
+    <defs>
+      <linearGradient id="mjFace" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stopColor={COL.faceHi} />
+        <stop offset="0.55" stopColor={COL.faceFill} />
+        <stop offset="1" stopColor={COL.faceLo} />
+      </linearGradient>
+      <linearGradient id="mjBase" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stopColor={COL.baseHi} />
+        <stop offset="1" stopColor={COL.baseLo} />
+      </linearGradient>
+      <linearGradient id="mjBack" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stopColor={COL.backHi} />
+        <stop offset="0.6" stopColor={COL.backFill} />
+        <stop offset="1" stopColor={COL.backLo} />
+      </linearGradient>
+    </defs>
+  );
+}
+
+/** The physical tile body: coloured resin base with the ivory face layer on top. */
+function TileBody() {
+  return (
+    <g>
+      {/* resin base — its colour shows along the bottom edge */}
+      <rect x={1} y={1} width={52} height={72} rx={7} fill="url(#mjBase)" stroke={COL.baseEdge} strokeWidth={1} />
+      {/* ivory face layer */}
+      <rect x={1} y={1} width={52} height={66.5} rx={6.5} fill="url(#mjFace)" stroke={COL.faceEdge} strokeWidth={1} />
+      {/* bevel: light along the top-left of the face, shade along its foot */}
+      <path d="M 7 2.6 H 47 Q 51.4 2.6 51.4 7" fill="none" stroke={COL.bevelHi} strokeWidth={1.2} opacity={0.75} strokeLinecap="round" />
+      <path d="M 2.6 7 Q 2.6 2.6 7 2.6" fill="none" stroke={COL.bevelHi} strokeWidth={1.2} opacity={0.75} strokeLinecap="round" />
+      <line x1={3} y1={66.4} x2={51} y2={66.4} stroke={COL.bevelLo} strokeWidth={1.4} opacity={0.9} />
+      {/* thin seam highlight where face meets base */}
+      <line x1={3} y1={68.2} x2={51} y2={68.2} stroke="rgba(255,255,255,0.28)" strokeWidth={0.7} />
+    </g>
+  );
+}
+
+/** The face-down body: back colour on top, the ivory layer showing at the foot. */
+function TileBackBody() {
+  return (
+    <g>
+      {/* ivory base peeking along the bottom edge */}
+      <rect x={1} y={1} width={52} height={72} rx={7} fill={COL.faceLo} stroke={COL.faceEdge} strokeWidth={1} />
+      {/* back layer */}
+      <rect x={1} y={1} width={52} height={66.5} rx={6.5} fill="url(#mjBack)" stroke={COL.backEdge} strokeWidth={1} />
+      {/* bevel light */}
+      <path d="M 7 2.6 H 47 Q 51.4 2.6 51.4 7" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth={1.2} strokeLinecap="round" />
+      {/* lattice motif */}
+      <g stroke={COL.backMotifDim} strokeWidth={1} fill="none">
+        <rect x={15} y={22} width={24} height={24} rx={3} transform="rotate(45 27 34)" />
+        <rect x={19.5} y={26.5} width={15} height={15} rx={2} transform="rotate(45 27 34)" stroke={COL.backMotif} />
+      </g>
+      <circle cx={27} cy={34} r={2.2} fill={COL.backMotif} />
+      <circle cx={27} cy={12} r={1.2} fill={COL.backMotifDim} />
+      <circle cx={27} cy={56} r={1.2} fill={COL.backMotifDim} />
+      <circle cx={9} cy={34} r={1.2} fill={COL.backMotifDim} />
+      <circle cx={45} cy={34} r={1.2} fill={COL.backMotifDim} />
+    </g>
+  );
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────────
 
 export function Tile({ tile, size = 74, faceDown = false, selected = false, highlight, onClick, className, ariaLabel }: TileProps) {
@@ -236,20 +410,18 @@ export function Tile({ tile, size = 74, faceDown = false, selected = false, high
       onClick={onClick}
       style={onClick ? { cursor: 'pointer' } : undefined}
     >
-      {faceDown ? (<>
-        <rect x={1.5} y={1.5} width={51} height={71} rx={7} fill={COL.back} stroke={COL.backEdge} strokeWidth={1.5} />
-        <rect x={14} y={24} width={26} height={26} rx={4} fill="none" stroke={COL.backMotif} strokeWidth={1.5} transform="rotate(45 27 37)" />
-      </>) : (<>
-        <rect x={1.5} y={1.5} width={51} height={71} rx={7} fill={COL.faceFill} stroke={COL.faceEdge} strokeWidth={1.5} />
-        <rect x={5} y={5} width={44} height={64} rx={5} fill="none" stroke={COL.faceInner} strokeWidth={1} />
+      <Defs />
+      {faceDown ? <TileBackBody /> : (<>
+        <TileBody />
         <Face tile={tile} />
       </>)}
       {selected && (
         <rect x={1.5} y={1.5} width={51} height={71} rx={7} fill="none" stroke={COL.selected} strokeWidth={2.5} />
       )}
-      {highlightColour && !selected && (
+      {highlightColour && !selected && (<>
         <rect x={1} y={1} width={52} height={72} rx={7.5} fill="none" stroke={highlightColour} strokeWidth={3.5} />
-      )}
+        <rect x={2.8} y={2.8} width={48.4} height={68.4} rx={6} fill="none" stroke={highlightColour} strokeWidth={1.2} opacity={0.45} />
+      </>)}
     </svg>
   );
 }

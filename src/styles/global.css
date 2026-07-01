@@ -4,20 +4,25 @@
  * Tile faces use their own fixed physical colours (defined in Tile.tsx) and are
  * deliberately identical in light and dark mode. Everything around the tiles —
  * the table, panels, and text — is themed here with CSS custom properties.
+ *
+ * Visual polish (2026-07-01): the table is a layered felt — a radial light
+ * pool, a faint woven texture (two crossed repeating gradients), and a dark
+ * vignette at the edges so the middle of the table glows like a lamp-lit game.
  */
 
 :root {
-  --felt-1: #1f6f5c;
+  --felt-1: #217a63;
   --felt-2: #185a4a;
-  --felt-edge: #123f34;
+  --felt-edge: #0e352b;
 
-  --panel-bg: rgba(255, 255, 255, 0.08);
-  --panel-bg-active: rgba(255, 221, 128, 0.16);
-  --panel-border: rgba(255, 255, 255, 0.18);
+  --panel-bg: rgba(8, 30, 24, 0.38);
+  --panel-bg-active: rgba(255, 221, 128, 0.14);
+  --panel-border: rgba(255, 255, 255, 0.14);
   --panel-border-active: #f2cf6b;
+  --panel-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 
-  --placeholder-bg: rgba(0, 0, 0, 0.16);
-  --placeholder-border: rgba(255, 255, 255, 0.22);
+  --placeholder-bg: rgba(0, 0, 0, 0.22);
+  --placeholder-border: rgba(255, 255, 255, 0.16);
 
   --text: #f4f1e8;
   --text-dim: rgba(244, 241, 232, 0.66);
@@ -41,5 +46,21 @@ html, body, #root {
 body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
-  background: radial-gradient(circle at 50% 35%, var(--felt-1), var(--felt-2) 70%, var(--felt-edge));
+  background:
+    /* faint woven felt texture */
+    repeating-linear-gradient(45deg,
+      rgba(255, 255, 255, 0.012) 0 2px, transparent 2px 4px),
+    repeating-linear-gradient(-45deg,
+      rgba(0, 0, 0, 0.02) 0 2px, transparent 2px 4px),
+    /* lamp-lit pool of light falling off into the edge */
+    radial-gradient(ellipse at 50% 38%,
+      var(--felt-1) 0%, var(--felt-2) 62%, var(--felt-edge) 100%);
+  background-attachment: fixed;
+}
+
+/* Dark vignette hugging the viewport edge — the "rim" of the table. */
+#root {
+  box-shadow:
+    inset 0 0 90px rgba(0, 0, 0, 0.35),
+    inset 0 0 18px rgba(0, 0, 0, 0.3);
 }
