@@ -58,7 +58,7 @@ function makeState(players: PlayerState[], over: Partial<GameState> = {}): GameS
 }
 
 const cleanPlan = (targetSuit: Suit | null, seatWind: Wind = 'east'): HandPlan => ({
-  seat: 0, mode: 'clean', targetSuit, seatWind, special: false,
+  seat: 0, mode: 'clean', targetSuit, seatWind, special: null,
   suitScores: { bamboo: 0, characters: 0, circles: 0 },
 });
 
