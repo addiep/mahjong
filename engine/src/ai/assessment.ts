@@ -77,12 +77,17 @@ const NORMAL_PLAN_EV = 40;
 const COMMIT_MARGIN = 2;
 
 /**
- * Decide whether to commit to a special hand this turn. Runs scanTargets on
- * the seat's own hand; for each non-blocked target computes
- * `EV = pComplete(away) x score` and commits to the best only when it clearly
- * beats the normal plan and is still feasible in the turns remaining.
+ * The hint nudge (Module 4.7) is deliberately chattier than the AI's own
+ * commit test: it speaks up as soon as a target merely matches the normal
+ * plan's expectation, rather than doubling it.
  */
-export function chooseSpecialTarget(state: GameState, seat: SeatIndex): SpecialPlan | null {
+const NUDGE_MARGIN = 1;
+
+/**
+ * The best feasible special target whose EV meets `margin` x the normal-plan
+ * expectation, or null. Shared by the AI commit policy and the human nudge.
+ */
+function bestSpecialTarget(state: GameState, seat: SeatIndex, margin: number): SpecialPlan | null {
   const player = state.players[seat]!;
   const ctx = buildScanContext(state, seat);
   const ranked = scanTargets({ concealed: player.concealed, melds: player.melds }, ctx);
@@ -100,8 +105,28 @@ export function chooseSpecialTarget(state: GameState, seat: SeatIndex): SpecialP
     }
   }
 
-  if (best && best.ev >= NORMAL_PLAN_EV * COMMIT_MARGIN) return best.plan;
+  if (best && best.ev >= NORMAL_PLAN_EV * margin) return best.plan;
   return null;
+}
+
+/**
+ * Decide whether to commit to a special hand this turn. Runs scanTargets on
+ * the seat's own hand; for each non-blocked target computes
+ * `EV = pComplete(away) x score` and commits to the best only when it clearly
+ * beats the normal plan and is still feasible in the turns remaining.
+ */
+export function chooseSpecialTarget(state: GameState, seat: SeatIndex): SpecialPlan | null {
+  return bestSpecialTarget(state, seat, COMMIT_MARGIN);
+}
+
+/**
+ * Module 4.7: the special-hand nudge for the human hint. Same machinery as
+ * the commit policy but with the looser NUDGE_MARGIN, so the hint suggests a
+ * target the AI itself would not (yet) commit to. Only the name is surfaced
+ * to the player (Adam: keep it to just the name).
+ */
+export function nudgeSpecialTarget(state: GameState, seat: SeatIndex): SpecialPlan | null {
+  return bestSpecialTarget(state, seat, NUDGE_MARGIN);
 }
 
 // --- Weights (tunable) -----

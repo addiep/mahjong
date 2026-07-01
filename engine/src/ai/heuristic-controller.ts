@@ -35,7 +35,7 @@ import { ClaimDecision } from '../game-state.js';
 import { tileKey, isSuited, type TileId } from '../tiles.js';
 import { inferTable } from '../inference.js';
 import { isWinningHand } from '../hand-evaluator.js';
-import { assessHand, HandPlan, AiMode } from './assessment.js';
+import { assessHand, nudgeSpecialTarget, HandPlan, SpecialPlan, AiMode } from './assessment.js';
 import { chooseDiscardTile } from './discard.js';
 import { chooseClaimDecision, chooseRobDecision } from './claims.js';
 
@@ -166,24 +166,32 @@ export interface SeatAdvice {
   readonly discard?: ReturnType<typeof chooseDiscardTile>;
   readonly claim?:   ClaimDecision;
   readonly winNow:   boolean;
+  /**
+   * Module 4.7: the special-hand nudge -- the best feasible special target
+   * under the chattier NUDGE_MARGIN, or null. The UI surfaces the name only
+   * ("you could aim for Imperial Jade"). Chattier than `plan.special`, which
+   * uses the AI's stricter commit test.
+   */
+  readonly nudge:   SpecialPlan | null;
 }
 
 export function adviseSeat(state: GameState, seat: SeatIndex): SeatAdvice {
   const inference = inferTable(state);
   const plan = assessHand(state, seat, 'clean', 0, inference);
   const player = state.players[seat]!;
+  const nudge = nudgeSpecialTarget(state, seat);
 
   if (state.phase === 'DISCARDING' && state.currentSeat === seat) {
     const winNow = isWinningHand(player.concealed, player.melds, state.config);
     return winNow
-      ? { plan, winNow }
-      : { plan, discard: chooseDiscardTile(state, seat, plan), winNow };
+      ? { plan, winNow, nudge }
+      : { plan, discard: chooseDiscardTile(state, seat, plan), winNow, nudge };
   }
   if (state.phase === 'CLAIM_WINDOW') {
-    return { plan, claim: chooseClaimDecision(state, seat, plan), winNow: false };
+    return { plan, claim: chooseClaimDecision(state, seat, plan), winNow: false, nudge };
   }
   if (state.phase === 'ROBBING_KONG' || state.robbingKong) {
-    return { plan, claim: chooseRobDecision(state, seat), winNow: false };
+    return { plan, claim: chooseRobDecision(state, seat), winNow: false, nudge };
   }
-  return { plan, winNow: false };
+  return { plan, winNow: false, nudge };
 }
