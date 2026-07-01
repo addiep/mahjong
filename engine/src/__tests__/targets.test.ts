@@ -25,7 +25,8 @@ import {
   scanTargets, buildScanContext, targetSpecByName, TargetAssessment,
   ScanContext, HandView, IMPOSSIBLE,
 } from '../ai/targets.js';
-import { assessHand, chooseSpecialTarget } from '../ai/assessment.js';
+import { assessHand, chooseSpecialTarget, nudgeSpecialTarget } from '../ai/assessment.js';
+import { adviseSeat } from '../ai/heuristic-controller.js';
 import { keepValue, chooseDiscardTile } from '../ai/discard.js';
 import { chooseClaimDecision } from '../ai/claims.js';
 
@@ -338,6 +339,37 @@ describe('chooseSpecialTarget / assessHand commit policy', () => {
     expect(ctx.copiesLeft(tileKey(bam(1)) as TileKey)).toBe(1);  // 2 held + 1 discarded
     expect(ctx.copiesLeft(tileKey(bam(5)) as TileKey)).toBe(1);  // 3 melded
     expect(ctx.copiesLeft(tileKey(chr(7)) as TileKey)).toBe(4);
+  });
+});
+
+// --- the hint nudge (Module 4.7): chattier than the commit test -----
+
+describe('nudgeSpecialTarget / adviseSeat nudge', () => {
+  // Clean Pairs three away: 4 circle pairs + 2 circle singles + a lone dragon.
+  // EV = 0.08 x 500 = 40: meets the nudge bar (x1) but not the commit bar (x2).
+  const threeAway = [...pr(cir, 1), ...pr(cir, 2), ...pr(cir, 4), ...pr(cir, 5),
+    cir(7), cir(8), dragon('red')];
+
+  it('nudges a target the AI would not yet commit to', () => {
+    const st = makeState([player(0, threeAway), player(1, []), player(2, []), player(3, [])]);
+    expect(chooseSpecialTarget(st, 0)).toBeNull();
+    const nudge = nudgeSpecialTarget(st, 0);
+    expect(nudge).not.toBeNull();
+    expect(nudge!.name).toBe('Clean Pairs');
+  });
+
+  it('stays quiet on an ordinary hand', () => {
+    const tiles = [bam(1), bam(2), bam(3), bam(5), bam(6), chr(2), chr(2, 1), chr(7),
+      cir(3), cir(4), cir(8), wind('east'), dragon('red'), bam(9)];
+    const st = makeState([player(0, tiles), player(1, []), player(2, []), player(3, [])]);
+    expect(nudgeSpecialTarget(st, 0)).toBeNull();
+  });
+
+  it('adviseSeat surfaces the nudge for the hint panel', () => {
+    const st = makeState([player(0, threeAway), player(1, []), player(2, []), player(3, [])]);
+    const advice = adviseSeat(st, 0);
+    expect(advice.nudge?.name).toBe('Clean Pairs');
+    expect(advice.plan.special).toBeNull(); // the AI itself has not committed
   });
 });
 

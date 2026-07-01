@@ -899,7 +899,9 @@ export function App() {
       const tile = player?.concealed.find(t => t.id === advice.discard);
       if (tile) discardText = `; the AI would discard the ${tileName(tile)}`;
     }
-    logEvent(`Hint: ${planText}${discardText}.`);
+    // Module 4.7: special-hand nudge -- name only.
+    const nudgeText = advice.nudge ? `; you could aim for ${advice.nudge.name}` : '';
+    logEvent(`Hint: ${planText}${discardText}${nudgeText}.`);
   };
 
   const stepAi = () => {
@@ -977,7 +979,9 @@ export function App() {
         const tile = player?.concealed.find(t => t.id === advice.discard);
         if (tile) discardText = `; the AI would discard the ${tileName(tile)}`;
       }
-      logEvent(`Hint: ${planText}${discardText}.`);
+      // Module 4.7: special-hand nudge -- name only.
+      const nudgeText = advice.nudge ? `; you could aim for ${advice.nudge.name}` : '';
+      logEvent(`Hint: ${planText}${discardText}${nudgeText}.`);
     };
 
     const handleOnlineNewHand = () => {
