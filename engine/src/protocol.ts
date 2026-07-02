@@ -150,8 +150,23 @@ export interface ServerToClientEvents {
 export interface ClientToServerEvents {
   /** Creator authentication. Only valid when server is idle. */
   creator_auth: (data: { name: string; password: string }) => void;
-  /** Creator sets the number of human players (1-4). Sent after auth_ok. */
-  creator_config: (data: { humanCount: number }) => void;
+  /**
+   * Creator sets the number of human players (1-4) plus the hand-config
+   * options for the whole session. Sent after auth_ok.
+   *
+   * `deadWall`, `knittingEnabled`, and `discardsVisible` mirror the options
+   * GameSetup.tsx already offers for local pass-and-play (Module 2.6).
+   * Before 2026-07-02 the online lobby only ever asked for humanCount, and
+   * the server used hardcoded defaults for the rest (game-session.ts's
+   * HAND_CONFIG) -- the creator had no way to turn on the dead wall or
+   * knitting/crocheting online. See Module 3.2 / Decisions Log 2026-07-02.
+   */
+  creator_config: (data: {
+    humanCount:      number;
+    deadWall:        boolean;
+    knittingEnabled: boolean;
+    discardsVisible: boolean;
+  }) => void;
   /** Joiner enters their name. Only valid when server is waiting. */
   joiner_join: (data: { name: string }) => void;
   /** Creator starts the game. Only valid when all human seats are filled. */
