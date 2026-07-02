@@ -114,10 +114,22 @@ export interface ServerToClientEvents {
   /** Sent whenever a seat is added, removed, or the human count changes. */
   lobby_update: (data: { seats: LobbySeat[]; humanCount: number }) => void;
 
-  // --- game start / reconnect ---
-  /** Broadcast when the creator hits Deal. Carries the client's own seat number. */
-  /** Also sent on successful reconnect so the client can re-enter the game view. */
-  game_start: (data: { seat: number }) => void;
+  // --- game start / reconnect / seat rotation ---
+  /**
+   * Carries the client's own seat number for the CURRENT hand, plus whether
+   * this client is the creator (identity 0 -- fixed for the whole session,
+   * even though which physical seat/wind they occupy now rotates hand to
+   * hand, see Todo A). Sent in three situations:
+   *   - Broadcast when the creator hits Deal (initial deal, hand 1).
+   *   - Sent on successful reconnect so the client can re-enter the game view.
+   *   - Re-sent to every connected human at the start of EVERY subsequent
+   *     hand, since seat rotation (Todo A: "East stays East on a win") means
+   *     a player's physical seat can change between hands -- see
+   *     game-session.ts's rotation logic. `isCreator` lets the client show
+   *     the "New hand" control to the right player even after they rotate
+   *     away from seat 0.
+   */
+  game_start: (data: { seat: number; isCreator: boolean }) => void;
 
   // --- in-game (Module 3.3) ---
   /**

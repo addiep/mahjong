@@ -136,9 +136,14 @@ export function setupLobby(
 
       state.phase = 'in-progress';
 
-      // Notify each human player of their assigned seat.
+      // Notify each human player of their assigned seat for hand 1. Identity
+      // and physical seat are the same thing at this point (before any Todo A
+      // rotation); `seat` here is also the player's fixed identity slot for
+      // the rest of the session -- see game-session.ts's rotation logic,
+      // which re-sends game_start with a (possibly different) seat at the
+      // start of every subsequent hand.
       for (const { socketId, seat } of state.seats) {
-        io.to(socketId).emit('game_start', { seat });
+        io.to(socketId).emit('game_start', { seat, isCreator: seat === 0 });
       }
 
       // Run the game session. When it resolves (hand loop ends or creator leaves),
