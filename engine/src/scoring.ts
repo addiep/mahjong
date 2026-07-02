@@ -194,6 +194,7 @@ function pairBasePoints(hand: FullHand, input: ScoreInput, cfg: ScoringConfig): 
   const t = hand.pair[0]!;
   if (isDragon(t)) return cfg.scoringPair;
   if (isWind(t) && t.wind === input.seatWind) return cfg.scoringPair;
+  if (isWind(t) && t.wind === input.prevailingWind) return cfg.scoringPair;
   return 0;
 }
 
@@ -234,6 +235,16 @@ function scoreNormalReading(hand: FullHand, input: ScoreInput, cfg: ScoringConfi
     (isDragon(g.tiles[0]!) || (isWind(g.tiles[0]!) && (g.tiles[0]! as { wind: Wind }).wind === input.seatWind))
   ).length;
   addDouble('pung/kong of dragon or own wind', honourMelds);
+
+  // Pung/kong of the prevailing (round) wind -- one further doubling per meld
+  // (Todo C). Deliberately stacks with the own-wind doubling above, so a pung
+  // of a wind that is BOTH the player's seat wind and the wind of the round
+  // earns two doublings (Adam's call, 2026-07-02).
+  const roundWindMelds = hand.groups.filter(g =>
+    g.kind !== 'chow' &&
+    isWind(g.tiles[0]!) && (g.tiles[0]! as { wind: Wind }).wind === input.prevailingWind
+  ).length;
+  addDouble('pung/kong of the wind of the round', roundWindMelds);
 
   // Complete set of flowers / seasons (doubles twice each).
   if (hasCompleteSet(input.bonusTiles, isFlower)) addDouble('bouquet (flowers)', 3);
@@ -736,6 +747,7 @@ export function scoreExposedMelds(
   scoringConfig:   ScoringConfig = DEFAULT_SCORING_CONFIG,
   seatWind?:       Wind,
   concealedTiles?: readonly Tile[],
+  prevailingWind?: Wind,
 ): ExposedMeldScoreResult {
   const cfg = scoringConfig;
   const scoreLines: ScoreLine[] = [];
@@ -757,6 +769,7 @@ export function scoreExposedMelds(
 
   // ── Concealed pungs / scoring pairs from unmelded hand tiles ──
   let concealedHonourPungCount = 0;
+  let concealedRoundWindPungCount = 0;
   if (concealedTiles && concealedTiles.length > 0) {
     const counts = new Map<string, { tile: Tile; count: number }>();
     for (const t of concealedTiles) {
@@ -776,8 +789,15 @@ export function scoreExposedMelds(
         if (isDragon(tile) || (seatWind !== undefined && isWind(tile) && (tile as { wind: Wind }).wind === seatWind)) {
           concealedHonourPungCount++;
         }
+        if (prevailingWind !== undefined && isWind(tile) && (tile as { wind: Wind }).wind === prevailingWind) {
+          concealedRoundWindPungCount++;
+        }
       } else if (count === 2) {
-        if (isDragon(tile) || (seatWind !== undefined && isWind(tile) && (tile as { wind: Wind }).wind === seatWind)) {
+        if (
+          isDragon(tile) ||
+          (seatWind !== undefined && isWind(tile) && (tile as { wind: Wind }).wind === seatWind) ||
+          (prevailingWind !== undefined && isWind(tile) && (tile as { wind: Wind }).wind === prevailingWind)
+        ) {
           scoreLines.push({ label: `scoring pair of ${tileLabel(tile)}`, points: cfg.scoringPair });
           base += cfg.scoringPair;
         }
@@ -798,6 +818,16 @@ export function scoreExposedMelds(
     return isDragon(first) || (seatWind !== undefined && isWind(first) && (first as { wind: Wind }).wind === seatWind);
   }).length;
   addDouble('pung/kong of dragon or own wind', declaredHonourCount + concealedHonourPungCount);
+
+  // Pung/kong of the prevailing (round) wind (Todo C) -- applies to all
+  // players, and stacks with the own-wind doubling when the two winds match.
+  const declaredRoundWindCount = prevailingWind === undefined ? 0 : melds.filter(m => {
+    const g = declaredToGroup(m);
+    const first = g.tiles[0];
+    if (g.kind === 'chow' || first === undefined) return false;
+    return isWind(first) && (first as { wind: Wind }).wind === prevailingWind;
+  }).length;
+  addDouble('pung/kong of the wind of the round', declaredRoundWindCount + concealedRoundWindPungCount);
 
   // Clean-hand doubling: all tiles (declared + concealed) in at most one suit
   // (honours permitted, but at least one suited tile must be present).
