@@ -4,7 +4,7 @@
  * Five screens, driven entirely by server events:
  *   connecting    -- initial connection, waiting for server_state
  *   creator_auth  -- server is idle: name + password form
- *   creator_config -- auth accepted: human-count picker
+ *   creator_config -- auth accepted: human-count picker + hand-config options
  *   joiner_name   -- server is waiting: name-only form
  *   waiting       -- waiting room for creator and joiners
  *   error         -- disconnected / rejected / creator aborted
@@ -17,6 +17,14 @@
  *   Player name and seat are stored in sessionStorage on auth/join so that a
  *   refreshed page or a dropped connection can send reconnect_attempt and
  *   re-enter the game without going through the lobby again.
+ *
+ * Hand-config options (Module 3.2 fix, 2026-07-02):
+ *   The creator_config screen used to ask only for the human count. It now
+ *   also collects dead wall / knitting & crocheting / hard mode -- the same
+ *   options GameSetup.tsx already offers for local pass-and-play (Module 2.6).
+ *   Before this fix the server always ran online games with hardcoded
+ *   defaults for these regardless of what the creator wanted; see
+ *   game-session.ts and Decisions Log 2026-07-02.
  *
  * Environment:
  *   VITE_SERVER_URL  -- optional; defaults to same-origin (production).
@@ -62,6 +70,9 @@ export function OnlineLobby({ onGameStart }: Props) {
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [humanCount, setHumanCount] = useState(4);
+  const [deadWall, setDeadWall] = useState(false);
+  const [knitting, setKnitting] = useState(false);
+  const [discardsVisible, setDiscardsVisible] = useState(true);
 
   // Used by the config_ok handler to know the humanCount the creator submitted,
   // avoiding the stale-closure problem with the humanCount state variable.
@@ -201,7 +212,12 @@ export function OnlineLobby({ onGameStart }: Props) {
   const handleCreatorConfig = (e: React.FormEvent) => {
     e.preventDefault();
     submittedHumanCountRef.current = humanCount;
-    socketRef.current?.emit('creator_config', { humanCount });
+    socketRef.current?.emit('creator_config', {
+      humanCount,
+      deadWall,
+      knittingEnabled: knitting,
+      discardsVisible,
+    });
   };
 
   const handleJoin = (e: React.FormEvent) => {
@@ -316,6 +332,56 @@ export function OnlineLobby({ onGameStart }: Props) {
                 : `${humanCount} humans; ${aiCount} AI seat${aiCount > 1 ? 's' : ''}.`}
             </span>
           </div>
+
+          <div className={styles.section}>
+            <label className={styles.checkLabel}>
+              <input
+                type="checkbox"
+                checked={knitting}
+                onChange={e => setKnitting(e.target.checked)}
+              />
+              <span>
+                <strong>Knitting &amp; crocheting</strong>
+                <span className={styles.hint}>
+                  &nbsp;-- allow the knitting and crocheting special hands
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div className={styles.section}>
+            <label className={styles.checkLabel}>
+              <input
+                type="checkbox"
+                checked={deadWall}
+                onChange={e => setDeadWall(e.target.checked)}
+              />
+              <span>
+                <strong>Dead wall</strong>
+                <span className={styles.hint}>
+                  &nbsp;-- reserve 14 tiles for kong / bonus replacements
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div className={styles.section}>
+            <label className={styles.checkLabel}>
+              <input
+                type="checkbox"
+                checked={!discardsVisible}
+                onChange={e => setDiscardsVisible(!e.target.checked)}
+              />
+              <span>
+                <strong>Hard mode</strong>
+                <span className={styles.hint}>
+                  &nbsp;-- hide the discard pool history (only the tile just
+                  played is visible, during the claim window)
+                </span>
+              </span>
+            </label>
+          </div>
+
           <button type="submit" className={styles.startBtn}>
             Create game
           </button>
