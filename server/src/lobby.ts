@@ -87,10 +87,16 @@ export function setupLobby(
       socket.emit('auth_ok');
     });
 
-    socket.on('creator_config', ({ humanCount }) => {
+    socket.on('creator_config', ({ humanCount, deadWall, knittingEnabled, discardsVisible }) => {
       if (state.phase !== 'idle' || socket.id !== state.creatorSocketId) return;
       const count = Math.min(4, Math.max(1, Math.round(humanCount)));
       state.humanCount = count;
+      // Hand-config options (Module 3.2 fix, 2026-07-02): previously the
+      // online lobby never collected these, so the server always ran with
+      // hardcoded defaults regardless of what the creator wanted.
+      state.deadWall        = deadWall;
+      state.knittingEnabled = knittingEnabled;
+      state.discardsVisible = discardsVisible;
       state.seats = [{ socketId: socket.id, name: pendingCreatorName, seat: 0 }];
       state.phase = 'waiting';
       socket.emit('config_ok', { seat: 0 });
