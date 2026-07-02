@@ -28,6 +28,7 @@
 import type { Server, Socket } from 'socket.io';
 import {
   type GameState,
+  type GameConfig,
   type SeatIndex,
   type DiscardAction,
   type ClaimDecision,
@@ -543,8 +544,6 @@ class FallbackController implements PlayerController {
 // Game session
 // ---------------------------------------------------------------------------
 
-const HAND_CONFIG = { ...DEFAULT_CONFIG, deadWall: false };
-
 /**
  * Runs back-to-back hands for the current session.
  *
@@ -556,6 +555,20 @@ export async function startGameSession(
   serverState: ServerState,
 ): Promise<void> {
   const { seats } = serverState;
+
+  // Hand-config options for this whole session, taken from what the creator
+  // submitted in creator_config (Module 3.2 fix, 2026-07-02). Previously this
+  // was a module-level constant hardcoded to `{ ...DEFAULT_CONFIG, deadWall:
+  // false }`, so the online lobby had no way to turn on the dead wall,
+  // knitting/crocheting, or hard-mode discards -- the creator_config screen
+  // never asked, and even if it had, the server ignored the answer. See
+  // Decisions Log 2026-07-02.
+  const handConfig: GameConfig = {
+    ...DEFAULT_CONFIG,
+    deadWall:        serverState.deadWall,
+    knittingEnabled: serverState.knittingEnabled,
+    discardsVisible: serverState.discardsVisible,
+  };
 
   // Build one FallbackController per human seat, AI for the rest.
   const fallbackControllers = new Map<number, FallbackController>();
@@ -662,8 +675,8 @@ export async function startGameSession(
   try {
     // Run hands in a loop until the session ends.
     while (serverState.phase === 'in-progress') {
-      const deal         = buildWall(4, false);
-      const initialState = createGameState(HAND_CONFIG, deal, names);
+      const deal         = buildWall(4, handConfig.deadWall ?? false);
+      const initialState = createGameState(handConfig, deal, names);
 
       // Fresh hand: do not carry event diffing across the deal boundary.
       prevEventState = null;
