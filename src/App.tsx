@@ -35,7 +35,13 @@ const ONLINE_MODE = import.meta.env.VITE_ONLINE === 'true';
 
 export function App() {
   const [revealAll, setRevealAll] = useState(true);
-  const { events, logEvent, clearEvents } = useEventLog();
+  // Todo E: read the event log aloud (Web Speech API). A client-side display
+  // preference, not part of GameConfig, so it lives here rather than in
+  // engine state -- shared across both modes since useEventLog is shared.
+  // Local mode sets it from the "Speak events" checkbox in GameSetup; online
+  // mode (which never shows GameSetup) gets its own toolbar toggle below.
+  const [speakEvents, setSpeakEvents] = useState(false);
+  const { events, logEvent, clearEvents } = useEventLog(speakEvents);
   const online = useOnlineGame(logEvent, clearEvents);
   const local = useLocalGame(logEvent, clearEvents);
 
@@ -100,6 +106,14 @@ export function App() {
             <button type="button" className={styles.newHandBtn} onClick={online.handleOnlineHint}>
               Hint
             </button>
+            <label>
+              <input
+                type="checkbox"
+                checked={speakEvents}
+                onChange={e => setSpeakEvents(e.target.checked)}
+              />
+              Speak events
+            </label>
             <span>{SEAT_NAMES[localSeat]} seat</span>
           </div>
         </div>
@@ -154,7 +168,11 @@ export function App() {
         <GameSetup
           defaultConfig={local.gameConfig}
           defaultAiSeats={local.aiSeats}
-          onStart={local.startGame}
+          defaultSpeakEvents={speakEvents}
+          onStart={(config, aiSeats, speak) => {
+            setSpeakEvents(speak);
+            local.startGame(config, aiSeats);
+          }}
         />
       </div>
     );

@@ -22,10 +22,16 @@ const SEAT_WINDS = ['East', 'South', 'West', 'North'];
 interface Props {
   readonly defaultConfig: GameConfig;
   readonly defaultAiSeats?: number;
-  readonly onStart: (config: GameConfig, aiSeats: number) => void;
+  /**
+   * Todo E: whether the event log is read aloud. Not part of GameConfig --
+   * it is a client-side display preference, not a rule/engine concern, so
+   * it is threaded through separately from the config object.
+   */
+  readonly defaultSpeakEvents?: boolean;
+  readonly onStart: (config: GameConfig, aiSeats: number, speakEvents: boolean) => void;
 }
 
-export function GameSetup({ defaultConfig, defaultAiSeats, onStart }: Props) {
+export function GameSetup({ defaultConfig, defaultAiSeats, defaultSpeakEvents, onStart }: Props) {
   const [playerCount, setPlayerCount] = useState<3 | 4>(
     (defaultConfig.playerCount as 3 | 4) ?? 4,
   );
@@ -35,6 +41,7 @@ export function GameSetup({ defaultConfig, defaultAiSeats, onStart }: Props) {
   const [knitting, setKnitting] = useState(defaultConfig.knittingEnabled ?? false);
   const [deadWall, setDeadWall] = useState(defaultConfig.deadWall ?? false);
   const [discardsVisible, setDiscardsVisible] = useState(defaultConfig.discardsVisible ?? true);
+  const [speakEvents, setSpeakEvents] = useState(defaultSpeakEvents ?? false);
 
   // AI count cannot exceed playerCount - 1 (at least one human seat).
   const maxAi = playerCount - 1;
@@ -54,6 +61,7 @@ export function GameSetup({ defaultConfig, defaultAiSeats, onStart }: Props) {
         deadWall,
       },
       clampedAi,
+      speakEvents,
     );
   };
 
@@ -152,6 +160,22 @@ export function GameSetup({ defaultConfig, defaultAiSeats, onStart }: Props) {
               <span className={styles.hint}>
                 &nbsp;-- hide the discard pool history (only the tile just played
                 is visible, during the claim window)
+              </span>
+            </span>
+          </label>
+        </div>
+
+        <div className={styles.section}>
+          <label className={styles.checkLabel}>
+            <input
+              type="checkbox"
+              checked={speakEvents}
+              onChange={e => setSpeakEvents(e.target.checked)}
+            />
+            <span>
+              <strong>Speak events</strong>
+              <span className={styles.hint}>
+                &nbsp;-- read each new event aloud (discards, claims, Mah Jong)
               </span>
             </span>
           </label>
