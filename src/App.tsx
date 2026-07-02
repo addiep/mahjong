@@ -145,6 +145,7 @@ import {
   type ScoreResult,
   type WinContext,
   type ExposedMeldScoreResult,
+  type HandScorePayload,
 } from '@mahjong/engine';
 import styles from './App.module.css';
 
@@ -175,11 +176,6 @@ function tileName(tile: Tile): string {
   if (isWind(tile))   return `${tile.wind} wind`;
   if (isDragon(tile)) return `${tile.dragon} dragon`;
   return 'bonus tile';
-}
-
-/** True when a tile's ID is a server-side placeholder (hidden opponent tile). */
-function isPlaceholder(id: string): boolean {
-  return id.startsWith('__hid_');
 }
 
 /**
@@ -260,8 +256,6 @@ export function App() {
   const [onlineRunningTotals, setOnlineRunningTotals] = useState<number[]>([0, 0, 0, 0]);
   const [onlineCurrentOrder, setOnlineCurrentOrder] = useState<string[] | undefined>(undefined);
   const onlineHandOrderRef  = useRef<string[] | undefined>(undefined);
-  // Guard: only score each HAND_OVER state once (React StrictMode double-invokes effects).
-  const onlineScoredStateRef = useRef<GameState | null>(null);
   // True while the socket is connected mid-game; false while reconnecting (Module 3.4).
   const [onlineConnected, setOnlineConnected] = useState(true);
 
@@ -362,11 +356,27 @@ export function App() {
       }
     });
 
+    // Server-authoritative score payload (Finding 3 fix, 2026-07-02): the
+    // server computes this once per hand from its own unfiltered state and
+    // sends the identical payload to every client, so onlineRunningTotals can
+    // no longer diverge between clients the way independent client-side
+    // scoring used to. Replaces the old per-client HAND_OVER scoring effect.
+    socket.on('hand_score', (payload: HandScorePayload) => {
+      setOnlineHandScore({
+        winnerName:   payload.winnerName,
+        result:       payload.result,
+        playerBonuses: [...payload.playerBonuses],
+        winnerHand:   payload.winnerHand,
+      });
+      setOnlineRunningTotals([...payload.runningTotals]);
+    });
+
     return () => {
       socket.off('game_state');
       socket.off('game_event');
       socket.off('disconnect');
       socket.off('connect');
+      socket.off('hand_score');
     };
   }, [onlineGameInfo]);
 
@@ -385,114 +395,6 @@ export function App() {
     setOnlineCurrentOrder(sortedIds);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onlineState?.currentSeat, onlineState?.phase]);
-
-  // -- Online: score HAND_OVER -----
-
-  useEffect(() => {
-    if (!onlineState || !onlineGameInfo) return;
-    if (onlineState.phase !== 'HAND_OVER') return;
-    if (onlineScoredStateRef.current === onlineState) return;
-    onlineScoredStateRef.current = onlineState;
-
-    const hr = onlineState.handResult;
-    if (!hr) return;
-
-    if (hr.reason === 'draw') {
-      setOnlineHandScore({ winnerName: null, result: null, playerBonuses: [], winnerHand: null });
-      return;
-    }
-
-    let result: ScoreResult | null = null;
-
-    if (hr.winnerSeat !== null && hr.winningTile) {
-      const winner = onlineState.players[hr.winnerSeat];
-      if (winner) {
-        // Winner's tiles are revealed by the server at HAND_OVER.
-        const concealed = hr.selfDraw
-          ? winner.concealed
-          : [...winner.concealed, hr.winningTile];
-
-        const winContext: WinContext = {
-          source: hr.winSource ?? 'self-draw-wall',
-          isLastWallTile: hr.isLastWallTile ?? false,
-        };
-
-        try {
-          result = scoreWinningHand({
-            concealed,
-            declaredMelds:  winner.melds,
-            bonusTiles:     winner.bonusTiles,
-            winningTile:    hr.winningTile,
-            winContext,
-            seatWind:       winner.seatWind,
-            prevailingWind: onlineState.prevailingWind,
-            seat:           winner.seat,
-            gameConfig:     onlineState.config,
-            wonByDiscard:   !hr.selfDraw,
-            robbingKong:    hr.robbedKong ?? false,
-          });
-        } catch (err) {
-          console.error('Online scoring error:', err);
-        }
-      }
-    }
-
-    const winnerPlayer = hr.winnerSeat !== null ? onlineState.players[hr.winnerSeat] : null;
-    const winnerHand: WinnerHandInfo | null = winnerPlayer
-      ? {
-          concealed: hr.selfDraw
-            ? winnerPlayer.concealed
-            : hr.winningTile
-              ? [...winnerPlayer.concealed, hr.winningTile]
-              : winnerPlayer.concealed,
-          melds:        winnerPlayer.melds,
-          bonusTiles:   winnerPlayer.bonusTiles,
-          winningTileId: hr.winningTile?.id ?? null,
-        }
-      : null;
-
-    // For non-winner concealed scoring: only pass actual tiles (not placeholders).
-    // A placeholder tile starts with '__hid_'; passing those to scoreExposedMelds
-    // would incorrectly score them as east wind pungs.
-    const localSeatN = onlineGameInfo.seat;
-    const playerBonuses: PlayerBonusInfo[] = onlineState.players.map(p => {
-      const concealedForScoring =
-        p.seat !== hr.winnerSeat && p.seat !== localSeatN
-          ? undefined                                      // other opponents: placeholder tiles
-          : p.concealed.some(t => isPlaceholder(t.id))
-            ? undefined                                    // local seat somehow has placeholders
-            : p.concealed;                                 // real tiles
-      return {
-        name: p.name,
-        seat: p.seat,
-        bonus: scoreBonusTiles(p.bonusTiles),
-        meldScore: p.seat !== hr.winnerSeat
-          ? scoreExposedMelds(p.melds, p.bonusTiles, undefined, p.seatWind, concealedForScoring)
-          : null,
-      };
-    });
-
-    setOnlineRunningTotals(prev =>
-      prev.map((t, i) => {
-        const player = onlineState.players[i];
-        if (!player) return t;
-        const pb = playerBonuses[i];
-        const isWinnerLimit = i === hr.winnerSeat && result?.isLimitHand;
-        const bonusPts = isWinnerLimit ? 0 : (pb?.bonus.points ?? 0);
-        const handPts  = i === hr.winnerSeat && result ? result.total : 0;
-        const meldPts  = i !== hr.winnerSeat ? (pb?.meldScore?.total ?? 0) : 0;
-        return t + bonusPts + handPts + meldPts;
-      }),
-    );
-
-    setOnlineHandScore({
-      winnerName: hr.winnerSeat !== null ? (onlineState.players[hr.winnerSeat]?.name ?? null) : null,
-      result,
-      playerBonuses,
-      winnerHand,
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onlineState]);
 
   // -- Start / new hand -----
 

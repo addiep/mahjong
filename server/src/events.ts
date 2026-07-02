@@ -12,4 +12,5 @@ export type {
   GameActionPayload,
   ServerToClientEvents,
   ClientToServerEvents,
+  HandScorePayload,
 } from '@mahjong/engine';

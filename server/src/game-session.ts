@@ -35,6 +35,8 @@ import {
   type TileId,
   type Action,
   type PlayerController,
+  type ScoreResult,
+  type WinContext,
   GameRunner,
   HeuristicController,
   buildWall,
@@ -45,8 +47,16 @@ import {
   isWind,
   isDragon,
   isWinningHand,
+  scoreWinningHand,
+  scoreBonusTiles,
+  scoreExposedMelds,
 } from '@mahjong/engine';
-import type { ServerToClientEvents, ClientToServerEvents, GameActionPayload } from './events.js';
+import type {
+  ServerToClientEvents,
+  ClientToServerEvents,
+  GameActionPayload,
+  HandScorePayload,
+} from './events.js';
 import type { ServerState } from './server-state.js';
 
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -182,6 +192,113 @@ function filterStateForSeat(state: GameState, revealSeat: number): GameState {
       if (isHandOver && i === winnerSeat) return p;  // winner at HAND_OVER: revealed
       return { ...p, concealed: p.concealed.map((_, idx) => placeholder(idx)) };
     }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Authoritative hand scoring (Finding 3 fix, 2026-07-02)
+// ---------------------------------------------------------------------------
+
+/**
+ * Computes the HAND_OVER score for `state` -- which MUST be the raw, unfiltered
+ * final state (i.e. before filterStateForSeat is applied to it) -- and folds it
+ * into `runningTotals` (mutated in place, one entry per seat).
+ *
+ * This mirrors the logic that used to live in App.tsx's online HAND_OVER
+ * effect, with one crucial difference: because the server always holds every
+ * player's real concealed tiles, every player's contribution (not just the
+ * winner's and the caller's own) is scored from real data here. Every client
+ * receives this exact payload, so `runningTotals` can never diverge between
+ * clients again -- see HandScorePayload's docstring in protocol.ts.
+ */
+function computeHandScore(state: GameState, runningTotals: number[]): HandScorePayload {
+  const hr = state.handResult;
+
+  if (!hr || hr.reason === 'draw') {
+    return {
+      winnerName: null,
+      result: null,
+      playerBonuses: [],
+      winnerHand: null,
+      runningTotals: [...runningTotals],
+    };
+  }
+
+  let result: ScoreResult | null = null;
+
+  if (hr.winnerSeat !== null && hr.winningTile) {
+    const winner = state.players[hr.winnerSeat];
+    if (winner) {
+      const concealed = hr.selfDraw
+        ? winner.concealed
+        : [...winner.concealed, hr.winningTile];
+
+      const winContext: WinContext = {
+        source: hr.winSource ?? 'self-draw-wall',
+        isLastWallTile: hr.isLastWallTile ?? false,
+      };
+
+      try {
+        result = scoreWinningHand({
+          concealed,
+          declaredMelds:  winner.melds,
+          bonusTiles:     winner.bonusTiles,
+          winningTile:    hr.winningTile,
+          winContext,
+          seatWind:       winner.seatWind,
+          prevailingWind: state.prevailingWind,
+          seat:           winner.seat,
+          gameConfig:     state.config,
+          wonByDiscard:   !hr.selfDraw,
+          robbingKong:    hr.robbedKong ?? false,
+        });
+      } catch (err) {
+        console.error('Server-side scoring error:', err);
+      }
+    }
+  }
+
+  const winnerPlayer = hr.winnerSeat !== null ? state.players[hr.winnerSeat] : null;
+  const winnerHand: HandScorePayload['winnerHand'] = winnerPlayer
+    ? {
+        concealed: hr.selfDraw
+          ? winnerPlayer.concealed
+          : hr.winningTile
+            ? [...winnerPlayer.concealed, hr.winningTile]
+            : winnerPlayer.concealed,
+        melds:         winnerPlayer.melds,
+        bonusTiles:    winnerPlayer.bonusTiles,
+        winningTileId: hr.winningTile?.id ?? null,
+      }
+    : null;
+
+  // Every player's real concealed tiles are available here (unfiltered state),
+  // so -- unlike the old client-side calculation -- every non-winner's
+  // concealed pungs/pairs are scored the same way for everyone.
+  const playerBonuses: HandScorePayload['playerBonuses'] = state.players.map(p => ({
+    name:  p.name,
+    seat:  p.seat,
+    bonus: scoreBonusTiles(p.bonusTiles),
+    meldScore: p.seat !== hr.winnerSeat
+      ? scoreExposedMelds(p.melds, p.bonusTiles, undefined, p.seatWind, p.concealed)
+      : null,
+  }));
+
+  state.players.forEach((p, i) => {
+    const pb = playerBonuses[i];
+    const isWinnerLimit = i === hr.winnerSeat && (result?.isLimitHand ?? false);
+    const bonusPts = isWinnerLimit ? 0 : (pb?.bonus.points ?? 0);
+    const handPts  = i === hr.winnerSeat && result ? result.total : 0;
+    const meldPts  = i !== hr.winnerSeat ? (pb?.meldScore?.total ?? 0) : 0;
+    runningTotals[i] = (runningTotals[i] ?? 0) + bonusPts + handPts + meldPts;
+  });
+
+  return {
+    winnerName: hr.winnerSeat !== null ? (state.players[hr.winnerSeat]?.name ?? null) : null,
+    result,
+    playerBonuses,
+    winnerHand,
+    runningTotals: [...runningTotals],
   };
 }
 
@@ -474,8 +591,15 @@ export async function startGameSession(
     `AI ${(['East', 'South', 'West', 'North'] as const)[i]!}`,
   );
 
+  // Authoritative running totals, one per seat, accumulated across every hand
+  // of this session (Finding 3 fix). Clients no longer maintain their own copy.
+  const runningTotals: number[] = [0, 0, 0, 0];
+
   // Track the most recent state so reconnectors receive it immediately.
   let lastKnownState: GameState | null = null;
+  // Track the most recent hand-score payload so a reconnector who dropped
+  // between HAND_OVER and the next deal still sees the score panel.
+  let lastScorePayload: HandScorePayload | null = null;
   // Previous state for authoritative event detection. Reset to null at the
   // start of each hand so event lines never bleed across the deal boundary.
   let prevEventState: GameState | null = null;
@@ -525,6 +649,12 @@ export async function startGameSession(
     socket.emit('game_start', { seat: seatIdx });
     if (lastKnownState) {
       socket.emit('game_state', filterStateForSeat(lastKnownState, seatIdx));
+      // If they dropped between HAND_OVER and the next deal, the score panel
+      // needs the last hand's payload too -- it is not re-derivable from
+      // filterStateForSeat alone now that scoring lives only on the server.
+      if (lastKnownState.phase === 'HAND_OVER' && lastScorePayload) {
+        socket.emit('hand_score', lastScorePayload);
+      }
     }
     return true;
   };
@@ -542,8 +672,18 @@ export async function startGameSession(
       const runner     = new GameRunner(initialState, controllers, broadcastState);
       const finalState = await runner.run();
 
-      // Broadcast the HAND_OVER state (winner's tiles revealed for scoring).
+      // Broadcast the HAND_OVER state (winner's tiles revealed for display).
       broadcastState(finalState);
+
+      // Score the hand server-side from the raw, unfiltered finalState (every
+      // player's real concealed tiles), and send the identical payload to
+      // every connected client -- this is the Finding 3 fix. `runningTotals`
+      // is mutated in place, so it stays correct across the whole session.
+      const scorePayload = computeHandScore(finalState, runningTotals);
+      lastScorePayload = scorePayload;
+      for (const socket of humanSockets.values()) {
+        socket.emit('hand_score', scorePayload);
+      }
 
       // Wait for the creator to request another hand (or disconnect).
       // Re-read from humanSockets so we pick up a reconnected creator socket.

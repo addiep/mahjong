@@ -16,7 +16,10 @@
  * socket.io-client Socket in the browser); only the event maps are shared.
  */
 
-import type { GameState, ClaimDecision } from './game-state.js';
+import type { GameState, ClaimDecision, DeclaredMeld, SeatIndex } from './game-state.js';
+import type { Tile, TileId } from './tiles.js';
+import type { ScoreResult, ExposedMeldScoreResult } from './scoring.js';
+import type { BonusScoreResult } from './flower-scoring.js';
 
 /** A human player occupying a seat in the waiting room. */
 export interface LobbySeat {
@@ -34,6 +37,54 @@ export type GameActionPayload =
   | { type: 'DECLARE_WIN' }
   | { type: 'DECLARE_ADDED_KONG';  tileId: string }
   | { type: 'CLAIM_RESPONSE';      decision: ClaimDecision };
+
+/**
+ * Server-authoritative hand-score payload (Finding 3 fix, 2026-07-02).
+ *
+ * Previously each client computed its own copy of the HAND_OVER score from
+ * its own per-seat FILTERED GameState (see game-session.ts filterStateForSeat):
+ * a client could see its own concealed tiles and the winner's revealed hand,
+ * but every other opponent's concealed tiles were placeholders. Non-winners'
+ * concealed pungs/pairs (scoreExposedMelds' concealedTiles param) therefore
+ * scored differently depending on who was computing them, so `runningTotals`
+ * could permanently diverge between clients watching the same table.
+ *
+ * The server always holds every player's real, unfiltered GameState, so it is
+ * the only party that can score everyone's contribution consistently. It now
+ * computes this once per hand (from the unfiltered final state, before
+ * filterStateForSeat is applied) and broadcasts the identical payload to every
+ * connected client -- mirroring what local pass-and-play already does on one
+ * screen (App.tsx's local HAND_OVER effect scores every player from their real
+ * concealed tiles, since local mode has them all in view). `runningTotals` is
+ * accumulated server-side across the whole session and is now the single
+ * source of truth; clients no longer maintain their own copy online.
+ */
+export interface WinnerHandPayload {
+  /** All concealed tiles (includes the winning tile). */
+  readonly concealed:    readonly Tile[];
+  readonly melds:        readonly DeclaredMeld[];
+  readonly bonusTiles:   readonly Tile[];
+  readonly winningTileId: TileId | null;
+}
+
+export interface PlayerBonusPayload {
+  readonly name:      string;
+  readonly seat:      SeatIndex;
+  readonly bonus:     BonusScoreResult;
+  /** Full hand score for non-winners (melds + concealed pungs); null for the winner. */
+  readonly meldScore: ExposedMeldScoreResult | null;
+}
+
+export interface HandScorePayload {
+  readonly winnerName:     string | null;
+  /** null on a draw, or if scoring threw (see game-session.ts computeHandScore). */
+  readonly result:         ScoreResult | null;
+  readonly playerBonuses:  readonly PlayerBonusPayload[];
+  /** Winner's full hand for display; null on a draw. */
+  readonly winnerHand:     WinnerHandPayload | null;
+  /** Authoritative running totals, one per seat, accumulated for the whole session. */
+  readonly runningTotals:  readonly number[];
+}
 
 /** Events the server sends to clients. */
 export interface ServerToClientEvents {
@@ -85,6 +136,14 @@ export interface ServerToClientEvents {
    * regardless of how the client batches incoming game_state events.
    */
   game_event: (message: string) => void;
+
+  /**
+   * Sent once per hand immediately after the final HAND_OVER `game_state`,
+   * with the server-computed, authoritative score for that hand (see
+   * HandScorePayload above). Identical for every connected client -- this is
+   * what fixes Finding 3 (online running totals diverging between clients).
+   */
+  hand_score: (payload: HandScorePayload) => void;
 }
 
 /** Events the client sends to the server. */

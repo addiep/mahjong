@@ -5,8 +5,11 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Install root-level (React app) dependencies
-COPY package.json package-lock.json* ./
-RUN npm install
+# Lockfile is committed (Finding 5 fix, 2026-07-02): npm ci installs exactly
+# what is locked instead of npm install re-resolving ^-range deps at build
+# time, so local, CI, and production builds no longer drift.
+COPY package.json package-lock.json ./
+RUN npm ci
 
 # Copy source needed for the Vite build
 COPY index.html tsconfig.json vite.config.ts ./
@@ -30,8 +33,10 @@ WORKDIR /app
 COPY engine/ ./engine/
 
 # Install server dependencies
-COPY server/package.json ./server/
-RUN cd server && npm install
+# Lockfile is committed (Finding 5 fix, 2026-07-02) -- see the builder-stage
+# note above; npm ci keeps the production server build reproducible too.
+COPY server/package.json server/package-lock.json ./server/
+RUN cd server && npm ci
 
 # Server source and config
 COPY server/src/ ./server/src/
