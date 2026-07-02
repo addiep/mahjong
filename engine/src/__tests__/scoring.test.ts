@@ -2,7 +2,7 @@
  * Tests for Module 1.8 — Scoring Engine
  */
 import { describe, it, expect } from 'vitest';
-import { scoreWinningHand, ScoreInput } from '../scoring.js';
+import { scoreWinningHand, scoreExposedMelds, ScoreInput } from '../scoring.js';
 import { DEFAULT_SCORING_CONFIG } from '../scoring-config.js';
 import { DEFAULT_CONFIG, GameConfig, DeclaredMeld, MeldType, SeatIndex } from '../game-state.js';
 import { WinContext } from '../hand-evaluator.js';
@@ -39,7 +39,7 @@ const ctx = (o: Partial<ScoreInput> & { concealed: readonly Tile[]; winningTile:
 const score = (o: Partial<ScoreInput> & { concealed: readonly Tile[]; winningTile: Tile }) =>
   scoreWinningHand(ctx(o));
 
-// ─── Base-point arithmetic (under the limit) ──────────────────────────────────
+// ─── Base-point arithmetic (under the limit) ──────────────────────────────
 describe('normal scoring — base points and doublings', () => {
   it('scores a clean self-drawn hand with one major pung + a chow', () => {
     // pungs Red-dragon, B2, B7 + chow B4B5B6 + pair B9, self-drawn.
@@ -96,17 +96,45 @@ describe('normal scoring — base points and doublings', () => {
     expect(r.basePoints).toBe(36);
   });
 
-  it('prevailing wind pair does NOT score (only dragon or own-wind pair scores)', () => {
+  it('prevailing wind pair scores like an own-wind pair (rule change, Todo C 2026-07-02)', () => {
     // seat wind = South (=own wind); prevailing = East.
-    // pair of East (prevailing only, not own) should give 0 pair points.
+    // pair of East (prevailing only, not own) scores the 2-point pair.
     const concealed = [...x3(B, 2), ...x3(B, 3), ...x3(B, 5), B(6), B(7), B(8), W('east'), W('east')];
     const r = score({ concealed, winningTile: concealed[0]!, seatWind: 'south' });
-    // base: 4 + 4 + 4 + chow 0 + East pair 0 + going 20 + live wall 2 = 34
-    expect(r.basePoints).toBe(34);
+    // base: 4 + 4 + 4 + chow 0 + East pair 2 + going 20 + live wall 2 = 36
+    expect(r.basePoints).toBe(36);
   });
 });
 
-// ─── The limit caps every hand ────────────────────────────────────────────
+// ─── Wind of the round (Todo C, 2026-07-02) ──────────────────────────
+describe('wind of the round doublings', () => {
+  it('pung of the prevailing wind earns one doubling', () => {
+    // seat South, prevailing East; concealed pung of East winds.
+    const east3 = [W('east'), W('east'), W('east')];
+    const tiles = [...east3, ...x3(B, 3), B(4), B(5), B(6), ...x3(B, 7), ...pr(B, 9)];
+    const r = score({ concealed: tiles, winningTile: tiles[5]!, seatWind: 'south', prevailingWind: 'east' });
+    expect(r.doublingLines.some(l => l.label === 'pung/kong of the wind of the round' && l.doublings === 1)).toBe(true);
+    // Not also counted as own wind (seat is South).
+    expect(r.doublingLines.some(l => l.label === 'pung/kong of dragon or own wind')).toBe(false);
+  });
+
+  it('pung of a wind that is both seat and round wind earns two doublings', () => {
+    const east3 = [W('east'), W('east'), W('east')];
+    const tiles = [...east3, ...x3(B, 3), B(4), B(5), B(6), ...x3(B, 7), ...pr(B, 9)];
+    const r = score({ concealed: tiles, winningTile: tiles[5]!, seatWind: 'east', prevailingWind: 'east', seat: 0 as SeatIndex });
+    expect(r.doublingLines.some(l => l.label === 'pung/kong of dragon or own wind' && l.doublings === 1)).toBe(true);
+    expect(r.doublingLines.some(l => l.label === 'pung/kong of the wind of the round' && l.doublings === 1)).toBe(true);
+  });
+
+  it('pung of a non-prevailing, non-seat wind earns no wind doubling', () => {
+    const north3 = [W('north'), W('north'), W('north')];
+    const tiles = [...north3, ...x3(B, 3), B(4), B(5), B(6), ...x3(B, 7), ...pr(B, 9)];
+    const r = score({ concealed: tiles, winningTile: tiles[5]!, seatWind: 'south', prevailingWind: 'east' });
+    expect(r.doublingLines.some(l => l.label.includes('wind'))).toBe(false);
+  });
+});
+
+// ─── The limit caps every hand ────────────────────────────────────────
 describe('limit cap', () => {
   it('caps a huge concealed pung hand at the limit', () => {
     const concealed = [...x3(B, 2), ...x3(B, 3), ...x3(B, 4), ...x3(B, 5), ...pr(B, 6)];
@@ -115,7 +143,7 @@ describe('limit cap', () => {
   });
 });
 
-// ─── Special / limit hands ───────────────────────────────────────────────
+// ─── Special / limit hands ───────────────────────────────────────
 describe('special & limit hands', () => {
   it('All Pairs Honours scores 500', () => {
     const concealed = [...pr(B, 1), ...pr(B, 9), ...pr(C, 1), ...pr(C, 9), ...pr(O, 1), ...Wp('east'), ...Dp('red')];
@@ -217,7 +245,7 @@ describe('special & limit hands', () => {
   });
 });
 
-// ─── New & changed special hands ──────────────────────────────────────────────
+// ─── New & changed special hands ──────────────────────────────────────────
 describe('rule-change special hands', () => {
   it('Mixed Pungs fires for a fully-concealed no-chow hand', () => {
     const concealed = [...x3(B, 2), ...x3(C, 3), ...x3(O, 4), ...x3(B, 6), ...pr(C, 7)];
@@ -319,5 +347,38 @@ describe('rule-change special hands', () => {
     const concealed = [B(1), B(1), B(1), B(1), B(2), B(3), B(4), B(5), B(6), B(7), B(8), B(9), B(9), B(9)];
     const r = score({ concealed, winningTile: concealed[0]! });
     expect(r.specialHand).not.toBe('Gates of Heaven (Nine Chances)');
+  });
+});
+
+
+// ─── Non-winner round-wind scoring (Todo C, 2026-07-02) ─────────────────────
+
+describe('scoreExposedMelds — wind of the round', () => {
+  it('declared pung of the prevailing wind earns a doubling for a non-winner', () => {
+    const melds = [dm('pung', [W('east'), W('east'), W('east')])];
+    const r = scoreExposedMelds(melds, [], undefined, 'south' as Wind, [], 'east' as Wind);
+    expect(r.doublingLines.some(l => l.label === 'pung/kong of the wind of the round' && l.doublings === 1)).toBe(true);
+    expect(r.basePoints).toBe(4); // exposed major pung
+    expect(r.total).toBe(8);
+  });
+
+  it('stacks own-wind and round-wind doublings when the winds match', () => {
+    const melds = [dm('pung', [W('east'), W('east'), W('east')])];
+    const r = scoreExposedMelds(melds, [], undefined, 'east' as Wind, [], 'east' as Wind);
+    expect(r.doublings).toBe(2);
+    expect(r.total).toBe(16);
+  });
+
+  it('concealed pair of the prevailing wind scores the 2-point pair', () => {
+    const r = scoreExposedMelds([], [], undefined, 'south' as Wind, [W('east'), W('east')], 'east' as Wind);
+    expect(r.basePoints).toBe(2);
+    expect(r.lines.some(l => l.label === 'scoring pair of east wind')).toBe(true);
+  });
+
+  it('no round-wind effects when prevailingWind is omitted (backward compatible)', () => {
+    const melds = [dm('pung', [W('east'), W('east'), W('east')])];
+    const r = scoreExposedMelds(melds, [], undefined, 'south' as Wind, []);
+    expect(r.doublings).toBe(0);
+    expect(r.total).toBe(4);
   });
 });
