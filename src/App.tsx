@@ -110,16 +110,6 @@
  *    face-down when it's off (see Board.tsx).
  * (Issue 2, the wall's clockwise/anticlockwise recede direction, is fixed in
  * Wall.tsx -- no App.tsx changes needed for that one.)
- *
- * Online seat rotation (Todo A online follow-on, 2026-07-02):
- *  - The server now rotates seats/dealer and advances the prevailing wind
- *    online too (see server/src/game-session.ts), and re-sends game_start at
- *    the start of every hand (not just the initial deal/reconnect) so this
- *    client learns its (possibly new) physical seat. onlineGameInfo.seat is
- *    therefore no longer fixed for the session -- it is refreshed by a
- *    game_start listener below. isCreator is now tracked explicitly (from the
- *    same payload) instead of derived from localSeat === 0, since the creator
- *    (identity 0) is no longer always physically seated East after rotation.
  */
 
 import { useEffect, useRef, useState } from 'react';
