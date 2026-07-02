@@ -33,11 +33,13 @@ import {
   type ClaimDecision,
   type Tile,
   type TileId,
+  type Action,
   type PlayerController,
   GameRunner,
   HeuristicController,
   buildWall,
   createGameState,
+  dispatch,
   DEFAULT_CONFIG,
   isSuited,
   isWind,
@@ -184,6 +186,78 @@ function filterStateForSeat(state: GameState, revealSeat: number): GameState {
 }
 
 // ---------------------------------------------------------------------------
+// Untrusted-action validation (the server trust boundary)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true if `action` is a legal move for `seat` given `state`.
+ *
+ * This is the server's trust boundary. In local pass-and-play the UI only ever
+ * constructs legal actions, so the engine deliberately defers full win
+ * validation for ordinary claims (Module 1.7) and trusts the caller. Online,
+ * the payload arrives over a socket and must not be trusted: a malformed or
+ * illegal action would otherwise be dispatched, either ending the hand
+ * illegally (an unchecked win) or throwing inside GameRunner and tearing down
+ * the whole session for everyone.
+ *
+ * Two layers:
+ *  1. Explicit win validation. The engine's dispatch accepts DECLARE_WIN and a
+ *     CLAIM_WINDOW 'win' without checking the hand actually wins, so we run
+ *     isWinningHand (Module 1.7) here. (ROBBING_KONG wins are already checked
+ *     inside dispatch, but re-checking is harmless.)
+ *  2. Structural validation by dry-run dispatch. dispatch is a pure function --
+ *     it returns a new state and never mutates its input -- so calling it here
+ *     and discarding the result is a safe trial that mirrors exactly what
+ *     GameRunner will do. If it throws, the action is illegal (wrong phase,
+ *     wrong seat, tile not held, already responded, bad chow, and so on).
+ */
+export function isActionValid(state: GameState, seat: SeatIndex, action: Action): boolean {
+  const player = state.players[seat];
+  if (!player) return false;
+
+  // Ownership: a client may only act for its own seat, and only for the action
+  // types a human ever sends. The engine's turn actions run on currentSeat and
+  // do not carry a sender, so we bind them to the sender here; BEGIN_TURN and
+  // DRAW_REPLACEMENT are engine-internal and must never arrive from a socket.
+  switch (action.type) {
+    case 'DISCARD':
+    case 'DECLARE_CONCEALED_KONG':
+    case 'DECLARE_ADDED_KONG':
+    case 'DECLARE_WIN':
+      if (state.phase !== 'DISCARDING' || state.currentSeat !== seat) return false;
+      break;
+    case 'CLAIM_RESPONSE':
+      if (action.seat !== seat) return false;
+      break;
+    default:
+      return false;
+  }
+
+  // Layer 1: wins the engine does not otherwise validate.
+  if (action.type === 'DECLARE_WIN') {
+    if (!isWinningHand(player.concealed, player.melds, state.config)) return false;
+  }
+  if (action.type === 'CLAIM_RESPONSE' && action.decision.type === 'win') {
+    let winTile: Tile | undefined;
+    if (state.phase === 'CLAIM_WINDOW') {
+      winTile = state.discardPool[state.discardPool.length - 1];
+    } else if (state.phase === 'ROBBING_KONG') {
+      winTile = state.robbingKong?.tile;
+    }
+    if (!winTile) return false;
+    if (!isWinningHand([...player.concealed, winTile], player.melds, state.config)) return false;
+  }
+
+  // Layer 2: everything else -- let the engine be the judge, without side effects.
+  try {
+    dispatch(state, action);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // FallbackController -- human seat with AI fallback on disconnect (Module 3.4)
 // ---------------------------------------------------------------------------
 
@@ -222,7 +296,15 @@ class FallbackController implements PlayerController {
     state: GameState; seat: SeatIndex;
   } | null = null;
 
-  constructor(private readonly seatIdx: SeatIndex) {
+  constructor(
+    private readonly seatIdx: SeatIndex,
+    /**
+     * Called when a socket sends an illegal action, so the offending client can
+     * be re-synced with a fresh authoritative snapshot instead of the action
+     * being dispatched (which would end the hand illegally or crash the session).
+     */
+    private readonly resync: (socket: TypedSocket, state: GameState, seat: SeatIndex) => void = () => {},
+  ) {
     this.ai = new HeuristicController(seatIdx);
   }
 
@@ -243,17 +325,27 @@ class FallbackController implements PlayerController {
         payload.type === 'DECLARE_WIN' ||
         payload.type === 'DECLARE_ADDED_KONG'
       ) {
-        if (this.pendingDiscard) {
-          const { resolve } = this.pendingDiscard;
-          this.pendingDiscard = null;
-          resolve(payload as DiscardAction);
+        if (!this.pendingDiscard) return;
+        const { resolve, state, seat } = this.pendingDiscard;
+        const action = payload as DiscardAction;
+        if (!isActionValid(state, seat, action)) {
+          // Illegal payload: re-sync this client and keep waiting for a legal
+          // move. Never dispatch it -- that would crash or corrupt the hand.
+          this.resync(socket, state, seat);
+          return;
         }
+        this.pendingDiscard = null;
+        resolve(action);
       } else if (payload.type === 'CLAIM_RESPONSE') {
-        if (this.pendingClaim) {
-          const { resolve } = this.pendingClaim;
-          this.pendingClaim = null;
-          resolve(payload.decision);
+        if (!this.pendingClaim) return;
+        const { resolve, state, seat } = this.pendingClaim;
+        const action: Action = { type: 'CLAIM_RESPONSE', seat, decision: payload.decision };
+        if (!isActionValid(state, seat, action)) {
+          this.resync(socket, state, seat);
+          return;
         }
+        this.pendingClaim = null;
+        resolve(payload.decision);
       }
     });
 
@@ -353,13 +445,19 @@ export async function startGameSession(
   const humanSockets        = new Map<number, TypedSocket>();
   const controllers: PlayerController[] = [];
 
+  // Re-sync a client that sent an illegal action with a fresh snapshot, so it
+  // corrects its local state instead of the bad action being dispatched.
+  const resync = (socket: TypedSocket, state: GameState, seat: SeatIndex): void => {
+    socket.emit('game_state', filterStateForSeat(state, seat));
+  };
+
   for (let seat = 0; seat < 4; seat++) {
     const humanSeat = seats.find(s => s.seat === seat);
     if (humanSeat) {
       const raw = io.sockets.sockets.get(humanSeat.socketId);
       if (raw) {
         const socket  = raw as unknown as TypedSocket;
-        const ctrl    = new FallbackController(seat as SeatIndex);
+        const ctrl    = new FallbackController(seat as SeatIndex, resync);
         ctrl.attachSocket(socket);
         fallbackControllers.set(seat, ctrl);
         humanSockets.set(seat, socket);
@@ -450,7 +548,11 @@ export async function startGameSession(
       // Wait for the creator to request another hand (or disconnect).
       // Re-read from humanSockets so we pick up a reconnected creator socket.
       const creatorSocket = humanSockets.get(0);
-      if (!creatorSocket) break;
+      // If the creator has no socket, or their socket already disconnected
+      // mid-hand (in which case its 'disconnect' event has already fired and
+      // will never fire again), end the session now. Waiting on a dead socket
+      // would hang the loop between hands forever.
+      if (!creatorSocket || !creatorSocket.connected) break;
 
       const shouldContinue = await new Promise<boolean>(resolve => {
         const cleanup = () => {
