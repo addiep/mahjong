@@ -17,6 +17,10 @@ export * from './scoring.js';
 export * from './flower-scoring.js';
 export * from './inference.js';
 
+// Client <-> server wire protocol (shared by the Node server and the React
+// client so the socket event types are defined exactly once).
+export * from './protocol.js';
+
 
 // Module 4.x -- AI players (Phase 3)
 export * from './ai/targets.js';

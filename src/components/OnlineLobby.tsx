@@ -9,8 +9,9 @@
  *   waiting       -- waiting room for creator and joiners
  *   error         -- disconnected / rejected / creator aborted
  *
- * The event interface types below are intentionally duplicated from
- * server/src/events.ts to avoid cross-package imports. Keep them in sync.
+ * The socket event types come from the shared engine package
+ * (`@mahjong/engine`, defined in engine/src/protocol.ts), the single source of
+ * truth also imported by the server -- no hand-synced client copy.
  *
  * Reconnection (Module 3.4):
  *   Player name and seat are stored in sessionStorage on auth/join so that a
@@ -24,54 +25,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import type { GameState, ClaimDecision } from '@mahjong/engine';
+import type { LobbySeat, ServerToClientEvents, ClientToServerEvents } from '@mahjong/engine';
 import styles from './OnlineLobby.module.css';
 
-// ---------------------------------------------------------------------------
-// Event types (must match server/src/events.ts)
-// ---------------------------------------------------------------------------
-
-interface LobbySeat { name: string; seat: number; }
-
-/** A game action emitted by the human client during an active hand. */
-type GameActionPayload =
-  | { type: 'DISCARD';            tileId: string }
-  | { type: 'DECLARE_WIN' }
-  | { type: 'DECLARE_ADDED_KONG';  tileId: string }
-  | { type: 'CLAIM_RESPONSE';      decision: ClaimDecision };
-
-interface ServerToClientEvents {
-  server_state: (d: { phase: 'idle' | 'waiting' | 'in-progress' }) => void;
-  auth_ok:      () => void;
-  auth_fail:    () => void;
-  config_ok:    (d: { seat: 0 }) => void;
-  join_ok:      (d: { seat: number }) => void;
-  join_fail:    (d: { reason: string }) => void;
-  lobby_update: (d: { seats: LobbySeat[]; humanCount: number }) => void;
-  game_start:   (d: { seat: number }) => void;
-  /** Filtered per-seat game state; sent after every engine dispatch. */
-  game_state:   (state: GameState) => void;
-  /** One human-readable line per move, for the event sidebar (server-derived). */
-  game_event:   (message: string) => void;
-}
-
-interface ClientToServerEvents {
-  creator_auth:      (d: { name: string; password: string }) => void;
-  creator_config:    (d: { humanCount: number }) => void;
-  joiner_join:       (d: { name: string }) => void;
-  creator_deal:      () => void;
-  /** Human player's action during DISCARDING, CLAIM_WINDOW, or ROBBING_KONG. */
-  game_action:       (payload: GameActionPayload) => void;
-  /** Creator requests a new hand after HAND_OVER. */
-  new_hand:          () => void;
-  /**
-   * Reconnecting player identifies their seat (Module 3.4).
-   * Sent on connection when sessionStorage has stored credentials and the server
-   * reports in-progress. Also sent by App.tsx on socket auto-reconnect.
-   */
-  reconnect_attempt: (d: { seat: number; name: string }) => void;
-}
-
+// The concrete browser socket type, built from the shared event maps.
 export type OnlineSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 // ---------------------------------------------------------------------------
