@@ -1,0 +1,37 @@
+name: Deploy to VPS
+
+# Runs the same commands you'd type by hand after git push:
+#   cd <deploy path> && git pull && docker compose up -d --build
+#
+# Scoped entirely to the mj app's own checkout directory on the VPS -- this
+# workflow has no way to see or touch any other container on the host (e.g.
+# Hermes Agent), since it only ever runs docker compose from inside that one
+# directory, which only knows about the services in its own docker-compose.yml.
+#
+# Requires four repo secrets (Settings -> Secrets and variables -> Actions):
+# VPS_HOST, VPS_USER, VPS_SSH_KEY, VPS_DEPLOY_PATH. Optional: VPS_PORT
+# (defaults to 22 if not set).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Load deploy SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Trust VPS host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p ${{ secrets.VPS_PORT || 22 }} -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy (git pull + docker compose up -d --build)
+        run: |
+          ssh -p ${{ secrets.VPS_PORT || 22 }} ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "set -euo pipefail && cd ${{ secrets.VPS_DEPLOY_PATH }} && git fetch origin main && git reset --hard origin/main && docker compose up -d --build && docker image prune -f"
