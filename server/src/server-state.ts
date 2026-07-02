@@ -22,6 +22,16 @@ export interface ServerState {
   phase: ServerPhase;
   /** Total human seats expected (0 until creator_config is received). */
   humanCount: number;
+  /**
+   * Hand-config options set by the creator alongside humanCount (sent in the
+   * same creator_config event). Mirror GameConfig's fields of the same name
+   * (Module 2.6); consumed by game-session.ts when building each hand's
+   * GameConfig instead of the old hardcoded HAND_CONFIG. Defaulted to the
+   * engine's own defaults (see DEFAULT_CONFIG) until creator_config arrives.
+   */
+  deadWall: boolean;
+  knittingEnabled: boolean;
+  discardsVisible: boolean;
   /** Human seats that have a player connected. Creator is always seat 0. */
   seats: ConnectedSeat[];
   /** Socket id of the creator; only they may send creator_config / creator_deal. */
@@ -40,6 +50,9 @@ export function createServerState(): ServerState {
   return {
     phase: 'idle',
     humanCount: 0,
+    deadWall: false,
+    knittingEnabled: false,
+    discardsVisible: true,
     seats: [],
     creatorSocketId: null,
     reconnectHandler: null,
@@ -50,6 +63,9 @@ export function createServerState(): ServerState {
 export function resetServerState(state: ServerState): void {
   state.phase           = 'idle';
   state.humanCount      = 0;
+  state.deadWall        = false;
+  state.knittingEnabled = false;
+  state.discardsVisible = true;
   state.seats           = [];
   state.creatorSocketId = null;
   state.reconnectHandler = null;
