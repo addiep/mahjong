@@ -299,7 +299,7 @@ function computeHandScore(state: GameState, runningTotals: number[]): HandScoreP
     seat:  p.seat,
     bonus: scoreBonusTiles(p.bonusTiles),
     meldScore: p.seat !== hr.winnerSeat
-      ? scoreExposedMelds(p.melds, p.bonusTiles, undefined, p.seatWind, p.concealed)
+      ? scoreExposedMelds(p.melds, p.bonusTiles, undefined, p.seatWind, p.concealed, state.prevailingWind)
       : null,
   }));
 
