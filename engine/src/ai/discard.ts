@@ -16,18 +16,24 @@
  * the first to go. Dragons and the AI's own seat wind are always kept (both
  * double on a pung).
  *
- * A later pass will overlay the inference safe-tile reads for defensive play
- * (DESIGN Module 4.3). The baseline plays to its own hand only.
+ * Defensive overlay (Todo D, 2026-07-02): `chooseDiscardTile` adds a danger
+ * penalty on top of the plain `keepValue` score, using the inference engine
+ * (Module 5.2) to read what opponents look like they are collecting. See
+ * `defensivePenalty` below for the full design; `keepValue` itself stays a
+ * pure hand-only function (unit-tested and used standalone elsewhere) and is
+ * untouched by this overlay.
  *
- * Dependencies: tiles.ts, game-state.ts, assessment.ts. No UI, no side effects.
+ * Dependencies: tiles.ts, game-state.ts, assessment.ts, inference.ts. No UI,
+ * no side effects.
  */
 
 import {
   Tile, TileId, SuitedTile,
-  isSuited, isWind, isDragon, isTerminal, tileKey,
+  isSuited, isWind, isDragon, isHonour, isTerminal, tileKey,
 } from '../tiles.js';
 import { GameState, SeatIndex } from '../game-state.js';
 import { HandPlan } from './assessment.js';
+import { inferTable, Confidence, Closeness } from '../inference.js';
 
 // --- Keep-values (higher = more useful = keep; lowest is discarded) -----
 //
@@ -166,10 +172,126 @@ export function keepValue(tile: Tile, plan: HandPlan, concealed: readonly Tile[]
   return KEEP.inIsolated; // bonus tiles never sit in `concealed`; defensive default
 }
 
+// --- Defensive overlay (Todo D) -----
+//
+// `defensivePenalty` reads the inference engine (Module 5.2) and returns a
+// bonus added on top of `keepValue`, so a dangerous tile is held a little
+// longer and a safer, similarly-useless tile is thrown first instead. It is
+// deliberately modest relative to the KEEP scale (max ~5, vs a 1-15 spread
+// across many tiers) so it reorders *among* comparably useless tiles rather
+// than overriding real hand-building decisions (e.g. it will never outweigh
+// keeping a dragon pair to protect a merely-plausible suit read).
+//
+// Design (2026-07-02, worked through with Adam):
+//   1. Per-opponent risk for the tile's kind: how strongly does the inference
+//      engine's top-guess for that opponent match this tile (suit-vs-suit, or
+//      "honours" for winds/dragons), weighted by the guess's confidence. An
+//      un-matched honour still carries a small baseline risk (anyone might be
+//      sitting on a pair, not just a player read as "going for honours").
+//   2. Seat-relative claim eligibility: a chow can only be claimed by the seat
+//      immediately to the discarder's right, so suit-match risk from any other
+//      seat is scaled down to roughly its pung/kong share only. Honour risk
+//      (pung/kong/pair) applies from every seat equally.
+//   3. Per-opponent "already discarded this kind" check: if a specific
+//      opponent has themselves thrown this exact tile kind, they evidently do
+//      not want it -- risk from that opponent for that tile drops to zero,
+//      independent of their general closeness read. This is the direct,
+//      tile-level version of "are they holding onto or chucking out winds and
+//      dragons" (and works the same way for suits).
+//   4. Closeness scaling: the per-opponent risk is scaled by how close that
+//      opponent looks to a win (Module 5.2's `closeness.level`, plus a bump
+//      for fishing tempo). A "none"/"building" read contributes ~nothing; a
+//      "ready" read contributes the full weight.
+//   5. Global lateness scaling: independent of any one opponent's exposed
+//      melds (which only reflect the *claimed* portion of their hand -- a
+//      fully concealed player can be one tile from winning with no melds at
+//      all), the whole danger score is scaled by how deep into the wall the
+//      hand is (`turnsLeft = wall.live.length / playerCount`, the same figure
+//      Module 4.6's special-hand EV already uses). Early on, even a confident
+//      read is worth little; late, it is worth its full weight. This is a
+//      deliberate hedge against the meld-count blind spot in (4).
+//   6. Zeroed entirely for anything already in the inference engine's
+//      `safeToDiscard` ('safe' certainty) or `outOfPlay` lists.
+//
+// The final score is the WORST case across opponents (max, not sum), so a
+// tile is not penalised just because several opponents carry weak, unrelated
+// reads -- only the single most dangerous opponent matters.
+
+const CONFIDENCE_WEIGHT: Record<Confidence, number> = { low: 0.3, medium: 0.6, high: 1 };
+const CLOSENESS_WEIGHT: Record<Closeness['level'], number> = {
+  none: 0, building: 0.15, near: 0.6, ready: 1,
+};
+const FISHING_BONUS = 0.25;
+
+/** Baseline risk for a live, unmatched honour: anyone could be sitting on a pair. */
+const BASE_HONOUR_RISK = 0.4;
+/** A non-chow-eligible seat can still pung/kong; that is a fraction of full suit risk. */
+const PUNG_ONLY_SHARE = 0.5;
+
+/** Turns-left figure below which the hand counts as "late" (mirrors Module 4.6's EV gate). */
+const EARLY_GAME_TURNS = 12;
+/** Global scale never drops all the way to zero -- a fishing opponent is never fully ignored. */
+const MIN_GLOBAL_SCALE = 0.2;
+
+/** Comparable to one KEEP tier -- enough to reorder junk, not override real hand value. */
+const DANGER_SCALE = 4;
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+/** How worried should `seat` be about discarding `tile`, worst case across opponents? */
+export function defensivePenalty(state: GameState, seat: SeatIndex, tile: Tile): number {
+  if (!isSuited(tile) && !isHonour(tile)) return 0; // bonus tiles: never a claim risk
+
+  const table = inferTable(state);
+  const key   = tileKey(tile);
+  if (table.safeToDiscard.some(s => s.key === key && s.certainty === 'safe')) return 0;
+  if (table.outOfPlay.some(o => o.key === key)) return 0;
+
+  const log = state.discardLog ?? [];
+  const { playerCount } = state.config;
+  const nextSeat = ((seat + 1) % playerCount) as SeatIndex;
+  const turnsLeft = Math.floor(state.wall.live.length / playerCount);
+  const globalScale = clamp(1 - turnsLeft / EARLY_GAME_TURNS, MIN_GLOBAL_SCALE, 1);
+
+  let worst = 0;
+  for (const opp of table.players) {
+    if (opp.seat === seat) continue;
+
+    // This opponent has already thrown this exact kind: they don't want it.
+    const alreadyDiscarded = log.some(e => e.seat === opp.seat && tileKey(e.tile) === key);
+    if (alreadyDiscarded) continue;
+
+    let riskWeight: number;
+    if (isHonour(tile)) {
+      const honourGuess = opp.topGuesses.find(g => g.kind === 'honours');
+      riskWeight = honourGuess
+        ? Math.max(BASE_HONOUR_RISK, CONFIDENCE_WEIGHT[honourGuess.confidence])
+        : BASE_HONOUR_RISK;
+    } else {
+      const suit = (tile as SuitedTile).suit;
+      const guess = opp.topGuesses.find(g => g.kind === suit);
+      const suitRisk = guess ? CONFIDENCE_WEIGHT[guess.confidence] : 0;
+      const isNextSeat = opp.seat === nextSeat;
+      riskWeight = isNextSeat ? suitRisk : suitRisk * PUNG_ONLY_SHARE;
+    }
+    if (riskWeight <= 0) continue;
+
+    const closenessWeight =
+      CLOSENESS_WEIGHT[opp.closeness.level] + (opp.closeness.fishing ? FISHING_BONUS : 0);
+    const danger = riskWeight * closenessWeight;
+    if (danger > worst) worst = danger;
+  }
+
+  return worst * globalScale * DANGER_SCALE;
+}
+
 /**
- * Choose the tile to discard: the least useful in hand. Deterministic tie-break:
- * lowest keep-value, then prefer the just-drawn tile (mimics drawing a dud and
- * throwing it), then a stable order by tile id.
+ * Choose the tile to discard: the least useful in hand, after the defensive
+ * overlay. Deterministic tie-break: lowest combined value, then prefer the
+ * just-drawn tile (mimics drawing a dud and throwing it), then a stable order
+ * by tile id.
  */
 export function chooseDiscardTile(state: GameState, seat: SeatIndex, plan: HandPlan): TileId {
   const player = state.players[seat]!;
@@ -182,7 +304,7 @@ export function chooseDiscardTile(state: GameState, seat: SeatIndex, plan: HandP
   let bestDrawn = false;
 
   for (const t of hand) {
-    const v = keepValue(t, plan, hand);
+    const v = keepValue(t, plan, hand) + defensivePenalty(state, seat, t);
     const isDrawn = justDrawn !== undefined && t.id === justDrawn;
     if (
       v < bestVal ||

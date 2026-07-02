@@ -11,13 +11,13 @@ import {
   buildTileSet, Tile, SuitedTile, Suit, Wind,
 } from '../tiles.js';
 import {
-  GameState, PlayerState, SeatIndex, DeclaredMeld, DEFAULT_CONFIG, GameConfig,
+  GameState, PlayerState, SeatIndex, DeclaredMeld, DiscardLogEntry, DEFAULT_CONFIG, GameConfig,
 } from '../game-state.js';
 import { Wall, buildWall, PlayerCount } from '../wall.js';
 import { createGameState } from '../game-state.js';
 import { GameRunner } from '../game-runner.js';
 import { assessHand, HandPlan } from '../ai/assessment.js';
-import { keepValue, chooseDiscardTile } from '../ai/discard.js';
+import { keepValue, chooseDiscardTile, defensivePenalty } from '../ai/discard.js';
 import { chooseClaimDecision } from '../ai/claims.js';
 import { HeuristicController } from '../ai/heuristic-controller.js';
 
@@ -299,5 +299,159 @@ describe('AI vs AI harness', () => {
       expect(final.phase).toBe('HAND_OVER');
       expect(tileCount(final)).toBe(144);
     }
+  });
+});
+
+// --- defensive discarding (Todo D, 2026-07-02) -----
+
+function pungMeld(tiles: Tile[]): DeclaredMeld { return { type: 'pung', tiles }; }
+
+function logEntry(seat: SeatIndex, tile: Tile, moveIndex: number): DiscardLogEntry {
+  return { seat, tile, moveIndex, claimedBy: null, justDrawn: false };
+}
+
+function wallOf(n: number): Wall {
+  return { live: ALL.slice(0, n), dead: [] } as Wall;
+}
+
+describe('defensivePenalty -- global lateness scaling', () => {
+  it('weighs the same near-complete opponent read more heavily late than early', () => {
+    // Seat 1 (next seat to seat 0): three exposed bamboo pungs -- meldCount 3,
+    // closeness 'near', bamboo confidence 'high'. Nothing else at the table.
+    const opponent = player(1, [], [
+      pungMeld([bam(1), bam(1, 1), bam(1, 2)]),
+      pungMeld([bam(2), bam(2, 1), bam(2, 2)]),
+      pungMeld([bam(3), bam(3, 1), bam(3, 2)]),
+    ]);
+    const candidate = bam(9); // matches the bamboo read, untouched by the melds above
+
+    const early = makeState(
+      [player(0, [candidate]), opponent, player(2, []), player(3, [])],
+      { wall: wallOf(80), discardLog: [] }, // turnsLeft = 20 -> early game
+    );
+    const late = makeState(
+      [player(0, [candidate]), opponent, player(2, []), player(3, [])],
+      { wall: wallOf(8), discardLog: [] }, // turnsLeft = 2 -> late game
+    );
+
+    const earlyPenalty = defensivePenalty(early, 0, candidate);
+    const latePenalty  = defensivePenalty(late, 0, candidate);
+    expect(earlyPenalty).toBeGreaterThan(0); // never fully ignored, per MIN_GLOBAL_SCALE
+    expect(latePenalty).toBeGreaterThan(earlyPenalty);
+  });
+});
+
+describe('defensivePenalty -- suit-matched risk vs unrelated suit', () => {
+  it('penalises a tile in the suit a near-complete opponent is reading, not an unrelated suit', () => {
+    const opponent = player(1, [], [
+      pungMeld([bam(1), bam(1, 1), bam(1, 2)]),
+      pungMeld([bam(2), bam(2, 1), bam(2, 2)]),
+      pungMeld([bam(3), bam(3, 1), bam(3, 2)]),
+    ]);
+    const st = makeState(
+      [player(0, []), opponent, player(2, []), player(3, [])],
+      { wall: wallOf(16), discardLog: [] }, // turnsLeft = 4
+    );
+    const bambooPenalty  = defensivePenalty(st, 0, bam(9));
+    const circlesPenalty = defensivePenalty(st, 0, cir(9));
+    expect(bambooPenalty).toBeGreaterThan(0);
+    expect(circlesPenalty).toBe(0);
+  });
+});
+
+describe('defensivePenalty -- seat-relative chow eligibility', () => {
+  it('discounts suit-matched risk from a seat that cannot claim a chow from seat 0', () => {
+    const meldsFor = () => [
+      pungMeld([bam(1), bam(1, 1), bam(1, 2)]),
+      pungMeld([bam(2), bam(2, 1), bam(2, 2)]),
+      pungMeld([bam(3), bam(3, 1), bam(3, 2)]),
+    ];
+    const nextSeatState = makeState(
+      [player(0, []), player(1, [], meldsFor()), player(2, []), player(3, [])],
+      { wall: wallOf(16), discardLog: [] },
+    );
+    const farSeatState = makeState(
+      [player(0, []), player(1, []), player(2, [], meldsFor()), player(3, [])],
+      { wall: wallOf(16), discardLog: [] },
+    );
+    const nextSeatPenalty = defensivePenalty(nextSeatState, 0, bam(9));
+    const farSeatPenalty  = defensivePenalty(farSeatState, 0, bam(9));
+    expect(farSeatPenalty).toBeGreaterThan(0);
+    expect(nextSeatPenalty).toBeGreaterThan(farSeatPenalty);
+  });
+});
+
+describe('defensivePenalty -- an opponent who already threw this kind is not feared for it', () => {
+  it('zeroes danger for a tile kind the specific opponent has already discarded themselves', () => {
+    const opponent = player(1, [], [
+      pungMeld([bam(1), bam(1, 1), bam(1, 2)]),
+      pungMeld([bam(2), bam(2, 1), bam(2, 2)]),
+      pungMeld([bam(3), bam(3, 1), bam(3, 2)]),
+    ]);
+    const st = makeState(
+      [player(0, []), opponent, player(2, []), player(3, [])],
+      { wall: wallOf(16), discardLog: [logEntry(1, bam(9), 0)] },
+    );
+    const discardedKindPenalty = defensivePenalty(st, 0, bam(9));   // seat 1 already threw this
+    const otherKindPenalty     = defensivePenalty(st, 0, bam(8));   // seat 1 has not
+    expect(discardedKindPenalty).toBe(0);
+    expect(otherKindPenalty).toBeGreaterThan(0);
+  });
+});
+
+describe('defensivePenalty -- honours danger and safe-tile zeroing', () => {
+  it('flags a dragon as dangerous against an honours-hoarding read, from any seat', () => {
+    const opponent = player(1, [], [
+      pungMeld([dragon('red'), dragon('red', 1), dragon('red', 2)]),
+      pungMeld([dragon('green'), dragon('green', 1), dragon('green', 2)]),
+    ]);
+    const discardLog: DiscardLogEntry[] = [
+      logEntry(1, chr(1), 0), logEntry(1, chr(2), 1),
+      logEntry(1, cir(1), 2), logEntry(1, cir(2), 3),
+    ];
+    const st = makeState(
+      [player(0, []), opponent, player(2, []), player(3, [])],
+      { wall: wallOf(16), discardLog },
+    );
+    const penalty = defensivePenalty(st, 0, dragon('white'));
+    expect(penalty).toBeGreaterThan(0);
+  });
+
+  it('zeroes the penalty once the inference engine calls the tile safe (three copies visible)', () => {
+    const opponent = player(1, [], [
+      pungMeld([dragon('red'), dragon('red', 1), dragon('red', 2)]),
+      pungMeld([dragon('green'), dragon('green', 1), dragon('green', 2)]),
+    ]);
+    // Three of the four white dragons are already visible in the discard pool
+    // (thrown by other seats) -- the inference engine calls the last one safe.
+    const discardLog: DiscardLogEntry[] = [
+      logEntry(2, dragon('white'), 0),
+      logEntry(2, dragon('white', 1), 1),
+      logEntry(2, dragon('white', 2), 2),
+    ];
+    const st = makeState(
+      [player(0, []), opponent, player(2, []), player(3, [])],
+      { wall: wallOf(16), discardLog },
+    );
+    expect(defensivePenalty(st, 0, dragon('white', 3))).toBe(0);
+  });
+});
+
+describe('chooseDiscardTile -- defensive overlay changes the pick among equally useless tiles', () => {
+  it('throws the safe off-suit tile before the one matching a near-complete opponent read', () => {
+    const plan = cleanPlan('bamboo', 'east'); // seat 0's own plan; both candidates are off-plan junk
+    const opponent = player(1, [], [
+      pungMeld([chr(1), chr(1, 1), chr(1, 2)]),
+      pungMeld([chr(2), chr(2, 1), chr(2, 2)]),
+      pungMeld([chr(3), chr(3, 1), chr(3, 2)]),
+    ]);
+    // Two lone off-suit tiles, otherwise identical keepValue (offSuitLone): one
+    // in the suit seat 1 is reading, one in a suit nobody is reading.
+    const concealed = [bam(2), bam(3), bam(4), chr(9), cir(9)];
+    const st = makeState(
+      [player(0, concealed), opponent, player(2, []), player(3, [])],
+      { wall: wallOf(12), discardLog: [] }, // turnsLeft = 3, a clear late-game signal
+    );
+    expect(chooseDiscardTile(st, 0, plan)).toBe(cir(9).id);
   });
 });
