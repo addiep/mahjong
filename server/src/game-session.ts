@@ -38,6 +38,8 @@ import {
   type PlayerController,
   type ScoreResult,
   type WinContext,
+  type Wind,
+  type HandResult,
   GameRunner,
   HeuristicController,
   buildWall,
@@ -80,6 +82,22 @@ function tileName(tile: Tile): string {
   if (isWind(tile))   return `${tile.wind} wind`;
   if (isDragon(tile)) return `${tile.dragon} dragon`;
   return 'bonus tile';
+}
+
+// ---------------------------------------------------------------------------
+// Seat rotation (Todo A -- "East stays East on a win", online follow-on)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wind cycle for prevailing-wind advancement. Online is always a 4-seat table
+ * (AI fills any seat with no connected human), so this never needs a
+ * player-count parameter the way App.tsx's local nextWind() does.
+ */
+const WIND_CYCLE: readonly Wind[] = ['east', 'south', 'west', 'north'];
+
+function nextWind(w: Wind): Wind {
+  const i = WIND_CYCLE.indexOf(w);
+  return WIND_CYCLE[(i + 1) % WIND_CYCLE.length] ?? 'east';
 }
 
 /**
@@ -401,7 +419,13 @@ export function isActionValid(state: GameState, seat: SeatIndex, action: Action)
  * One instance per human seat; it persists for the full session (across hands).
  */
 class FallbackController implements PlayerController {
-  private readonly ai: HeuristicController;
+  // Not readonly: updateSeat() rebuilds this whenever the identity this
+  // controller belongs to rotates to a different physical seat between
+  // hands (Todo A), so the disconnect-fallback AI always assesses the
+  // correct seat's hand -- HeuristicController's internal assessment keys
+  // off the seat it was constructed with, not the seat argument passed to
+  // getDiscardAction/getClaimDecision at call time.
+  private ai: HeuristicController;
   private socket: TypedSocket | null = null;
 
   private pendingDiscard: {
@@ -415,7 +439,13 @@ class FallbackController implements PlayerController {
   } | null = null;
 
   constructor(
-    private readonly seatIdx: SeatIndex,
+    /**
+     * The fixed roster slot (identity) this controller belongs to for the
+     * whole session -- NOT the physical seat, which now rotates hand to hand
+     * (Todo A). Used only as the initial fallback-AI seat; updateSeat() keeps
+     * it current thereafter.
+     */
+    identity: SeatIndex,
     /**
      * Called when a socket sends an illegal action, so the offending client can
      * be re-synced with a fresh authoritative snapshot instead of the action
@@ -423,7 +453,17 @@ class FallbackController implements PlayerController {
      */
     private readonly resync: (socket: TypedSocket, state: GameState, seat: SeatIndex) => void = () => {},
   ) {
-    this.ai = new HeuristicController(seatIdx);
+    this.ai = new HeuristicController(identity);
+  }
+
+  /**
+   * Re-point the disconnect-fallback AI at this identity's CURRENT physical
+   * seat. Called once per hand (before the hand starts) from startGameSession's
+   * rotation logic, mirroring App.tsx's local buildAiControllers, which also
+   * rebuilds a fresh HeuristicController per seat every hand.
+   */
+  updateSeat(seat: SeatIndex): void {
+    this.ai = new HeuristicController(seat);
   }
 
   /**
@@ -570,38 +610,73 @@ export async function startGameSession(
     discardsVisible: serverState.discardsVisible,
   };
 
-  // Build one FallbackController per human seat, AI for the rest.
+  // -------------------------------------------------------------------------
+  // Identity vs. physical seat (Todo A online follow-on, 2026-07-02)
+  //
+  // `seats` (ConnectedSeat[]) assigns each human a fixed IDENTITY (roster
+  // slot) at lobby time -- creator = 0, joiners in join order -- and that
+  // never changes for the rest of the session. AI take whichever identities
+  // 0..3 have no connected human.
+  //
+  // The PHYSICAL seat (0=East..3=North, i.e. the index into GameState.players
+  // and into GameRunner's positional controllers array) is a SEPARATE, and
+  // now per-hand, thing: `seatAssignment[physicalSeat] = identity` tracks who
+  // currently sits where, and rotates between hands exactly like App.tsx's
+  // local seatAssignmentRef (East stays East on a win or a draw; otherwise
+  // every identity moves one seat anticlockwise). This mirrors the local fix
+  // for Todo A/issue 3 (2026-07-02) -- see DESIGN.md -- which was previously
+  // local-only because the server had no equivalent state.
+  // -------------------------------------------------------------------------
+
+  let seatAssignment: number[] = [0, 1, 2, 3];
+  let roundWind: Wind = 'east';
+  let dealerChangeCount = 0;
+  // The just-finished hand's result, used to decide whether East retains the
+  // dealer for the next hand. Null before hand 1 (no rotation happens then).
+  let previousHandResult: HandResult | null = null;
+  // Inverse of seatAssignment, recomputed whenever seatAssignment changes.
+  // Read by broadcastState/reconnectHandler (both can fire mid-hand) to turn
+  // an identity into "which physical seat are they sitting in right now".
+  let currentSeatOfIdentity = new Map<number, number>([[0, 0], [1, 1], [2, 2], [3, 3]]);
+
+  // One FallbackController per human IDENTITY (not physical seat -- the
+  // socket/reconnect state must survive rotation), AI for the rest. Built
+  // once for the whole session; updateSeat() keeps each FallbackController's
+  // internal fallback AI pointed at the right physical seat every hand.
   const fallbackControllers = new Map<number, FallbackController>();
   const humanSockets        = new Map<number, TypedSocket>();
-  const controllers: PlayerController[] = [];
 
   // Re-sync a client that sent an illegal action with a fresh snapshot, so it
   // corrects its local state instead of the bad action being dispatched.
+  // `seat` here is always the physical seat GameRunner called the controller
+  // with, captured at the pending-decision call site -- already correct
+  // regardless of rotation, no translation needed.
   const resync = (socket: TypedSocket, state: GameState, seat: SeatIndex): void => {
     socket.emit('game_state', filterStateForSeat(state, seat));
   };
 
-  for (let seat = 0; seat < 4; seat++) {
-    const humanSeat = seats.find(s => s.seat === seat);
+  for (let identity = 0; identity < 4; identity++) {
+    const humanSeat = seats.find(s => s.seat === identity);
     if (humanSeat) {
       const raw = io.sockets.sockets.get(humanSeat.socketId);
       if (raw) {
-        const socket  = raw as unknown as TypedSocket;
-        const ctrl    = new FallbackController(seat as SeatIndex, resync);
+        const socket = raw as unknown as TypedSocket;
+        const ctrl   = new FallbackController(identity as SeatIndex, resync);
         ctrl.attachSocket(socket);
-        fallbackControllers.set(seat, ctrl);
-        humanSockets.set(seat, socket);
-        controllers.push(ctrl);
+        fallbackControllers.set(identity, ctrl);
+        humanSockets.set(identity, socket);
         continue;
       }
     }
-    // Seat has no connected human -- use a pure AI controller.
-    controllers.push(new HeuristicController(seat as SeatIndex));
+    // No connected human at this identity -- always AI. (Positional AI
+    // controllers are built fresh per hand in the loop below, at whatever
+    // physical seat this identity currently occupies.)
   }
 
-  const names = Array.from({ length: 4 }, (_, i) =>
-    seats.find(s => s.seat === i)?.name ??
-    `AI ${(['East', 'South', 'West', 'North'] as const)[i]!}`,
+  // Display name per identity, fixed for the whole session regardless of
+  // which physical seat/wind that identity currently occupies.
+  const namesByIdentity = Array.from({ length: 4 }, (_, identity) =>
+    seats.find(s => s.seat === identity)?.name ?? `AI ${identity + 1}`,
   );
 
   // Authoritative running totals, one per seat, accumulated across every hand
@@ -632,36 +707,45 @@ export async function startGameSession(
     // preceding state and no move is ever missed.
     for (const message of computeEvents(prevEventState, state)) emitEvent(message);
     prevEventState = state;
-    for (const [seat, socket] of humanSockets) {
+    for (const [identity, socket] of humanSockets) {
+      const seat = currentSeatOfIdentity.get(identity) ?? identity;
       socket.emit('game_state', filterStateForSeat(state, seat));
     }
   }
 
   // Register the reconnect handler so lobby.ts can call it when a socket
-  // sends reconnect_attempt during in-progress.
-  serverState.reconnectHandler = (socketId: string, seatIdx: number, nameAttempt: string): boolean => {
-    const ctrl     = fallbackControllers.get(seatIdx);
-    const expected = seats.find(s => s.seat === seatIdx);
+  // sends reconnect_attempt during in-progress. The client always sends its
+  // IDENTITY here (stored once in sessionStorage at lobby join and never
+  // updated by rotation -- see OnlineLobby.tsx / App.tsx), so `seats.find`
+  // and `fallbackControllers.get` below are unaffected by seat rotation;
+  // only the physical seat sent back to the client needs translating.
+  serverState.reconnectHandler = (socketId: string, identity: number, nameAttempt: string): boolean => {
+    const ctrl     = fallbackControllers.get(identity);
+    const expected = seats.find(s => s.seat === identity);
     if (!ctrl || !expected || expected.name !== nameAttempt) return false;
 
     const raw = io.sockets.sockets.get(socketId);
     if (!raw) return false;
     const socket = raw as unknown as TypedSocket;
 
+    const seat = (currentSeatOfIdentity.get(identity) ?? identity) as SeatIndex;
+
     // Update socket map so future broadcasts reach the reconnected client.
-    humanSockets.set(seatIdx, socket);
+    humanSockets.set(identity, socket);
     ctrl.attachSocket(socket);
+    ctrl.updateSeat(seat);
 
     // If this is the creator, update the tracked socket ID so the between-hand
     // new_hand listener finds the right socket.
-    if (seatIdx === 0) {
+    if (identity === 0) {
       serverState.creatorSocketId = socketId;
     }
 
-    // Re-send game_start so the client leaves the lobby view, then send state.
-    socket.emit('game_start', { seat: seatIdx });
+    // Re-send game_start so the client leaves the lobby view (and learns its
+    // current physical seat for this hand), then send state.
+    socket.emit('game_start', { seat, isCreator: identity === 0 });
     if (lastKnownState) {
-      socket.emit('game_state', filterStateForSeat(lastKnownState, seatIdx));
+      socket.emit('game_state', filterStateForSeat(lastKnownState, seat));
       // If they dropped between HAND_OVER and the next deal, the score panel
       // needs the last hand's payload too -- it is not re-derivable from
       // filterStateForSeat alone now that scoring lives only on the server.
@@ -675,8 +759,63 @@ export async function startGameSession(
   try {
     // Run hands in a loop until the session ends.
     while (serverState.phase === 'in-progress') {
-      const deal         = buildWall(4, handConfig.deadWall ?? false);
-      const initialState = createGameState(handConfig, deal, names);
+      // ---------------------------------------------------------------------
+      // Todo A: rotate seats anticlockwise (the identity at physical seat 1
+      // becomes the new seat 0/East, etc.) unless the just-finished hand was
+      // won by the current East, or ended in a draw -- both retain the
+      // dealer. No rotation before hand 1 (previousHandResult is null).
+      // Exactly mirrors App.tsx's local startNewHand.
+      // ---------------------------------------------------------------------
+      const eastRetains =
+        previousHandResult === null ||
+        previousHandResult.reason === 'draw' ||
+        (previousHandResult.reason === 'win' && previousHandResult.winnerSeat === 0);
+
+      if (!eastRetains) {
+        const prev = seatAssignment;
+        seatAssignment = prev.map((_, i) => prev[(i + 1) % prev.length] ?? i);
+        dealerChangeCount += 1;
+        if (dealerChangeCount >= 4) {
+          roundWind = nextWind(roundWind);
+          dealerChangeCount = 0;
+        }
+      }
+
+      currentSeatOfIdentity = new Map(seatAssignment.map((identity, seat) => [identity, seat]));
+
+      // Build this hand's positional controllers + names from the current
+      // seat assignment, and tell every connected human their (possibly new)
+      // physical seat before dealing -- App.tsx's online listener updates
+      // its local `onlineGameInfo.seat`/`isCreator` on receipt.
+      const controllers: PlayerController[] = new Array(4);
+      const names: string[] = new Array(4);
+      for (let seat = 0; seat < 4; seat++) {
+        const identity = seatAssignment[seat] ?? seat;
+        names[seat] = namesByIdentity[identity] ?? `Player ${identity + 1}`;
+        const fc = fallbackControllers.get(identity);
+        if (fc) {
+          fc.updateSeat(seat as SeatIndex);
+          controllers[seat] = fc;
+        } else {
+          // Fresh AI controller every hand (strategy state resets), built at
+          // this identity's current physical seat -- mirrors App.tsx's local
+          // buildAiControllers.
+          controllers[seat] = new HeuristicController(seat as SeatIndex);
+        }
+      }
+      for (const [identity, socket] of humanSockets) {
+        const seat = currentSeatOfIdentity.get(identity) ?? identity;
+        socket.emit('game_start', { seat, isCreator: identity === 0 });
+      }
+
+      const deal = buildWall(4, handConfig.deadWall ?? false);
+      const initialState: GameState = {
+        ...createGameState(handConfig, deal, names),
+        // createGameState always initialises prevailingWind to 'east'; the
+        // round wind persists across hands and advances once every seat has
+        // held the dealer (a full circuit), same as App.tsx's local mode.
+        prevailingWind: roundWind,
+      };
 
       // Fresh hand: do not carry event diffing across the deal boundary.
       prevEventState = null;
@@ -687,6 +826,7 @@ export async function startGameSession(
 
       // Broadcast the HAND_OVER state (winner's tiles revealed for display).
       broadcastState(finalState);
+      previousHandResult = finalState.handResult;
 
       // Score the hand server-side from the raw, unfiltered finalState (every
       // player's real concealed tiles), and send the identical payload to
@@ -700,6 +840,8 @@ export async function startGameSession(
 
       // Wait for the creator to request another hand (or disconnect).
       // Re-read from humanSockets so we pick up a reconnected creator socket.
+      // The creator is always identity 0 -- fixed regardless of which
+      // physical seat they currently occupy.
       const creatorSocket = humanSockets.get(0);
       // If the creator has no socket, or their socket already disconnected
       // mid-hand (in which case its 'disconnect' event has already fired and

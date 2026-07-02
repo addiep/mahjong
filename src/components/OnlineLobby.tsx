@@ -44,7 +44,7 @@ export type OnlineSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 // ---------------------------------------------------------------------------
 
 export interface Props {
-  onGameStart: (seat: number, socket: OnlineSocket) => void;
+  onGameStart: (seat: number, isCreator: boolean, socket: OnlineSocket) => void;
 }
 
 type LobbyView =
@@ -161,11 +161,11 @@ export function OnlineLobby({ onGameStart }: Props) {
       );
     });
 
-    socket.on('game_start', ({ seat }) => {
+    socket.on('game_start', ({ seat, isCreator }) => {
       // Mark that the game has started so cleanup does not disconnect the socket
       // (App.tsx now owns it and needs it for the live game).
       gameStartedRef.current = true;
-      onGameStart(seat, socket);
+      onGameStart(seat, isCreator, socket);
     });
 
     socket.on('disconnect', () => {

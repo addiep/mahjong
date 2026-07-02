@@ -110,6 +110,16 @@
  *    face-down when it's off (see Board.tsx).
  * (Issue 2, the wall's clockwise/anticlockwise recede direction, is fixed in
  * Wall.tsx -- no App.tsx changes needed for that one.)
+ *
+ * Online seat rotation (Todo A online follow-on, 2026-07-02):
+ *  - The server now rotates seats/dealer and advances the prevailing wind
+ *    online too (see server/src/game-session.ts), and re-sends game_start at
+ *    the start of every hand (not just the initial deal/reconnect) so this
+ *    client learns its (possibly new) physical seat. onlineGameInfo.seat is
+ *    therefore no longer fixed for the session -- it is refreshed by a
+ *    game_start listener below. isCreator is now tracked explicitly (from the
+ *    same payload) instead of derived from localSeat === 0, since the creator
+ *    (identity 0) is no longer always physically seated East after rotation.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -245,8 +255,15 @@ export function App() {
   const [runningTotals, setRunningTotals] = useState<number[]>([0, 0, 0, 0]);
 
   // Online multiplayer: populated by OnlineLobby when game_start fires.
+  // `isCreator` is fixed for the whole session (identity 0 -- see
+  // game-session.ts); `seat` is NOT fixed -- it is the player's physical
+  // seat/wind for the CURRENT hand only, and is refreshed by the game_start
+  // listener below every time the server re-sends it (start of every hand,
+  // and on reconnect), because seat rotation (Todo A) can move a player to a
+  // different physical seat between hands.
   const [onlineGameInfo, setOnlineGameInfo] = useState<{
     seat: number;
+    isCreator: boolean;
     socket: OnlineSocket;
   } | null>(null);
 
@@ -340,6 +357,15 @@ export function App() {
     // when React batched several game_state messages into a single render.
     socket.on('game_event', (message: string) => logEvent(message));
 
+    // Seat rotation (Todo A online follow-on, 2026-07-02): the server
+    // re-sends game_start at the start of every hand (not just the initial
+    // deal/reconnect) whenever seat rotation may have moved this player to a
+    // different physical seat. Update just seat/isCreator in place so the
+    // Board keeps rendering the right seat at the bottom.
+    socket.on('game_start', ({ seat, isCreator }) => {
+      setOnlineGameInfo(info => info ? { ...info, seat, isCreator } : info);
+    });
+
     // When the socket drops, show the reconnecting banner.
     socket.on('disconnect', () => setOnlineConnected(false));
 
@@ -374,6 +400,7 @@ export function App() {
     return () => {
       socket.off('game_state');
       socket.off('game_event');
+      socket.off('game_start');
       socket.off('disconnect');
       socket.off('connect');
       socket.off('hand_score');
@@ -922,13 +949,13 @@ export function App() {
       return (
         <div className={styles.app}>
           <OnlineLobby
-            onGameStart={(seat, socket) => setOnlineGameInfo({ seat, socket })}
+            onGameStart={(seat, isCreator, socket) => setOnlineGameInfo({ seat, isCreator, socket })}
           />
         </div>
       );
     }
 
-    const { seat: localSeat, socket } = onlineGameInfo;
+    const { seat: localSeat, isCreator, socket } = onlineGameInfo;
 
     // --- Online action handlers ---
     const handleOnlineDiscard = (tileId: TileId) => {
@@ -1006,9 +1033,6 @@ export function App() {
       onlineState.phase === 'DISCARDING' && onlineState.currentSeat === localSeat
         ? getAddKongOptions(onlineState)
         : [];
-
-    // Creator is always East (seat 0); only they can trigger a new hand.
-    const isCreator = localSeat === 0;
 
     return (
       <div className={styles.app}>
