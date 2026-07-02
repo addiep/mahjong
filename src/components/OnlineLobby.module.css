@@ -91,6 +91,25 @@
 .inactiveBtn { background: transparent; color: var(--text-muted, rgba(255, 255, 255, 0.5)); }
 .inactiveBtn:hover { background: rgba(255, 255, 255, 0.06); }
 
+/* Checkbox rows (shared with GameSetup.module.css's .checkLabel) */
+.checkLabel {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.checkLabel input[type="checkbox"] {
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
 .hint {
   color: var(--text-muted, rgba(255, 255, 255, 0.45));
   font-size: 13px;
