@@ -10,6 +10,3 @@ hermes.adamsmith.cv {
     reverse_proxy hermes:9119
 }
 
-acmetest.adamsmith.cv {
-    respond "dns-01 ok"
-}
