@@ -1,7 +1,15 @@
+{
+    acme_dns cloudflare {env.CF_DNS_API_TOKEN}
+}
+
 mj.adamsmith.cv {
     reverse_proxy game-server:3000
 }
 
-chat.adamsmith.cv {
-    reverse_proxy open-webui:8080
+hermes.adamsmith.cv {
+    reverse_proxy hermes:9119
+}
+
+acmetest.adamsmith.cv {
+    respond "dns-01 ok"
 }
