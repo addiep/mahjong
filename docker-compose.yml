@@ -1,3 +1,4 @@
+
 # Mah Jong online game -- production deployment
 # Run with: docker compose up -d
 #
@@ -22,6 +23,8 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data         # persists TLS certs across restarts
       - caddy_config:/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"      
     depends_on:
       - game-server
     networks:
