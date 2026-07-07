@@ -38,6 +38,3 @@ volumes:
   caddy_data:
   caddy_config:
 
-networks:
-  web-proxy:
-    external: true
