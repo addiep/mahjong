@@ -29,8 +29,6 @@ services:
       - game-server
     networks:
       - default
-      - web-proxy
-
   game-server:
     build: .
     restart: unless-stopped
