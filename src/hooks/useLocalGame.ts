@@ -50,7 +50,13 @@ export function useLocalGame(
 ) {
   // 'setup' = show the setup screen; 'playing' = game in progress.
   const [appPhase, setAppPhase] = useState<'setup' | 'playing'>('setup');
-  const [gameConfig, setGameConfig] = useState<GameConfig>({ ...DEFAULT_CONFIG });
+  // Knitting & crocheting is ticked by default on the setup screen (Adam's
+  // preference, 2026-07-09). The engine's own DEFAULT_CONFIG stays
+  // conservative (off) -- this is an app-level default, not a rules default.
+  const [gameConfig, setGameConfig] = useState<GameConfig>({
+    ...DEFAULT_CONFIG,
+    knittingEnabled: true,
+  });
   const [state, setState] = useState<GameState | null>(null);
   const [handScore, setHandScore] = useState<HandScoreInfo | null>(null);
   const [runningTotals, setRunningTotals] = useState<number[]>([0, 0, 0, 0]);
