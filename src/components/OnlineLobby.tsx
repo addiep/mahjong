@@ -26,6 +26,11 @@
  *   defaults for these regardless of what the creator wanted; see
  *   game-session.ts and Decisions Log 2026-07-02.
  *
+ * Paying system (Todo F, 2026-07-09):
+ *   The creator_config screen also chooses between the 'pool' settlement
+ *   (current behaviour) and the 'traditional' one. Knitting & crocheting now
+ *   defaults to ticked here and in GameSetup.tsx.
+ *
  * Environment:
  *   VITE_SERVER_URL  -- optional; defaults to same-origin (production).
  *                       Set to http://localhost:3000 for local dev.
@@ -33,7 +38,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import type { LobbySeat, ServerToClientEvents, ClientToServerEvents } from '@mahjong/engine';
+import type { LobbySeat, ServerToClientEvents, ClientToServerEvents, PayingSystem } from '@mahjong/engine';
 import styles from './OnlineLobby.module.css';
 
 // The concrete browser socket type, built from the shared event maps.
@@ -71,8 +76,10 @@ export function OnlineLobby({ onGameStart }: Props) {
   const [password, setPassword] = useState('');
   const [humanCount, setHumanCount] = useState(4);
   const [deadWall, setDeadWall] = useState(false);
-  const [knitting, setKnitting] = useState(false);
+  // Ticked by default (Adam's preference, 2026-07-09) -- matches GameSetup.tsx.
+  const [knitting, setKnitting] = useState(true);
   const [discardsVisible, setDiscardsVisible] = useState(true);
+  const [payingSystem, setPayingSystem] = useState<PayingSystem>('pool');
 
   // Used by the config_ok handler to know the humanCount the creator submitted,
   // avoiding the stale-closure problem with the humanCount state variable.
@@ -217,6 +224,7 @@ export function OnlineLobby({ onGameStart }: Props) {
       deadWall,
       knittingEnabled: knitting,
       discardsVisible,
+      payingSystem,
     });
   };
 
@@ -330,6 +338,32 @@ export function OnlineLobby({ onGameStart }: Props) {
                 : humanCount === 1
                 ? 'You play alone against 3 AI opponents.'
                 : `${humanCount} humans; ${aiCount} AI seat${aiCount > 1 ? 's' : ''}.`}
+            </span>
+          </div>
+
+          <div className={styles.section}>
+            <label className={styles.label}>Paying system</label>
+            <div className={styles.toggle}>
+              <button
+                type="button"
+                className={payingSystem === 'pool' ? styles.activeBtn : styles.inactiveBtn}
+                onClick={() => setPayingSystem('pool')}
+              >
+                Pool
+              </button>
+              <button
+                type="button"
+                className={payingSystem === 'traditional' ? styles.activeBtn : styles.inactiveBtn}
+                onClick={() => setPayingSystem('traditional')}
+              >
+                Traditional
+              </button>
+            </div>
+            <span className={styles.hint}>
+              {payingSystem === 'pool'
+                ? 'Each player simply banks their own hand score.'
+                : 'Losers pay the winner, then settle the differences between '
+                  + 'themselves. East pays and receives double.'}
             </span>
           </div>
 
