@@ -200,7 +200,7 @@ function placeholder(idx: number): Tile {
  *    the same count (Board renders them face-down).
  *  - The private discardLog is stripped entirely.
  */
-function filterStateForSeat(state: GameState, revealSeat: number): GameState {
+function filterStateForSeat(state: GameState, revealSeat: number, revealAll = false): GameState {
   const isHandOver = state.phase === 'HAND_OVER';
   const winnerSeat = state.handResult?.winnerSeat ?? -1;
 
@@ -208,8 +208,14 @@ function filterStateForSeat(state: GameState, revealSeat: number): GameState {
     ...state,
     discardLog: [],
     players: state.players.map((p, i) => {
-      if (i === revealSeat)              return p;   // own seat: full tiles
-      if (isHandOver && i === winnerSeat) return p;  // winner at HAND_OVER: revealed
+      // `revealAll` (testing/debug aid, 2026-07-09): set per-socket via the
+      // set_reveal_all client event -- see revealAllFlags in
+      // startGameSession. Off by default; lets a player watching mostly-AI
+      // seats see every real hand while testing/tuning the AI, at the cost
+      // of spoiling hidden information for whoever turns it on.
+      if (revealAll)                      return p;
+      if (i === revealSeat)               return p;  // own seat: full tiles
+      if (isHandOver && i === winnerSeat)  return p;  // winner at HAND_OVER: revealed
       return { ...p, concealed: p.concealed.map((_, idx) => placeholder(idx)) };
     }),
   };
@@ -682,13 +688,34 @@ export async function startGameSession(
   const fallbackControllers = new Map<number, FallbackController>();
   const humanSockets        = new Map<number, TypedSocket>();
 
+  // Per-identity "reveal all hands" toggle (testing/debug aid, 2026-07-09):
+  // set via the set_reveal_all client event, off by default. Scoped to the
+  // toggling identity's own broadcasts only -- see filterStateForSeat.
+  const revealAllFlags = new Map<number, boolean>();
+
+  // Attaches (or re-attaches, on reconnect) the set_reveal_all listener for
+  // one human identity's socket, and immediately re-sends that socket's
+  // current view so the toggle takes effect without waiting for the next
+  // engine dispatch.
+  function attachRevealAllListener(socket: TypedSocket, identity: number): void {
+    socket.removeAllListeners('set_reveal_all');
+    socket.on('set_reveal_all', ({ revealAll }: { revealAll: boolean }) => {
+      revealAllFlags.set(identity, revealAll);
+      if (lastKnownState) {
+        const seat = currentSeatOfIdentity.get(identity) ?? identity;
+        socket.emit('game_state', filterStateForSeat(lastKnownState, seat, revealAll));
+      }
+    });
+  }
+
   // Re-sync a client that sent an illegal action with a fresh snapshot, so it
   // corrects its local state instead of the bad action being dispatched.
   // `seat` here is always the physical seat GameRunner called the controller
   // with, captured at the pending-decision call site -- already correct
   // regardless of rotation, no translation needed.
   const resync = (socket: TypedSocket, state: GameState, seat: SeatIndex): void => {
-    socket.emit('game_state', filterStateForSeat(state, seat));
+    const identity = seatAssignment[seat] ?? seat;
+    socket.emit('game_state', filterStateForSeat(state, seat, revealAllFlags.get(identity) ?? false));
   };
 
   for (let identity = 0; identity < 4; identity++) {
@@ -701,6 +728,7 @@ export async function startGameSession(
         ctrl.attachSocket(socket);
         fallbackControllers.set(identity, ctrl);
         humanSockets.set(identity, socket);
+        attachRevealAllListener(socket, identity);
         continue;
       }
     }
@@ -745,7 +773,7 @@ export async function startGameSession(
     prevEventState = state;
     for (const [identity, socket] of humanSockets) {
       const seat = currentSeatOfIdentity.get(identity) ?? identity;
-      socket.emit('game_state', filterStateForSeat(state, seat));
+      socket.emit('game_state', filterStateForSeat(state, seat, revealAllFlags.get(identity) ?? false));
     }
   }
 
@@ -770,6 +798,7 @@ export async function startGameSession(
     humanSockets.set(identity, socket);
     ctrl.attachSocket(socket);
     ctrl.updateSeat(seat);
+    attachRevealAllListener(socket, identity);
 
     // If this is the creator, update the tracked socket ID so the between-hand
     // new_hand listener finds the right socket.
@@ -781,7 +810,7 @@ export async function startGameSession(
     // current physical seat for this hand), then send state.
     socket.emit('game_start', { seat, isCreator: identity === 0 });
     if (lastKnownState) {
-      socket.emit('game_state', filterStateForSeat(lastKnownState, seat));
+      socket.emit('game_state', filterStateForSeat(lastKnownState, seat, revealAllFlags.get(identity) ?? false));
       // If they dropped between HAND_OVER and the next deal, the score panel
       // needs the last hand's payload too -- it is not re-derivable from
       // filterStateForSeat alone now that scoring lives only on the server.
