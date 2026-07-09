@@ -48,6 +48,12 @@ export function useOnlineGame(
   const onlineHandOrderRef  = useRef<string[] | undefined>(undefined);
   // True while the socket is connected mid-game; false while reconnecting (Module 3.4).
   const [onlineConnected, setOnlineConnected] = useState(true);
+  // Testing/debug aid (2026-07-09): ask the server to include every seat's
+  // real concealed tiles instead of placeholders for opponents. Off by
+  // default, per-connection -- see set_reveal_all in game-session.ts. Not a
+  // GameConfig field (a display/testing preference, not a rule), same as
+  // speakEvents.
+  const [onlineRevealAll, setOnlineRevealAll] = useState(false);
 
   // -- Listen for game_state, game_event, disconnect and reconnect -----
 
@@ -182,6 +188,11 @@ export function useOnlineGame(
     socket?.emit('game_action', { type: 'CLAIM_RESPONSE', decision });
   };
 
+  const handleOnlineSetRevealAll = (enabled: boolean) => {
+    setOnlineRevealAll(enabled);
+    socket?.emit('set_reveal_all', { revealAll: enabled });
+  };
+
   const handleOnlineOrderChange = (ids: string[]) => {
     onlineHandOrderRef.current = ids;
   };
@@ -212,11 +223,13 @@ export function useOnlineGame(
     onlineRunningTotals,
     onlineCurrentOrder,
     onlineConnected,
+    onlineRevealAll,
     handleOnlineDiscard,
     handleOnlineDeclareWin,
     handleOnlineAddKong,
     handleOnlineConcealedKong,
     handleOnlineClaimResponse,
+    handleOnlineSetRevealAll,
     handleOnlineOrderChange,
     handleOnlineHint,
     handleOnlineNewHand,
