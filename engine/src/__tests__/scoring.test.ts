@@ -233,7 +233,8 @@ describe('special & limit hands', () => {
     expect(off.specialHand).toBeNull();
     const on = score({ concealed: knit, winningTile: knit[0]!, gameConfig: { ...DEFAULT_CONFIG, knittingEnabled: true } });
     expect(on.specialHand).toBe('Knitting');
-    expect(on.total).toBe(1000);
+    // Half-limit, per the 2026-06-17 reclassification (DECISIONS.md / MJrules.md).
+    expect(on.total).toBe(500);
   });
 
   it('Three Great Scholars fires even when the 4th meld is a chow', () => {
