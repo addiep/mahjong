@@ -41,6 +41,7 @@ import {
   makeInitialState,
   tileName,
   getAddKongOptions,
+  getConcealedKongOptions,
   sortedTileIds,
   buildHintText,
   type HandScoreInfo,
@@ -277,6 +278,9 @@ export function useLocalGame(
             } else if (action.type === 'DECLARE_ADDED_KONG') {
               const tile = player?.concealed.find(t => t.id === action.tileId);
               if (player && tile) logEvent(`${player.name} added a kong of ${tileName(tile)}s`);
+            } else if (action.type === 'DECLARE_CONCEALED_KONG') {
+              const tile = player?.concealed.find(t => t.id === action.tileId);
+              if (player && tile) logEvent(`${player.name} declared a concealed kong of ${tileName(tile)}s`);
             }
             setDrawnTileId(null);
             setState(s => {
@@ -582,6 +586,15 @@ export function useLocalGame(
     setState(s => s ? engineDispatch(s, { type: 'DECLARE_ADDED_KONG', tileId }) : s);
   };
 
+  const handleConcealedKong = (tileId: TileId) => {
+    if (!state) return;
+    const player = state.players[state.currentSeat];
+    const tile = player?.concealed.find(t => t.id === tileId);
+    if (player && tile) logEvent(`${player.name} declared a concealed kong of ${tileName(tile)}s`);
+    setDrawnTileId(null);
+    setState(s => s ? engineDispatch(s, { type: 'DECLARE_CONCEALED_KONG', tileId }) : s);
+  };
+
   const handleClaimResponse = (seat: SeatIndex, decision: ClaimDecision) => {
     if (decision.type !== 'pass' && state) {
       const player = state.players[seat];
@@ -644,6 +657,7 @@ export function useLocalGame(
   // Added kong options: only offered to the current seat when it is human.
   const isHumanDiscarding = !!state && state.phase === 'DISCARDING' && humanSeats.has(state.currentSeat);
   const localKongOptions = state && isHumanDiscarding ? getAddKongOptions(state) : [];
+  const localConcealedKongOptions = state && isHumanDiscarding ? getConcealedKongOptions(state) : [];
 
   return {
     appPhase,
@@ -660,11 +674,13 @@ export function useLocalGame(
     aiPending,
     humanSeats,
     localKongOptions,
+    localConcealedKongOptions,
     startGame,
     startNewHand,
     handleDiscard,
     handleDeclareWin,
     handleAddKong,
+    handleConcealedKong,
     handleClaimResponse,
     handleOrderChange,
     handleHint,

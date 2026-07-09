@@ -94,6 +94,13 @@ export function useOnlineGame(
 
     // When socket.io auto-reconnects, re-send stored credentials so the server
     // can re-attach the socket to the ongoing hand (Module 3.4).
+    //
+    // sessionStorage is per-tab (codebase review finding 15, 2026-07-09): a
+    // reload of the SAME tab reconnects cleanly, but opening the game in a
+    // second tab/window does not inherit these credentials -- it looks like a
+    // fresh joiner rather than a reconnect. Fine for the stated use case (one
+    // browser tab per player); noted here since it is not obvious from the
+    // code alone.
     socket.on('connect', () => {
       const storedSeat = sessionStorage.getItem('mj_seat');
       const storedName = sessionStorage.getItem('mj_name');
@@ -166,6 +173,10 @@ export function useOnlineGame(
     socket?.emit('game_action', { type: 'DECLARE_ADDED_KONG', tileId });
   };
 
+  const handleOnlineConcealedKong = (tileId: TileId) => {
+    socket?.emit('game_action', { type: 'DECLARE_CONCEALED_KONG', tileId });
+  };
+
   const handleOnlineClaimResponse = (_claimSeat: SeatIndex, decision: ClaimDecision) => {
     // The server knows which seat we are from the socket identity.
     socket?.emit('game_action', { type: 'CLAIM_RESPONSE', decision });
@@ -204,6 +215,7 @@ export function useOnlineGame(
     handleOnlineDiscard,
     handleOnlineDeclareWin,
     handleOnlineAddKong,
+    handleOnlineConcealedKong,
     handleOnlineClaimResponse,
     handleOnlineOrderChange,
     handleOnlineHint,

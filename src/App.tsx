@@ -22,8 +22,9 @@ import { Board } from './components/Board';
 import { ScorePanel } from './components/ScorePanel';
 import { GameSetup } from './components/GameSetup';
 import { OnlineLobby } from './components/OnlineLobby';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { inferTable, type SeatIndex } from '@mahjong/engine';
-import { SEAT_NAMES, getAddKongOptions } from './lib/game-helpers';
+import { SEAT_NAMES, getAddKongOptions, getConcealedKongOptions } from './lib/game-helpers';
 import { useEventLog } from './hooks/useEventLog';
 import { useLocalGame } from './hooks/useLocalGame';
 import { useOnlineGame } from './hooks/useOnlineGame';
@@ -85,6 +86,10 @@ export function App() {
       onlineState.phase === 'DISCARDING' && onlineState.currentSeat === localSeat
         ? getAddKongOptions(onlineState)
         : [];
+    const onlineConcealedKongOptions =
+      onlineState.phase === 'DISCARDING' && onlineState.currentSeat === localSeat
+        ? getConcealedKongOptions(onlineState)
+        : [];
 
     return (
       <div className={styles.app}>
@@ -119,44 +124,50 @@ export function App() {
         </div>
 
         <div className={styles.tableArea}>
-          <Board
-            state={onlineState}
-            localSeat={localSeat as SeatIndex}
-            revealAll={false}
-            onDiscard={
-              onlineState.phase === 'DISCARDING' && onlineState.currentSeat === localSeat
-                ? online.handleOnlineDiscard : undefined
-            }
-            onDeclareWin={
-              onlineState.phase === 'DISCARDING' && onlineState.currentSeat === localSeat
-                ? online.handleOnlineDeclareWin : undefined
-            }
-            onAddKong={onlineKongOptions.length > 0 ? online.handleOnlineAddKong : undefined}
-            addKongOptions={onlineKongOptions.length > 0 ? onlineKongOptions : undefined}
-            onClaimResponse={online.handleOnlineClaimResponse}
-            humanSeats={new Set([localSeat])}
-            drawnTileId={onlineDrawnTileId}
-            savedOrder={online.onlineCurrentOrder}
-            onOrderChange={online.handleOnlineOrderChange}
-            scores={online.onlineRunningTotals}
-            inference={inferTable(onlineState)}
-            lastEvents={events}
-          />
+          <ErrorBoundary>
+            <Board
+              state={onlineState}
+              localSeat={localSeat as SeatIndex}
+              revealAll={false}
+              onDiscard={
+                onlineState.phase === 'DISCARDING' && onlineState.currentSeat === localSeat
+                  ? online.handleOnlineDiscard : undefined
+              }
+              onDeclareWin={
+                onlineState.phase === 'DISCARDING' && onlineState.currentSeat === localSeat
+                  ? online.handleOnlineDeclareWin : undefined
+              }
+              onAddKong={onlineKongOptions.length > 0 ? online.handleOnlineAddKong : undefined}
+              addKongOptions={onlineKongOptions.length > 0 ? onlineKongOptions : undefined}
+              onConcealedKong={onlineConcealedKongOptions.length > 0 ? online.handleOnlineConcealedKong : undefined}
+              concealedKongOptions={onlineConcealedKongOptions.length > 0 ? onlineConcealedKongOptions : undefined}
+              onClaimResponse={online.handleOnlineClaimResponse}
+              humanSeats={new Set([localSeat])}
+              drawnTileId={onlineDrawnTileId}
+              savedOrder={online.onlineCurrentOrder}
+              onOrderChange={online.handleOnlineOrderChange}
+              scores={online.onlineRunningTotals}
+              inference={inferTable(onlineState)}
+              lastEvents={events}
+            />
+          </ErrorBoundary>
         </div>
 
         {onlineState.phase === 'HAND_OVER' && online.onlineHandScore && (
-          <ScorePanel
-            winnerName={online.onlineHandScore.winnerName}
-            result={online.onlineHandScore.result}
-            playerBonuses={online.onlineHandScore.playerBonuses}
-            winnerHand={online.onlineHandScore.winnerHand}
-            settlement={online.onlineHandScore.settlement}
-            runningTotals={onlineState.players.map((p, i) => ({
-              name:  p.name,
-              total: online.onlineRunningTotals[i] ?? 0,
-            }))}
-            onNewHand={isCreator ? online.handleOnlineNewHand : () => {}}
-          />
+          <ErrorBoundary>
+            <ScorePanel
+              winnerName={online.onlineHandScore.winnerName}
+              result={online.onlineHandScore.result}
+              playerBonuses={online.onlineHandScore.playerBonuses}
+              winnerHand={online.onlineHandScore.winnerHand}
+              settlement={online.onlineHandScore.settlement}
+              runningTotals={onlineState.players.map((p, i) => ({
+                name:  p.name,
+                total: online.onlineRunningTotals[i] ?? 0,
+              }))}
+              onNewHand={isCreator ? online.handleOnlineNewHand : () => {}}
+            />
+          </ErrorBoundary>
         )}
       </div>
     );
@@ -220,38 +231,44 @@ export function App() {
       </div>
 
       <div className={styles.tableArea}>
-        <Board
-          state={state}
-          revealAll={revealAll}
-          onDiscard={state.phase === 'DISCARDING' ? local.handleDiscard : undefined}
-          onDeclareWin={state.phase === 'DISCARDING' ? local.handleDeclareWin : undefined}
-          onAddKong={local.localKongOptions.length > 0 ? local.handleAddKong : undefined}
-          addKongOptions={local.localKongOptions.length > 0 ? local.localKongOptions : undefined}
-          onClaimResponse={local.handleClaimResponse}
-          humanSeats={local.humanSeats}
-          drawnTileId={local.drawnTileId}
-          savedOrder={local.currentSeatOrder}
-          onOrderChange={local.handleOrderChange}
-          lastEvents={events}
-          scores={local.runningTotals}
-          inference={inferTable(state)}
-          wallStartOffset={local.wallStartOffset}
-        />
+        <ErrorBoundary>
+          <Board
+            state={state}
+            revealAll={revealAll}
+            onDiscard={state.phase === 'DISCARDING' ? local.handleDiscard : undefined}
+            onDeclareWin={state.phase === 'DISCARDING' ? local.handleDeclareWin : undefined}
+            onAddKong={local.localKongOptions.length > 0 ? local.handleAddKong : undefined}
+            addKongOptions={local.localKongOptions.length > 0 ? local.localKongOptions : undefined}
+            onConcealedKong={local.localConcealedKongOptions.length > 0 ? local.handleConcealedKong : undefined}
+            concealedKongOptions={local.localConcealedKongOptions.length > 0 ? local.localConcealedKongOptions : undefined}
+            onClaimResponse={local.handleClaimResponse}
+            humanSeats={local.humanSeats}
+            drawnTileId={local.drawnTileId}
+            savedOrder={local.currentSeatOrder}
+            onOrderChange={local.handleOrderChange}
+            lastEvents={events}
+            scores={local.runningTotals}
+            inference={inferTable(state)}
+            wallStartOffset={local.wallStartOffset}
+          />
+        </ErrorBoundary>
       </div>
 
       {state.phase === 'HAND_OVER' && local.handScore && (
-        <ScorePanel
-          winnerName={local.handScore.winnerName}
-          result={local.handScore.result}
-          playerBonuses={local.handScore.playerBonuses}
-          winnerHand={local.handScore.winnerHand}
-          settlement={local.handScore.settlement}
-          runningTotals={state.players.map((p, i) => ({
-            name: p.name,
-            total: local.runningTotals[i] ?? 0,
-          }))}
-          onNewHand={local.startNewHand}
-        />
+        <ErrorBoundary>
+          <ScorePanel
+            winnerName={local.handScore.winnerName}
+            result={local.handScore.result}
+            playerBonuses={local.handScore.playerBonuses}
+            winnerHand={local.handScore.winnerHand}
+            settlement={local.handScore.settlement}
+            runningTotals={state.players.map((p, i) => ({
+              name: p.name,
+              total: local.runningTotals[i] ?? 0,
+            }))}
+            onNewHand={local.startNewHand}
+          />
+        </ErrorBoundary>
       )}
     </div>
   );

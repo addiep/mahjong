@@ -25,6 +25,11 @@
  * Added kong (2026-06-21):
  * - onAddKong / addKongOptions props threaded through to PlayerHand so the
  *   local player can declare an added kong during DISCARDING.
+ *
+ * Concealed kong (external codebase review finding 1, 2026-07-09):
+ * - onConcealedKong / concealedKongOptions props threaded through the same
+ *   way, so the local player can declare a brand-new concealed kong (all
+ *   four copies already in hand) as well as promoting an existing pung.
  */
 
 import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState } from 'react';
@@ -59,6 +64,8 @@ export interface BoardProps {
   readonly onDeclareWin?: (() => void) | undefined;
   readonly onAddKong?: ((tileId: TileId) => void) | undefined;
   readonly addKongOptions?: readonly { tileId: TileId; label: string }[] | undefined;
+  readonly onConcealedKong?: ((tileId: TileId) => void) | undefined;
+  readonly concealedKongOptions?: readonly { tileId: TileId; label: string }[] | undefined;
   readonly onClaimResponse?: ((seat: SeatIndex, decision: ClaimDecision) => void) | undefined;
   readonly drawnTileId?: TileId | null | undefined;
   readonly savedOrder?: string[] | undefined;
@@ -86,6 +93,8 @@ export function Board({
   onDeclareWin,
   onAddKong,
   addKongOptions,
+  onConcealedKong,
+  concealedKongOptions,
   onClaimResponse,
   humanSeats,
   drawnTileId,
@@ -124,6 +133,8 @@ export function Board({
         onDeclareWin={isDiscarding ? onDeclareWin : undefined}
         onAddKong={isDiscarding ? onAddKong : undefined}
         addKongOptions={isDiscarding ? addKongOptions : undefined}
+        onConcealedKong={isDiscarding ? onConcealedKong : undefined}
+        concealedKongOptions={isDiscarding ? concealedKongOptions : undefined}
         drawnTileId={isInteractive ? drawnTileId : undefined}
         savedOrder={isInteractive ? savedOrder : undefined}
         onOrderChange={isInteractive ? onOrderChange : undefined}
@@ -170,7 +181,8 @@ export function Board({
 
 function SeatPanel({
   player, position, isCurrent, faceDown, interactive, isDiscarding,
-  onDiscard, onDeclareWin, onAddKong, addKongOptions, drawnTileId, savedOrder, onOrderChange,
+  onDiscard, onDeclareWin, onAddKong, addKongOptions,
+  onConcealedKong, concealedKongOptions, drawnTileId, savedOrder, onOrderChange,
 }: {
   player: PlayerState;
   position: SeatPosition;
@@ -182,6 +194,8 @@ function SeatPanel({
   onDeclareWin?: (() => void) | undefined;
   onAddKong?: ((tileId: TileId) => void) | undefined;
   addKongOptions?: readonly { tileId: TileId; label: string }[] | undefined;
+  onConcealedKong?: ((tileId: TileId) => void) | undefined;
+  concealedKongOptions?: readonly { tileId: TileId; label: string }[] | undefined;
   drawnTileId?: TileId | null | undefined;
   savedOrder?: string[] | undefined;
   onOrderChange?: ((ids: string[]) => void) | undefined;
@@ -198,6 +212,8 @@ function SeatPanel({
       onDeclareWin={onDeclareWin}
       onAddKong={onAddKong}
       addKongOptions={addKongOptions}
+      onConcealedKong={onConcealedKong}
+      concealedKongOptions={concealedKongOptions}
       drawnTileId={drawnTileId}
       savedOrder={savedOrder}
       onOrderChange={onOrderChange}

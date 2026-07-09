@@ -32,9 +32,10 @@ mahjong/
 
   server/     Node.js + Socket.io authoritative server for online play. Lobby,
               per-seat state filtering, reconnection, and the game-session loop.
-
-  config/     Game configuration (scoring tables, rule switches).
 ```
+
+Game configuration (scoring tables, rule switches) lives in `engine/src/scoring-config.ts`
+and `GameConfig` (`engine/src/game-state.ts`), not in a separate top-level directory.
 
 Design notes, the full rules write-up, and the decisions log are maintained separately and
 are not part of this repository.

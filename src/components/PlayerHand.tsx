@@ -20,6 +20,12 @@
  *    the tile ID. The player can ignore it and discard normally instead (keeping
  *    the tile for a chow, for example).
  *
+ * 5. Concealed Kong button (external codebase review finding 1, 2026-07-09) —
+ *    shown during DISCARDING when concealedKongOptions is non-empty (all four
+ *    copies of some tile kind are already in the concealed hand). Calls
+ *    onConcealedKong with the tile ID. Distinct from Add Kong: this declares a
+ *    brand-new kong rather than promoting an existing exposed pung.
+ *
  * Order persistence: accepts savedOrder (restored IDs from a previous turn for
  * this seat) and onOrderChange (fires whenever the order changes) so App.tsx can
  * preserve each seat's arrangement across board rotations.
@@ -88,6 +94,13 @@ export interface PlayerHandProps {
    * concealed tile to add to the matching exposed pung.
    */
   readonly onAddKong?: ((tileId: TileId) => void) | undefined;
+  /**
+   * Options for declaring a brand-new concealed kong: tile kinds with all
+   * four copies already in the concealed hand (codebase review finding 1).
+   */
+  readonly concealedKongOptions?: readonly { tileId: TileId; label: string }[] | undefined;
+  /** Called when the player clicks a Concealed Kong button. */
+  readonly onConcealedKong?: ((tileId: TileId) => void) | undefined;
   /** ID of the tile just drawn from the wall — shown with a gold border. */
   readonly drawnTileId?: TileId | null | undefined;
   /** Saved display order from the player's previous turn (IDs). */
@@ -104,6 +117,8 @@ export function PlayerHand({
   onDeclareWin,
   addKongOptions,
   onAddKong,
+  concealedKongOptions,
+  onConcealedKong,
   drawnTileId,
   savedOrder,
   onOrderChange,
@@ -231,6 +246,17 @@ export function PlayerHand({
             className={styles.mjBtn}
             onClick={() => onAddKong(opt.tileId)}
             title="Add drawn tile to your exposed pung, promoting it to a kong (and draw a replacement tile)"
+          >
+            {opt.label}
+          </button>
+        ))}
+        {onConcealedKong && concealedKongOptions && concealedKongOptions.map(opt => (
+          <button
+            key={opt.tileId}
+            type="button"
+            className={styles.mjBtn}
+            onClick={() => onConcealedKong(opt.tileId)}
+            title="Declare a concealed kong from four matching tiles in hand (and draw a replacement tile)"
           >
             {opt.label}
           </button>
