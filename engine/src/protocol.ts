@@ -32,12 +32,20 @@ export interface LobbySeat {
 /**
  * A game action sent from a human client during an active hand.
  * Maps to the engine's interactive action types.
+ *
+ * DECLARE_CONCEALED_KONG (external codebase review finding 1, 2026-07-09):
+ * was missing from this union, so a human could never send it online even
+ * though the engine and server-side isActionValid already handled it -- the
+ * client TypeScript types simply made it impossible to construct. tileId is
+ * also tightened from `string` to the branded `TileId` here (review
+ * suggestion 9), matching every other typed field on the wire.
  */
 export type GameActionPayload =
-  | { type: 'DISCARD';             tileId: string }
+  | { type: 'DISCARD';                tileId: TileId }
   | { type: 'DECLARE_WIN' }
-  | { type: 'DECLARE_ADDED_KONG';  tileId: string }
-  | { type: 'CLAIM_RESPONSE';      decision: ClaimDecision };
+  | { type: 'DECLARE_ADDED_KONG';     tileId: TileId }
+  | { type: 'DECLARE_CONCEALED_KONG'; tileId: TileId }
+  | { type: 'CLAIM_RESPONSE';         decision: ClaimDecision };
 
 /**
  * Server-authoritative hand-score payload (Finding 3 fix, 2026-07-02).

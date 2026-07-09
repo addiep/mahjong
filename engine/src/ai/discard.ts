@@ -33,7 +33,7 @@ import {
 } from '../tiles.js';
 import { GameState, SeatIndex } from '../game-state.js';
 import { HandPlan } from './assessment.js';
-import { inferTable, Confidence, Closeness } from '../inference.js';
+import { inferTable, Confidence, Closeness, TableInference } from '../inference.js';
 
 // --- Keep-values (higher = more useful = keep; lowest is discarded) -----
 //
@@ -244,14 +244,27 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
-/** How worried should `seat` be about discarding `tile`, worst case across opponents? */
-export function defensivePenalty(state: GameState, seat: SeatIndex, tile: Tile): number {
+/**
+ * How worried should `seat` be about discarding `tile`, worst case across
+ * opponents?
+ *
+ * `table` is an optional pre-computed `inferTable(state)` result. Perf note
+ * (external codebase review finding 13, 2026-07-09): `chooseDiscardTile`
+ * below calls this once per candidate tile in the hand, and inference does
+ * not change mid-decision, so it computes the table once and passes it
+ * through here instead of every call re-running the full opponent-modelling
+ * scan. Callers that don't have one handy (tests, other call sites) can omit
+ * it and this falls back to computing its own, exactly as before.
+ */
+export function defensivePenalty(
+  state: GameState, seat: SeatIndex, tile: Tile, table?: TableInference,
+): number {
   if (!isSuited(tile) && !isHonour(tile)) return 0; // bonus tiles: never a claim risk
 
-  const table = inferTable(state);
-  const key   = tileKey(tile);
-  if (table.safeToDiscard.some(s => s.key === key && s.certainty === 'safe')) return 0;
-  if (table.outOfPlay.some(o => o.key === key)) return 0;
+  const inferred = table ?? inferTable(state);
+  const key      = tileKey(tile);
+  if (inferred.safeToDiscard.some(s => s.key === key && s.certainty === 'safe')) return 0;
+  if (inferred.outOfPlay.some(o => o.key === key)) return 0;
 
   const log = state.discardLog ?? [];
   const { playerCount } = state.config;
@@ -260,7 +273,7 @@ export function defensivePenalty(state: GameState, seat: SeatIndex, tile: Tile):
   const globalScale = clamp(1 - turnsLeft / EARLY_GAME_TURNS, MIN_GLOBAL_SCALE, 1);
 
   let worst = 0;
-  for (const opp of table.players) {
+  for (const opp of inferred.players) {
     if (opp.seat === seat) continue;
 
     // This opponent has already thrown this exact kind: they don't want it.
@@ -303,12 +316,15 @@ export function chooseDiscardTile(state: GameState, seat: SeatIndex, plan: HandP
   if (hand.length === 0) throw new Error('chooseDiscardTile: empty concealed hand');
 
   const justDrawn = state.lastDrawnTileId;
+  // Computed once per discard decision, not once per candidate tile -- see
+  // defensivePenalty's docstring (review finding 13).
+  const table = inferTable(state);
   let bestId  = hand[0]!.id;
   let bestVal = Number.POSITIVE_INFINITY;
   let bestDrawn = false;
 
   for (const t of hand) {
-    const v = keepValue(t, plan, hand) + defensivePenalty(state, seat, t);
+    const v = keepValue(t, plan, hand) + defensivePenalty(state, seat, t, table);
     const isDrawn = justDrawn !== undefined && t.id === justDrawn;
     if (
       v < bestVal ||

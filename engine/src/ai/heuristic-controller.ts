@@ -29,6 +29,7 @@
  */
 
 import { GameState, SeatIndex, PlayerState } from '../game-state.js';
+import type { Tile } from '../tiles.js';
 import { DiscardAction } from '../turn-engine.js';
 import { PlayerController } from '../game-runner.js';
 import { ClaimDecision } from '../game-state.js';
@@ -38,6 +39,30 @@ import { isWinningHand } from '../hand-evaluator.js';
 import { assessHand, nudgeSpecialTarget, HandPlan, SpecialPlan, AiMode } from './assessment.js';
 import { chooseDiscardTile } from './discard.js';
 import { chooseClaimDecision, chooseRobDecision } from './claims.js';
+
+/**
+ * Returns the TileId of one of four matching concealed tiles that can form a
+ * brand-new concealed kong (DECLARE_CONCEALED_KONG), or null if the player
+ * holds no such quartet. Distinct from findAddedKong below, which promotes an
+ * already-EXPOSED pung using a single matching drawn tile; this instead looks
+ * for four copies the player has drawn into naturally, still fully concealed.
+ *
+ * Added for the external codebase review (finding 2, 2026-07-09): the AI
+ * previously never declared a concealed kong at all -- only the added-kong
+ * (pung-promotion) case was implemented.
+ */
+function findConcealedKong(player: PlayerState): TileId | null {
+  const counts = new Map<string, Tile[]>();
+  for (const t of player.concealed) {
+    const key = tileKey(t);
+    const arr = counts.get(key);
+    if (arr) arr.push(t); else counts.set(key, [t]);
+  }
+  for (const tiles of counts.values()) {
+    if (tiles.length === 4) return tiles[0]!.id;
+  }
+  return null;
+}
 
 /**
  * Returns the TileId of the first concealed tile that can promote an exposed
@@ -125,6 +150,15 @@ export class HeuristicController implements PlayerController {
     // Declare Mah Jong on a self-draw whenever the hand is already legal.
     if (isWinningHand(player.concealed, player.melds, state.config)) {
       return { type: 'DECLARE_WIN' };
+    }
+
+    // Concealed kong: four matching tiles drawn naturally into the concealed
+    // hand. Same chow-hold-back reasoning as the added-kong check below --
+    // honours can never form a chow so they always trigger the kong; a suited
+    // quartet is kept back only when one copy could instead complete a chow.
+    const concealedKongTileId = findConcealedKong(player);
+    if (concealedKongTileId !== null && !canFormCompleteChow(player, concealedKongTileId)) {
+      return { type: 'DECLARE_CONCEALED_KONG', tileId: concealedKongTileId };
     }
 
     // Added kong: promote an exposed pung to a kong using the matching drawn tile —

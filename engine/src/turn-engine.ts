@@ -202,7 +202,17 @@ function handleDiscarding(state: GameState, action: Action): GameState {
 
     case 'DECLARE_WIN': {
       const wp = state.players[state.currentSeat]!;
-      const winningTile = wp.concealed[wp.concealed.length - 1];
+      // The winning tile is the one just drawn this turn (state.lastDrawnTileId),
+      // not necessarily the last element of `concealed` -- that was a fragile
+      // invariant (external codebase review finding 3, 2026-07-09): it happens
+      // to hold today because draws are always appended, but nothing enforces
+      // it, and `lastDrawnTileId` is already the explicit source of truth the
+      // engine tracks for exactly this purpose. Falls back to the last tile for
+      // any hand-over path that reaches DECLARE_WIN without lastDrawnTileId set.
+      const winningTile =
+        (state.lastDrawnTileId !== undefined
+          ? wp.concealed.find(t => t.id === state.lastDrawnTileId)
+          : undefined) ?? wp.concealed[wp.concealed.length - 1];
       if (!winningTile) throw new Error('DECLARE_WIN: no winning tile in concealed hand');
       const isLastWallTile = state.wall.live.length === 0;
       const winSource = state.lastDrawSource === 'dead-wall' ? 'dead-wall-replacement' as const : 'self-draw-wall' as const;

@@ -62,17 +62,20 @@ export interface Deal {
 
 /**
  * Fisher-Yates shuffle.
- * Mutates the supplied array in place and returns it.
+ * Pure: returns a new shuffled array and never mutates the input (external
+ * codebase review suggestion 8, 2026-07-09 -- the previous version mutated
+ * `arr` in place, a minor impurity in an otherwise pure module).
  * Uses Math.random() — entirely sufficient for a game application.
  */
-export function shuffle<T>(arr: T[]): T[] {
-  for (let i = arr.length - 1; i > 0; i--) {
+export function shuffle<T>(arr: readonly T[]): T[] {
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    const tmp = arr[i]!;
-    arr[i] = arr[j]!;
-    arr[j] = tmp;
+    const tmp = out[i]!;
+    out[i] = out[j]!;
+    out[j] = tmp;
   }
-  return arr;
+  return out;
 }
 
 // ─── Wall builder ────────────────────────────────────────────
