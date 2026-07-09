@@ -416,8 +416,43 @@ function detectConcealedSpecials(tiles: readonly Tile[], input: ScoreInput, cfg:
   if (isDragonfly(tiles)) hits.push({ name: 'Dragonfly', score: cfg.halfLimit, priority: P });
   if (isNineGates(tiles)) hits.push({ name: 'Gates of Heaven (Nine Chances)', score: cfg.limit, priority: P });
   if (input.gameConfig.knittingEnabled) {
-    if (isKnitting(tiles)) hits.push({ name: 'Knitting', score: cfg.limit, priority: P });
+    // Half-limit, not limit: reclassified 2026-06-17 (DECISIONS.md; MJrules.md special-hands table).
+    if (isKnitting(tiles)) hits.push({ name: 'Knitting', score: cfg.halfLimit, priority: P });
     if (isCrocheting(tiles)) hits.push({ name: 'Crocheting (Triple Knitting)', score: cfg.halfLimit, priority: P });
+  }
+  return hits;
+}
+
+/**
+ * Raw-multiset detectors for the two second-group hands whose *shape* cannot be
+ * expressed as four melds + a pair, but which MJrules.md nonetheless allows to
+ * be built from claimed discards: Windy Dragons (2 dragon pungs + 4 wind pairs)
+ * and Dragonfly (3 lone dragons + a pung per suit + a suited pair).
+ *
+ * `detectConcealedSpecials` cannot see them once a meld is declared, because it
+ * only ever runs on a fully concealed hand. So a player who claimed the dragon
+ * pung they needed for Windy Dragons would silently lose the hand. Here the
+ * declared melds are folded back into the tile multiset (kongs truncated to
+ * three, since a kong's fourth tile is not part of either fingerprint) and the
+ * same predicate is applied, gated on the melds being of a type the hand allows.
+ */
+function detectMeldedRawSpecials(input: ScoreInput, cfg: ScoringConfig): SpecialHit[] {
+  const melds = input.declaredMelds;
+  if (melds.length === 0) return [];
+  const tiles = [...input.concealed, ...melds.flatMap(m => m.tiles.slice(0, 3))];
+  if (tiles.length !== 14) return [];
+
+  const hits: SpecialHit[] = [];
+  const P = PRIORITY.bespokeShape;
+  const isSet = (m: DeclaredMeld) => m.type === 'pung' || m.type === 'open_kong' || m.type === 'concealed_kong';
+
+  // Windy Dragons permits pungs of dragons only -- explicitly not kongs.
+  if (melds.every(m => m.type === 'pung' && isDragon(m.tiles[0]!)) && isWindyDragons(tiles)) {
+    hits.push({ name: 'Windy Dragons', score: cfg.limit, priority: P });
+  }
+  // Dragonfly permits a pung or kong in each of the three suits.
+  if (melds.every(m => isSet(m) && isSuited(m.tiles[0]!)) && isDragonfly(tiles)) {
+    hits.push({ name: 'Dragonfly', score: cfg.halfLimit, priority: P });
   }
   return hits;
 }
@@ -500,7 +535,7 @@ function isThirteenWonders(tiles: readonly Tile[]): boolean {
 }
 
 /** Windy Dragons: pungs of any two dragons + a pair of each of the four winds. */
-function isWindyDragons(tiles: readonly Tile[]): boolean {
+export function isWindyDragons(tiles: readonly Tile[]): boolean {
   if (tiles.some(isSuited)) return false;
   const counts = countByKey(tiles);
   let dragonPungs = 0, windPairs = 0;
@@ -513,7 +548,7 @@ function isWindyDragons(tiles: readonly Tile[]): boolean {
 }
 
 /** Dragonfly: one of each dragon + a pung in each suit + any pair. */
-function isDragonfly(tiles: readonly Tile[]): boolean {
+export function isDragonfly(tiles: readonly Tile[]): boolean {
   if (tiles.some(isWind)) return false;
   const dragons = tiles.filter(isDragon);
   if (dragons.length !== 3 || new Set(dragons.map(tileKey)).size !== 3) return false;
@@ -582,7 +617,7 @@ function isSparrowsSanctuary(tiles: readonly Tile[]): boolean {
  * the run tile that also forms part of the pung; subtracting one of each 1..9 leaves
  * a pung (3) and a pair (2).)
  */
-function isRunPungAndPair(tiles: readonly Tile[]): boolean {
+export function isRunPungAndPair(tiles: readonly Tile[]): boolean {
   if (tiles.length !== 14) return false;
   if (!tiles.every(isSuited)) return false;
   if (suitedSuits(tiles).size !== 1) return false;
@@ -599,7 +634,7 @@ function isRunPungAndPair(tiles: readonly Tile[]): boolean {
   return fours === 1 && threes === 1 && ones === 7;
 }
 
-function isKnitting(tiles: readonly Tile[]): boolean {
+export function isKnitting(tiles: readonly Tile[]): boolean {
   if (!tiles.every(isSuited)) return false;
   const present = [...suitedSuits(tiles)];
   if (present.length !== 2) return false;
@@ -610,7 +645,7 @@ function isKnitting(tiles: readonly Tile[]): boolean {
   return true;
 }
 
-function isCrocheting(tiles: readonly Tile[]): boolean {
+export function isCrocheting(tiles: readonly Tile[]): boolean {
   if (!tiles.every(isSuited)) return false;
   const bam = emptyVals(), chr = emptyVals(), cir = emptyVals();
   for (const t of tiles) if (isSuited(t)) {
@@ -677,6 +712,8 @@ export function scoreWinningHand(
   // ── Special / limit hands ──
   if (input.declaredMelds.length === 0) {
     specials.push(...detectConcealedSpecials(input.concealed, input, cfg));
+  } else {
+    specials.push(...detectMeldedRawSpecials(input, cfg));
   }
   specials.push(...detectCircumstanceSpecials(input, cfg));
 
