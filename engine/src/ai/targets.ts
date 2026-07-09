@@ -13,12 +13,14 @@
  * on a complete 14-tile hand.
  *
  * 4.6a covers the easy (fixed-tile-set) and medium (predicate-shape) hands.
- * The hard structural hands (Mixed Pungs, All Kongs, Three Great Scholars,
- * Windy Dragons, Dragonfly, Run Pung and Pair, Knitting/Crocheting, Buried
- * Treasure) are Module 4.6b.
+ * 4.6b adds the hard structural hands (Mixed Pungs, All Kongs, Three Great
+ * Scholars, Windy Dragons, Dragonfly, Run Pung and Pair, Knitting/Crocheting,
+ * Buried Treasure), which need the real carving search in shanten.ts rather
+ * than a fixed-tile-set comparison.
  *
- * Dependencies: tiles.ts, game-state.ts, scoring-config.ts, hand-evaluator.ts.
- * No UI, no side effects.
+ * Dependencies: tiles.ts, game-state.ts, scoring-config.ts, hand-evaluator.ts,
+ * scoring.ts (raw-multiset predicates, used to verify `away === 0`),
+ * ai/shanten.ts. No UI, no side effects.
  */
 
 import {
@@ -29,6 +31,8 @@ import {
 import { DeclaredMeld, GameState, SeatIndex } from '../game-state.js';
 import { ScoringConfig, DEFAULT_SCORING_CONFIG } from '../scoring-config.js';
 import { decomposeStandard } from '../hand-evaluator.js';
+import { isDragonfly, isKnitting, isCrocheting } from '../scoring.js';
+import { countVector, standardUsable, usableInSuit } from './shanten.js';
 
 // ─── Public types (DESIGN Module 4.6) ────────────────────────────────────────
 
@@ -61,7 +65,7 @@ export interface TargetSpec {
   readonly group: 'first' | 'second';
   /** Claiming any meld kills it (the first-group wall-draw rule). */
   readonly concealedOnly:           boolean;
-  /** Mixed Pungs / Buried Treasure only (both 4.6b). */
+  /** Mixed Pungs / Buried Treasure only: the winning tile must be self-drawn. */
   readonly lastTileMustBeSelfDrawn: boolean;
   score(cfg: ScoringConfig): number;
   assess(view: HandView, ctx: ScanContext): TargetAssessment;
@@ -627,13 +631,572 @@ const fourBlessings: TargetSpec = {
   },
 };
 
+// ═══ Module 4.6b — the hard structural hands ═════════════════════════════════
+//
+// These are not fixed-tile-set hands, so `coverAssess` alone cannot measure
+// them. `standardUsable` (shanten.ts) does the real carving; `blockProgress`
+// summarises same-kind blocks for the pungs-and-kongs hands. Every spec below
+// verifies structurally when its estimate reaches 0, so the module's one hard
+// guarantee -- `away === 0` agrees with the Module 1.8 completion detector --
+// holds even where the estimate itself is a heuristic.
+
+/** Meld types that are a set of identical tiles (not a chow). */
+function isSetMeld(m: DeclaredMeld): boolean {
+  return m.type === 'pung' || m.type === 'open_kong' || m.type === 'concealed_kong';
+}
+
+/** Concealed tiles plus declared meld tiles, kongs truncated to three. */
+function allTilesCapped(view: HandView): Tile[] {
+  return [...view.concealed, ...view.melds.flatMap(m => m.tiles.slice(0, 3))];
+}
+
+/** Build a TargetAssessment directly (for specs that compute `away` themselves). */
+function assessment(
+  spec: { name: string; score(cfg: ScoringConfig): number },
+  ctx: ScanContext,
+  r: { inPlace: number; away: number; keep: TileKey[]; seek: TileKey[]; blocked: boolean },
+): TargetAssessment {
+  return {
+    name: spec.name,
+    score: spec.score(ctx.cfg),
+    away: r.blocked ? IMPOSSIBLE : Math.max(0, r.away),
+    inPlace: r.inPlace,
+    keep: r.keep,
+    seek: r.seek,
+    blocked: r.blocked,
+  };
+}
+
+/** Every kind held two or more times, once per copy: the natural `keep` set. */
+function keepBlocks(tiles: readonly Tile[]): TileKey[] {
+  const keep: TileKey[] = [];
+  for (const [k, c] of countsByKey(tiles)) if (c >= 2) for (let i = 0; i < c; i++) keep.push(k);
+  return keep;
+}
+
+/** Kinds held once or twice with copies left: the tiles that would advance a pung hand. */
+function seekBlocks(tiles: readonly Tile[], ctx: ScanContext): TileKey[] {
+  const seek: TileKey[] = [];
+  for (const [k, c] of countsByKey(tiles)) if (c >= 1 && c < 3 && ctx.copiesLeft(k) > 0) seek.push(k);
+  return seek;
+}
+
+// ── Mixed Pungs ───────────────────────────────────────────────────────────────
+// Four pungs (or kongs) + a pair, any tiles, fully self-drawn including the
+// winning tile. The only meld a Mixed Pungs hand may show is a concealed kong:
+// anything claimed from a discard kills it.
+
+const mixedPungs: TargetSpec = {
+  name: 'Mixed Pungs',
+  group: 'first',
+  concealedOnly: true,
+  lastTileMustBeSelfDrawn: true,
+  score: cfg => cfg.limit,
+  assess(view, ctx) {
+    if (!view.melds.every(m => m.type === 'concealed_kong')) {
+      return finish(this, ctx.cfg, blockedResult());
+    }
+    const setsFromMelds = view.melds.length;
+    if (setsFromMelds > 4) return finish(this, ctx.cfg, blockedResult());
+
+    const usable = standardUsable(countVector(view.concealed), {
+      setsNeeded: 4 - setsFromMelds, allowChow: false, needPair: true,
+    });
+    const inPlace = setsFromMelds * 3 + usable;
+    return assessment(this, ctx, {
+      inPlace,
+      away: 14 - inPlace,
+      keep: [...view.melds.flatMap(m => m.tiles.slice(0, 3).map(tileKey)), ...keepBlocks(view.concealed)],
+      seek: seekBlocks(view.concealed, ctx),
+      blocked: false,
+    });
+  },
+};
+
+// ── All Kongs (Fourfold Plenty) ───────────────────────────────────────────────
+// Four kongs + a pair, at most one suit present (honour kongs may sit alongside).
+// Eighteen tiles, not fourteen: `away` is measured against that larger target,
+// which is exactly why the commit policy will (correctly) almost never chase it.
+
+const ALL_KONGS_SIZE = 18;
+
+const allKongs: TargetSpec = {
+  name: 'All Kongs (Fourfold Plenty)',
+  group: 'second',
+  concealedOnly: false,
+  lastTileMustBeSelfDrawn: false,
+  score: cfg => cfg.limit,
+  assess(view, ctx) {
+    // Every declared meld must be a kong, or a pung awaiting its added kong.
+    if (!view.melds.every(isSetMeld) || view.melds.length > 4) {
+      return finish(this, ctx.cfg, blockedResult());
+    }
+
+    const counts = countsByKey(view.concealed);
+    const sample = new Map<TileKey, Tile>();
+    for (const t of view.concealed) if (!sample.has(tileKey(t))) sample.set(tileKey(t), t);
+
+    // The suited tiles must all be one suit; try each suit, and the all-honours case.
+    const options: (Suit | null)[] = [...SUITS, null];
+    let best: { inPlace: number; keep: TileKey[]; seek: TileKey[]; blocked: boolean } | null = null;
+
+    for (const suit of options) {
+      const inPool = (t: Tile) => isHonour(t) || (suit !== null && isSuited(t) && t.suit === suit);
+      if (!view.melds.every(m => { const f = m.tiles[0]; return f !== undefined && inPool(f); })) continue;
+
+      let inPlace = 0;
+      const keep: TileKey[] = [];
+      const seek: TileKey[] = [];
+      let blocked = false;
+
+      // Declared melds: a kong is already 4 tiles in place; a pung needs one more.
+      for (const m of view.melds) {
+        const k = tileKey(m.tiles[0]!);
+        const held = m.type === 'pung' ? 3 : 4;
+        inPlace += held;
+        for (let i = 0; i < held; i++) keep.push(k);
+        if (held < 4) {
+          seek.push(k);
+          if (ctx.copiesLeft(k) < 1) blocked = true;
+        }
+      }
+
+      // Remaining kongs: the best-held pool kinds in the concealed hand.
+      const kongsNeeded = 4 - view.melds.length;
+      const candidates = [...counts.entries()]
+        .filter(([k]) => { const t = sample.get(k); return t !== undefined && inPool(t); })
+        .sort((a, b) => b[1] - a[1]);
+      const chosen = candidates.slice(0, kongsNeeded);
+      const usedForKongs = new Map<TileKey, number>();
+      for (const [k, c] of chosen) {
+        const held = Math.min(c, 4);
+        usedForKongs.set(k, held);
+        inPlace += held;
+        for (let i = 0; i < held; i++) keep.push(k);
+        if (held < 4) {
+          seek.push(k);
+          if (ctx.copiesLeft(k) < 4 - held) blocked = true;
+        }
+      }
+      // Kongs with no candidate kind at all must come entirely from unseen tiles:
+      // nothing in place for them, and not blocked (a fresh kind could arrive).
+
+      // The pair: the best pool kind not consumed by a kong.
+      let pairBest = 0;
+      let pairKind: TileKey | null = null;
+      for (const [k, c] of counts) {
+        const t = sample.get(k);
+        if (!t || !inPool(t)) continue;
+        const spare = c - (usedForKongs.get(k) ?? 0);
+        const contrib = Math.min(spare, 2);
+        if (contrib > pairBest) { pairBest = contrib; pairKind = k; }
+      }
+      inPlace += pairBest;
+      if (pairKind) for (let i = 0; i < pairBest; i++) keep.push(pairKind);
+
+      if (!best || (!blocked && best.blocked) || (blocked === best.blocked && inPlace > best.inPlace)) {
+        best = { inPlace, keep, seek, blocked };
+      }
+    }
+
+    if (!best) return finish(this, ctx.cfg, blockedResult());
+    return assessment(this, ctx, {
+      inPlace: best.inPlace,
+      away: ALL_KONGS_SIZE - best.inPlace,
+      keep: best.keep,
+      seek: best.seek,
+      blocked: best.blocked,
+    });
+  },
+};
+
+// ── Three Great Scholars ──────────────────────────────────────────────────────
+// Pungs/kongs of all three dragons + one further meld (pung, kong or chow) +
+// a pair, the further meld and the pair both of the same suit.
+
+const threeGreatScholars: TargetSpec = {
+  name: 'Three Great Scholars',
+  group: 'second',
+  concealedOnly: false,
+  lastTileMustBeSelfDrawn: false,
+  score: cfg => cfg.limit,
+  assess(view, ctx) {
+    const dragonMelds: DeclaredMeld[] = [];
+    const suitedMelds: DeclaredMeld[] = [];
+    for (const m of view.melds) {
+      const f = m.tiles[0];
+      if (!f) return finish(this, ctx.cfg, blockedResult());
+      if (isDragon(f) && isSetMeld(m)) dragonMelds.push(m);
+      else if (isSuited(f)) suitedMelds.push(m);
+      else return finish(this, ctx.cfg, blockedResult()); // a wind meld cannot appear
+    }
+    if (suitedMelds.length > 1 || dragonMelds.length > 3) return finish(this, ctx.cfg, blockedResult());
+
+    const meldedDragons = new Set(dragonMelds.map(m => tileKey(m.tiles[0]!)));
+    if (meldedDragons.size !== dragonMelds.length) return finish(this, ctx.cfg, blockedResult());
+
+    const counts = countsByKey(view.concealed);
+    const vec = countVector(view.concealed);
+
+    let dragonInPlace = 0;
+    const keep: TileKey[] = [];
+    const seek: TileKey[] = [];
+    let blocked = false;
+    for (const d of DRAGONS) {
+      const k = dKey(d);
+      if (meldedDragons.has(k)) { dragonInPlace += 3; for (let i = 0; i < 3; i++) keep.push(k); continue; }
+      const held = Math.min(counts.get(k) ?? 0, 3);
+      dragonInPlace += held;
+      for (let i = 0; i < held; i++) keep.push(k);
+      if (held < 3) {
+        seek.push(k);
+        if (ctx.copiesLeft(k) < 3 - held) blocked = true;
+      }
+    }
+
+    // The fourth meld and the pair share a suit. A declared suited meld fixes it.
+    const suitedMeld = suitedMelds[0];
+    const suitOptions: Suit[] = suitedMeld
+      ? [(suitedMeld.tiles[0] as { suit: Suit }).suit]
+      : [...SUITS];
+
+    let bestSuited = -1;
+    let bestSuit: Suit | null = null;
+    for (const suit of suitOptions) {
+      const usable = usableInSuit(vec, suit, {
+        setsNeeded: suitedMeld ? 0 : 1, allowChow: true, needPair: true,
+      });
+      const total = (suitedMeld ? 3 : 0) + usable;
+      if (total > bestSuited) { bestSuited = total; bestSuit = suit; }
+    }
+
+    if (bestSuit) {
+      for (const t of view.concealed) if (isSuited(t) && t.suit === bestSuit) keep.push(tileKey(t));
+      if (suitedMeld) for (const t of suitedMeld.tiles.slice(0, 3)) keep.push(tileKey(t));
+    }
+
+    const inPlace = dragonInPlace + Math.max(0, bestSuited);
+    return assessment(this, ctx, { inPlace, away: 14 - inPlace, keep, seek, blocked });
+  },
+};
+
+// ── Windy Dragons ─────────────────────────────────────────────────────────────
+// Pungs of any two dragons (kongs not permitted) + a pair of each of the four
+// winds. Second group per MJrules.md: the dragon pungs may be claimed.
+
+const windyDragons: TargetSpec = {
+  name: 'Windy Dragons',
+  group: 'second',
+  concealedOnly: false,
+  lastTileMustBeSelfDrawn: false,
+  score: cfg => cfg.limit,
+  assess(view, ctx) {
+    // Only dragon pungs may be declared: a kong breaks the fingerprint, and the
+    // four wind pairs can never be melded.
+    if (!view.melds.every(m => { const f = m.tiles[0]; return f !== undefined && m.type === 'pung' && isDragon(f); })
+        || view.melds.length > 2) {
+      return finish(this, ctx.cfg, blockedResult());
+    }
+    const counts = countsByKey(allTilesCapped(view));
+    const pairsOfDragons: [Dragon, Dragon][] = [['red', 'green'], ['red', 'white'], ['green', 'white']];
+
+    let best: CoverResult | null = null;
+    for (const [d1, d2] of pairsOfDragons) {
+      // A declared dragon pung must be one of the two chosen dragons.
+      const melded = view.melds.map(m => (m.tiles[0] as { dragon: Dragon }).dragon);
+      if (!melded.every(d => d === d1 || d === d2)) continue;
+      const needs: CoverNeed[] = [
+        { key: dKey(d1), need: 3 }, { key: dKey(d2), need: 3 },
+        ...WINDS.map(w => ({ key: wKey(w), need: 2 })),
+      ];
+      const r = coverAssess(counts, needs, ctx, null);
+      if (!best || (r.blocked ? IMPOSSIBLE : r.away) < (best.blocked ? IMPOSSIBLE : best.away)) best = r;
+    }
+    return finish(this, ctx.cfg, best ?? blockedResult());
+  },
+};
+
+// ── Dragonfly ─────────────────────────────────────────────────────────────────
+// One tile of each dragon (three singletons) + a pung/kong in each of the three
+// suits + a suited pair. Second group: the suit pungs may be claimed.
+
+const dragonfly: TargetSpec = {
+  name: 'Dragonfly',
+  group: 'second',
+  concealedOnly: false,
+  lastTileMustBeSelfDrawn: false,
+  score: cfg => cfg.halfLimit,
+  assess(view, ctx) {
+    // Only suited pungs/kongs may be declared, at most one per suit.
+    const meldSuits: Suit[] = [];
+    for (const m of view.melds) {
+      const f = m.tiles[0];
+      if (!f || !isSetMeld(m) || !isSuited(f)) return finish(this, ctx.cfg, blockedResult());
+      if (meldSuits.includes(f.suit)) return finish(this, ctx.cfg, blockedResult());
+      meldSuits.push(f.suit);
+    }
+
+    const counts = countsByKey(view.concealed);
+    const keep: TileKey[] = [];
+    const seek: TileKey[] = [];
+    let blocked = false;
+    let inPlace = 0;
+
+    // Three lone dragons.
+    for (const d of DRAGONS) {
+      const k = dKey(d);
+      const held = Math.min(counts.get(k) ?? 0, 1);
+      inPlace += held;
+      if (held) keep.push(k);
+      else {
+        seek.push(k);
+        if (ctx.copiesLeft(k) < 1) blocked = true;
+      }
+    }
+
+    // One pung per suit; the best-held value in each suit that has no declared meld.
+    const usedForPungs = new Map<TileKey, number>();
+    for (const suit of SUITS) {
+      if (meldSuits.includes(suit)) { inPlace += 3; continue; }
+      let bestKind: TileKey | null = null;
+      let bestHeld = 0;
+      for (const v of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+        const k = sKey(suit, v);
+        const held = Math.min(counts.get(k) ?? 0, 3);
+        if (held > bestHeld) { bestHeld = held; bestKind = k; }
+      }
+      if (bestKind) {
+        usedForPungs.set(bestKind, bestHeld);
+        inPlace += bestHeld;
+        for (let i = 0; i < bestHeld; i++) keep.push(bestKind);
+        if (bestHeld < 3) {
+          seek.push(bestKind);
+          if (ctx.copiesLeft(bestKind) < 3 - bestHeld) blocked = true;
+        }
+      }
+    }
+
+    // The pair: the best suited kind not consumed by a pung.
+    let pairBest = 0;
+    let pairKind: TileKey | null = null;
+    for (const [k, c] of counts) {
+      if (!k.startsWith('suited:')) continue;
+      const spare = c - (usedForPungs.get(k) ?? 0);
+      const contrib = Math.min(spare, 2);
+      if (contrib > pairBest) { pairBest = contrib; pairKind = k; }
+    }
+    inPlace += pairBest;
+    if (pairKind) for (let i = 0; i < pairBest; i++) keep.push(pairKind);
+
+    let away = 14 - inPlace;
+    // Verify structurally at zero: the greedy pung/pair split can reach 14 on a
+    // hand the detector rejects (e.g. a fourth copy of a pung tile).
+    if (away === 0 && !blocked) {
+      const tiles = allTilesCapped(view);
+      if (tiles.length !== 14 || !isDragonfly(tiles)) away = 1;
+    }
+    return assessment(this, ctx, { inPlace, away, keep, seek, blocked });
+  },
+};
+
+// ── Run, Pung and Pair ────────────────────────────────────────────────────────
+// A 1-9 run + a pung + a pair, all in a single suit. First group: every tile is
+// drawn from the wall, so no meld may be declared, but the winning tile may be
+// claimed. The fingerprint is a fixed multiset once the pung and pair values
+// are chosen, so `coverAssess` handles it -- 3 x 9 x 8 candidate shapes.
+
+const runPungAndPair: TargetSpec = {
+  name: 'Run, Pung and Pair',
+  group: 'first',
+  concealedOnly: true,
+  lastTileMustBeSelfDrawn: false,
+  score: cfg => cfg.limit,
+  assess(view, ctx) {
+    return finish(this, ctx.cfg, gateConcealed(view, () => {
+      const counts = countsByKey(view.concealed);
+      let best: CoverResult | null = null;
+      for (const suit of SUITS) {
+        for (let p = 1; p <= 9; p++) {
+          for (let q = 1; q <= 9; q++) {
+            if (p === q) continue;
+            const needs: CoverNeed[] = [
+              ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(v => ({ key: sKey(suit, v), need: 1 })),
+              { key: sKey(suit, p), need: 3 },  // the pung, on top of the run tile
+              { key: sKey(suit, q), need: 2 },  // the pair, on top of the run tile
+            ];
+            const r = coverAssess(counts, needs, ctx, null);
+            if (!best || (r.blocked ? IMPOSSIBLE : r.away) < (best.blocked ? IMPOSSIBLE : best.away)) best = r;
+          }
+        }
+      }
+      return best ?? blockedResult();
+    }));
+  },
+};
+
+// ── Buried Treasure ───────────────────────────────────────────────────────────
+// Fully concealed one-suit hand: four melds + a pair, chows allowed, no kongs,
+// every tile self-drawn including the winning tile. This is the hand that needs
+// the real carving search -- there is no fixed tile set to compare against.
+
+const buriedTreasure: TargetSpec = {
+  name: 'Buried Treasure',
+  group: 'first',
+  concealedOnly: true,
+  lastTileMustBeSelfDrawn: true,
+  score: cfg => cfg.buriedTreasure,
+  assess(view, ctx) {
+    // No kongs, and nothing claimed: any declared meld at all kills it.
+    return finish(this, ctx.cfg, gateConcealed(view, () => {
+      const vec = countVector(view.concealed);
+      let bestUsable = 0;
+      let bestSuit: Suit | null = null;
+      for (const suit of SUITS) {
+        const u = usableInSuit(vec, suit, { setsNeeded: 4, allowChow: true, needPair: true });
+        if (u > bestUsable) { bestUsable = u; bestSuit = suit; }
+      }
+      const keep: TileKey[] = [];
+      const seek: TileKey[] = [];
+      if (bestSuit) {
+        for (const t of view.concealed) if (isSuited(t) && t.suit === bestSuit) keep.push(tileKey(t));
+        for (let v = 1; v <= 9; v++) {
+          const k = sKey(bestSuit, v);
+          if (ctx.copiesLeft(k) > 0) seek.push(k);
+        }
+      }
+      return { inPlace: bestUsable, away: 14 - bestUsable, keep, seek, blocked: false };
+    }));
+  },
+};
+
+// ── Knitting / Crocheting (gated by knittingEnabled) ──────────────────────────
+
+/** Per-suit value counts (index 1..9) from a concealed hand. */
+function suitValueCounts(tiles: readonly Tile[]): Record<Suit, number[]> {
+  const r: Record<Suit, number[]> = {
+    bamboo: new Array<number>(10).fill(0),
+    characters: new Array<number>(10).fill(0),
+    circles: new Array<number>(10).fill(0),
+  };
+  for (const t of tiles) if (isSuited(t)) r[t.suit][t.value] = (r[t.suit][t.value] ?? 0) + 1;
+  return r;
+}
+
+const knitting: TargetSpec = {
+  name: 'Knitting',
+  group: 'first',
+  concealedOnly: true,
+  lastTileMustBeSelfDrawn: false,
+  score: cfg => cfg.halfLimit,
+  assess(view, ctx) {
+    if (!ctx.knittingEnabled) return finish(this, ctx.cfg, blockedResult());
+    return finish(this, ctx.cfg, gateConcealed(view, () => {
+      const c = suitValueCounts(view.concealed);
+      const suitPairs: [Suit, Suit][] = [
+        ['bamboo', 'characters'], ['bamboo', 'circles'], ['characters', 'circles'],
+      ];
+      let best: CoverResult | null = null;
+
+      for (const [a, b] of suitPairs) {
+        let matched = 0;
+        const keep: TileKey[] = [];
+        for (let v = 1; v <= 9; v++) {
+          const m = Math.min(c[a][v] ?? 0, c[b][v] ?? 0);
+          matched += m;
+          for (let i = 0; i < m; i++) { keep.push(sKey(a, v)); keep.push(sKey(b, v)); }
+        }
+        const pairs = Math.min(matched, 7);
+        let inPlace = pairs * 2;
+
+        // Unmatched tiles in either suit are each half a pair, if the partner
+        // kind still has a copy left to claim or draw.
+        const seek: TileKey[] = [];
+        let halves = 0;
+        for (let v = 1; v <= 9 && halves < 7 - pairs; v++) {
+          const extraA = (c[a][v] ?? 0) - Math.min(c[a][v] ?? 0, c[b][v] ?? 0);
+          const extraB = (c[b][v] ?? 0) - Math.min(c[a][v] ?? 0, c[b][v] ?? 0);
+          for (let i = 0; i < extraA && halves < 7 - pairs; i++) {
+            if (ctx.copiesLeft(sKey(b, v)) > 0) { halves++; keep.push(sKey(a, v)); seek.push(sKey(b, v)); }
+          }
+          for (let i = 0; i < extraB && halves < 7 - pairs; i++) {
+            if (ctx.copiesLeft(sKey(a, v)) > 0) { halves++; keep.push(sKey(b, v)); seek.push(sKey(a, v)); }
+          }
+        }
+        inPlace += halves;
+        const r: CoverResult = { inPlace, away: 14 - inPlace, keep, seek, blocked: false };
+        if (!best || r.away < best.away) best = r;
+      }
+
+      const r = best ?? blockedResult();
+      if (r.away === 0 && !isKnitting(view.concealed)) return { ...r, away: 1 };
+      return r;
+    }));
+  },
+};
+
+const crocheting: TargetSpec = {
+  name: 'Crocheting (Triple Knitting)',
+  group: 'first',
+  concealedOnly: true,
+  lastTileMustBeSelfDrawn: false,
+  score: cfg => cfg.halfLimit,
+  assess(view, ctx) {
+    if (!ctx.knittingEnabled) return finish(this, ctx.cfg, blockedResult());
+    return finish(this, ctx.cfg, gateConcealed(view, () => {
+      const c = suitValueCounts(view.concealed);
+      const keep: TileKey[] = [];
+      const seek: TileKey[] = [];
+
+      // Per number, how many suits contribute at least one tile (a triple wants 3).
+      const width: number[] = new Array<number>(10).fill(0);
+      for (let v = 1; v <= 9; v++) {
+        width[v] = SUITS.reduce((n, s) => n + Math.min(c[s][v] ?? 0, 1), 0);
+      }
+      // Take the widest numbers first: full triples, then partials.
+      const order = [1, 2, 3, 4, 5, 6, 7, 8, 9].sort((x, y) => (width[y] ?? 0) - (width[x] ?? 0));
+      let slots = 4;
+      let inPlace = 0;
+      const usedValue = new Set<number>();
+      for (const v of order) {
+        if (slots === 0) break;
+        const w = width[v] ?? 0;
+        if (w === 0) continue;
+        inPlace += w;                 // 3 = complete triple, 1-2 = partial
+        slots -= 1;
+        usedValue.add(v);
+        for (const s of SUITS) {
+          if ((c[s][v] ?? 0) > 0) keep.push(sKey(s, v));
+          else if (ctx.copiesLeft(sKey(s, v)) > 0) seek.push(sKey(s, v));
+        }
+      }
+
+      // The pair: two tiles sharing a number, from tiles not used by a triple.
+      let pairBest = 0;
+      for (let v = 1; v <= 9; v++) {
+        const spare = SUITS.reduce((n, s) => n + (c[s][v] ?? 0), 0) - (usedValue.has(v) ? (width[v] ?? 0) : 0);
+        pairBest = Math.max(pairBest, Math.min(spare, 2));
+      }
+      inPlace += pairBest;
+
+      const r: CoverResult = { inPlace, away: 14 - inPlace, keep, seek, blocked: false };
+      if (r.away === 0 && !isCrocheting(view.concealed)) return { ...r, away: 1 };
+      return r;
+    }));
+  },
+};
+
 // ─── The scan ─────────────────────────────────────────────────────────────────
 
-/** All Module 4.6a specs. 4.6b will extend this list with the hard hands. */
+/** Every special-hand spec: the 4.6a easy/medium hands, then the 4.6b hard ones. */
 export const TARGET_SPECS: readonly TargetSpec[] = [
+  // 4.6a — easy (fixed tile sets)
   uniqueWonder, sparrowsSanctuary, wrigglySnake, gatesOfHeaven,
+  // 4.6a — medium (predicate shapes)
   headsAndTails, allWindsAndDragons, allHonours, chineseOdds, imperialJade,
   heavenlyTwins, cleanPairs, allPairsHonours, fourBlessings,
+  // 4.6b — hard (structural)
+  mixedPungs, allKongs, threeGreatScholars, windyDragons, dragonfly,
+  runPungAndPair, buriedTreasure, knitting, crocheting,
 ];
 
 /**
