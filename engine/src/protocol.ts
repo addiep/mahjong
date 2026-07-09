@@ -20,6 +20,7 @@ import type { GameState, ClaimDecision, DeclaredMeld, SeatIndex, PayingSystem } 
 import type { Tile, TileId } from './tiles.js';
 import type { ScoreResult, ExposedMeldScoreResult } from './scoring.js';
 import type { BonusScoreResult } from './flower-scoring.js';
+import type { SettlementResult } from './settlement.js';
 
 /** A human player occupying a seat in the waiting room. */
 export interface LobbySeat {
@@ -84,6 +85,18 @@ export interface HandScorePayload {
   readonly winnerHand:     WinnerHandPayload | null;
   /** Authoritative running totals, one per seat, accumulated for the whole session. */
   readonly runningTotals:  readonly number[];
+  /**
+   * Todo F: who paid whom this hand, and each seat's net delta.
+   *
+   * Non-null only when `GameConfig.payingSystem === 'traditional'` AND the
+   * hand was won (a draw settles nothing). Under the default 'pool' system
+   * this is null and each seat simply banked its own hand score, exactly as
+   * before. The server computes it once from the unfiltered final state --
+   * the same reason `result` and `runningTotals` are server-authoritative
+   * (Finding 3): a per-seat filtered state cannot see the other losers' real
+   * concealed tiles, so a client could not compute the loser-to-loser leg.
+   */
+  readonly settlement:     SettlementResult | null;
 }
 
 /** Events the server sends to clients. */

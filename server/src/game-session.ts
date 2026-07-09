@@ -53,6 +53,7 @@ import {
   scoreWinningHand,
   scoreBonusTiles,
   scoreExposedMelds,
+  settleScores,
 } from '@mahjong/engine';
 import type {
   ServerToClientEvents,
@@ -234,12 +235,14 @@ function computeHandScore(state: GameState, runningTotals: number[]): HandScoreP
   const hr = state.handResult;
 
   if (!hr || hr.reason === 'draw') {
+    // A draw settles nothing, under either paying system.
     return {
       winnerName: null,
       result: null,
       playerBonuses: [],
       winnerHand: null,
       runningTotals: [...runningTotals],
+      settlement: null,
     };
   }
 
@@ -303,13 +306,43 @@ function computeHandScore(state: GameState, runningTotals: number[]): HandScoreP
       : null,
   }));
 
-  state.players.forEach((p, i) => {
+  // Each seat's hand score for this hand. Identical under both paying systems
+  // -- `payingSystem` decides how these move between players, not how they are
+  // earned. Extracted from the running-total loop so settleScores can take it.
+  const handScores = state.players.map((_p, i) => {
     const pb = playerBonuses[i];
     const isWinnerLimit = i === hr.winnerSeat && (result?.isLimitHand ?? false);
     const bonusPts = isWinnerLimit ? 0 : (pb?.bonus.points ?? 0);
     const handPts  = i === hr.winnerSeat && result ? result.total : 0;
     const meldPts  = i !== hr.winnerSeat ? (pb?.meldScore?.total ?? 0) : 0;
-    runningTotals[i] = (runningTotals[i] ?? 0) + bonusPts + handPts + meldPts;
+    return bonusPts + handPts + meldPts;
+  });
+
+  // Todo F. 'pool' (default): every seat banks its own hand score, as before.
+  // 'traditional': nobody banks anything directly -- the losers pay the winner
+  // and settle differences among themselves, East doubling throughout, and the
+  // resulting net deltas (which sum to zero) move the running totals instead.
+  let settlement: HandScorePayload['settlement'] = null;
+
+  if (state.config.payingSystem === 'traditional' && hr.winnerSeat !== null) {
+    try {
+      settlement = settleScores({
+        handScores,
+        winnerSeat:  hr.winnerSeat,
+        playerCount: state.config.playerCount,
+      });
+    } catch (err) {
+      // settleScores throws only on a broken invariant (deltas not summing to
+      // zero, winnerSeat out of range). Fall back to pool scoring rather than
+      // killing the session; the score panel then simply shows no settlement.
+      console.error('Settlement error, falling back to pool scoring:', err);
+      settlement = null;
+    }
+  }
+
+  const deltas = settlement ? settlement.deltas : handScores;
+  state.players.forEach((_p, i) => {
+    runningTotals[i] = (runningTotals[i] ?? 0) + (deltas[i] ?? 0);
   });
 
   return {
@@ -318,6 +351,7 @@ function computeHandScore(state: GameState, runningTotals: number[]): HandScoreP
     playerBonuses,
     winnerHand,
     runningTotals: [...runningTotals],
+    settlement,
   };
 }
 
@@ -608,6 +642,7 @@ export async function startGameSession(
     deadWall:        serverState.deadWall,
     knittingEnabled: serverState.knittingEnabled,
     discardsVisible: serverState.discardsVisible,
+    payingSystem:    serverState.payingSystem,
   };
 
   // -------------------------------------------------------------------------
