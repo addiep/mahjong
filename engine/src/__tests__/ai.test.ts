@@ -300,6 +300,34 @@ describe('chooseClaimDecision -- kong vs pung-and-hold-back', () => {
   });
 });
 
+// --- HeuristicController: concealed kong (external codebase review finding 2, 2026-07-09) -----
+// Previously the AI never declared a concealed kong at all -- only the added-kong
+// (promoting an already-exposed pung) case was implemented.
+
+describe("HeuristicController -- concealed kong", () => {
+  it('declares a concealed kong when it holds four matching honour tiles', async () => {
+    const concealed = [dragon('red'), dragon('red', 1), dragon('red', 2), dragon('red', 3), bam(2), bam(3), bam(5)];
+    const st = makeState([player(0, concealed), player(1, []), player(2, []), player(3, [])]);
+    const ctrl = new HeuristicController(0 as SeatIndex);
+    const action = await ctrl.getDiscardAction(st, 0 as SeatIndex);
+    expect(action.type).toBe('DECLARE_CONCEALED_KONG');
+    if (action.type === 'DECLARE_CONCEALED_KONG') {
+      const tile = concealed.find(t => t.id === action.tileId);
+      expect(tile?.category).toBe('dragon');
+    }
+  });
+
+  it('holds back a suited quartet when one copy could instead complete a chow', async () => {
+    // Four 5-bamboo plus 3-bamboo and 4-bamboo in hand: one 5 can complete the
+    // 3-4-5 chow, so the AI should keep the tile for that instead of konging.
+    const concealed = [bam(5), bam(5, 1), bam(5, 2), bam(5, 3), bam(3), bam(4), chr(2)];
+    const st = makeState([player(0, concealed), player(1, []), player(2, []), player(3, [])]);
+    const ctrl = new HeuristicController(0 as SeatIndex);
+    const action = await ctrl.getDiscardAction(st, 0 as SeatIndex);
+    expect(action.type).not.toBe('DECLARE_CONCEALED_KONG');
+  });
+});
+
 // --- AI vs AI harness (Module 4.5) -----
 
 function tileCount(state: GameState): number {

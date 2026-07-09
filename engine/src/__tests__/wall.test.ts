@@ -4,16 +4,23 @@ import { buildWall, drawFromWall, drawReplacement, shuffle } from '../wall.js';
 // ─── shuffle ───────────────────────────────────────────────────────────────
 
 describe('shuffle', () => {
-  it('returns the same array reference', () => {
+  it('returns a new array, not the same reference (pure, review finding 8)', () => {
     const arr = [1, 2, 3, 4, 5];
-    expect(shuffle(arr)).toBe(arr);
+    expect(shuffle(arr)).not.toBe(arr);
+  });
+
+  it('does not mutate its input', () => {
+    const original = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const arr = [...original];
+    shuffle(arr);
+    expect(arr).toEqual(original);
   });
 
   it('preserves all elements (is a permutation)', () => {
     const original = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     const arr = [...original];
-    shuffle(arr);
-    expect([...arr].sort((a, b) => a - b)).toEqual(original);
+    const shuffled = shuffle(arr);
+    expect([...shuffled].sort((a, b) => a - b)).toEqual(original);
   });
 
   it('handles an empty array without error', () => {

@@ -201,6 +201,24 @@ describe('dispatch — DISCARDING', () => {
     expect(next.handResult?.selfDraw).toBe(true);
   });
 
+  it('uses lastDrawnTileId as the winning tile, not array position (review finding 3)', () => {
+    // Put the "drawn" tile first in the concealed array instead of last, to
+    // prove DECLARE_WIN reads state.lastDrawnTileId rather than assuming the
+    // winning tile is always concealed[length - 1].
+    const tiles = suited(14);
+    const reordered = [tiles[13]!, ...tiles.slice(0, 13)];
+    const state = { ...discardingState(2, reordered), lastDrawnTileId: tiles[13]!.id };
+    const next = dispatch(state, { type: 'DECLARE_WIN' });
+    expect(next.phase).toBe('HAND_OVER');
+    expect(next.handResult?.winningTile?.id).toBe(tiles[13]!.id);
+  });
+
+  it('falls back to the last concealed tile when lastDrawnTileId is absent', () => {
+    const tiles = suited(14);
+    const next = dispatch(discardingState(2, tiles), { type: 'DECLARE_WIN' });
+    expect(next.handResult?.winningTile?.id).toBe(tiles[13]!.id);
+  });
+
   it('throws on an unexpected action type in DISCARDING', () => {
     expect(() => dispatch(discardingState(0, suited(14)), { type: 'BEGIN_TURN' })).toThrow('DISCARDING phase: unexpected action');
   });
