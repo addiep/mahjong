@@ -119,6 +119,14 @@ export function App() {
               />
               Speak events
             </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={online.onlineRevealAll}
+                onChange={e => online.handleOnlineSetRevealAll(e.target.checked)}
+              />
+              Reveal all hands
+            </label>
             <span>{SEAT_NAMES[localSeat]} seat</span>
           </div>
         </div>
@@ -128,7 +136,7 @@ export function App() {
             <Board
               state={onlineState}
               localSeat={localSeat as SeatIndex}
-              revealAll={false}
+              revealAll={online.onlineRevealAll}
               onDiscard={
                 onlineState.phase === 'DISCARDING' && onlineState.currentSeat === localSeat
                   ? online.handleOnlineDiscard : undefined
