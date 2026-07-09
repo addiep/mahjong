@@ -37,6 +37,13 @@ export type AiMode = 'clean' | 'dirty';
 export interface SpecialPlan extends TargetAssessment {
   /** Claiming any meld kills this target (first-group wall-draw rule). */
   readonly concealedOnly: boolean;
+  /**
+   * The winning tile must also be self-drawn (Mixed Pungs, Buried Treasure).
+   * Surfaced for the hint and the UI; the AI still takes any legal win when one
+   * is offered, per the Module 4.4 baseline ("no holding back for a bigger
+   * hand") -- claiming the win merely scores it as an ordinary hand instead.
+   */
+  readonly lastTileMustBeSelfDrawn: boolean;
 }
 
 /** The per-turn plan that drives an AI seat's discards and claims. */
@@ -101,7 +108,14 @@ function bestSpecialTarget(state: GameState, seat: SeatIndex, margin: number): S
     const ev = P_COMPLETE[t.away]! * t.score;
     if (!best || ev > best.ev) {
       const spec = targetSpecByName(t.name);
-      best = { plan: { ...t, concealedOnly: spec?.concealedOnly ?? true }, ev };
+      best = {
+        plan: {
+          ...t,
+          concealedOnly: spec?.concealedOnly ?? true,
+          lastTileMustBeSelfDrawn: spec?.lastTileMustBeSelfDrawn ?? false,
+        },
+        ev,
+      };
     }
   }
 
