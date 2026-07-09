@@ -212,6 +212,17 @@ export interface ClientToServerEvents {
   game_action: (payload: GameActionPayload) => void;
   /** Creator requests a new hand after HAND_OVER. Ignored from non-creator sockets. */
   new_hand: () => void;
+  /**
+   * Testing/debug aid (2026-07-09): ask the server to include every seat's
+   * real concealed tiles in the game_state broadcasts sent to THIS socket,
+   * instead of the usual placeholder tiles for opponents (see
+   * filterStateForSeat in game-session.ts). Per-connection and off by
+   * default -- it only changes what the toggling client sees, so turning it
+   * on spoils hidden information for whoever does it. Meant for reviewing
+   * the AI's play while testing solo against AI seats, not for a genuine
+   * multi-human game where hands should stay hidden.
+   */
+  set_reveal_all: (data: { revealAll: boolean }) => void;
 
   // --- reconnection (Module 3.4) ---
   /**
