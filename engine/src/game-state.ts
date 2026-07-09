@@ -8,12 +8,24 @@
  * This is the single source of truth for the engine. All other modules either
  * read from a GameState or produce a new one -- nothing is ever mutated in place.
  *
- * Dependencies: tiles.ts (Tile, TileId, Wind), wall.ts (Wall, Deal, PlayerCount)
+ * Initial-deal bonus tiles (bug fix, 2026-07-09): createGameState now resolves
+ * every seat's flowers/seasons dealt into the OPENING hands together, in seat
+ * order, before the hand's first turn -- see revealInitialBonusTiles below.
+ * Previously a dealt-in bonus tile just sat inertly in a player's concealed
+ * hand until that seat's own first BEGIN_TURN happened to come around (the
+ * turn engine's per-turn bonus scan, transitionToDiscard, only ever runs for
+ * the seat whose turn it currently is), so a non-dealer's opening bonus tile
+ * could stay hidden and unexposed for several other players' turns -- visibly
+ * wrong (Adam: "I shouldn't have to wait until it's my turn for that to
+ * happen"), even though final scoring was unaffected either way.
+ *
+ * Dependencies: tiles.ts (Tile, TileId, Wind, isBonus), wall.ts (Wall, Deal,
+ * PlayerCount, drawReplacement)
  * No UI dependencies. No side effects.
  */
 
-import { Tile, TileId, Wind } from './tiles.js';
-import { Wall, Deal, PlayerCount } from './wall.js';
+import { Tile, TileId, Wind, isBonus } from './tiles.js';
+import { Wall, Deal, PlayerCount, drawReplacement } from './wall.js';
 
 // --- Seat -----
 
@@ -334,7 +346,7 @@ export function createGameState(
     );
   }
 
-  const players: PlayerState[] = deal.hands.map((hand, i) => ({
+  const dealtPlayers: PlayerState[] = deal.hands.map((hand, i) => ({
     name:       names[i]!,
     seat:       i as SeatIndex,
     seatWind:   SEAT_WINDS[i]!,
@@ -344,10 +356,14 @@ export function createGameState(
     score:      0,
   }));
 
+  // Reveal every seat's initial-deal bonus tiles together, in seat order,
+  // before the hand's first turn -- see the module docstring above.
+  const { players, wall } = revealInitialBonusTiles(dealtPlayers, deal.wall);
+
   return {
     config,
     players,
-    wall:           deal.wall,
+    wall,
     discardPool:    [],
     currentSeat:    0,
     phase:          'DRAWING',
@@ -358,4 +374,51 @@ export function createGameState(
     robbingKong:    null,
     discardLog:     [],
   };
+}
+
+/**
+ * Resolves every seat's bonus tiles (flowers/seasons) dealt into the OPENING
+ * hand, in seat order (East first), before the hand's first BEGIN_TURN. A
+ * seat can be dealt more than one bonus tile, so each seat loops until none
+ * remain in its concealed hand -- mirroring the turn engine's mid-game
+ * CHECK_BONUS loop (transitionToDiscard / handleCheckBonus in turn-engine.ts),
+ * just run once for everyone up front instead of lazily per seat's own turn.
+ *
+ * If the wall is ever exhausted mid-replacement (not realistic at the very
+ * start of a 144-tile hand, but handled defensively), the bonus tile is still
+ * set aside with no replacement rather than left stuck in the concealed hand.
+ */
+function revealInitialBonusTiles(
+  players: readonly PlayerState[],
+  wall:    Wall,
+): { players: PlayerState[]; wall: Wall } {
+  let nextWall = wall;
+  const nextPlayers = players.map(p => ({ ...p }));
+
+  for (let seat = 0; seat < nextPlayers.length; seat++) {
+    let player = nextPlayers[seat]!;
+    for (;;) {
+      const bonus = player.concealed.find(isBonus);
+      if (!bonus) break;
+      const concealedWithoutBonus = removeOneTile(player.concealed, bonus);
+      const { tile: replacement, wall: drawnWall } = drawReplacement(nextWall);
+      nextWall = drawnWall;
+      player = {
+        ...player,
+        concealed:  replacement ? [...concealedWithoutBonus, replacement] : concealedWithoutBonus,
+        bonusTiles: [...player.bonusTiles, bonus],
+      };
+      if (!replacement) break;
+    }
+    nextPlayers[seat] = player;
+  }
+
+  return { players: nextPlayers, wall: nextWall };
+}
+
+/** Removes the first tile matching `target`'s id. Throws if not present. */
+function removeOneTile(tiles: readonly Tile[], target: Tile): Tile[] {
+  const idx = tiles.findIndex(t => t.id === target.id);
+  if (idx === -1) throw new Error(`removeOneTile: tile "${target.id}" not found`);
+  return [...tiles.slice(0, idx), ...tiles.slice(idx + 1)];
 }
