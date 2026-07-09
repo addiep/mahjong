@@ -5,6 +5,23 @@
  * transitions are dispatched immediately; decision points delegate to a
  * PlayerController.
  *
+ * CLAIM_WINDOW / ROBBING_KONG dispatch-as-resolved (bug fix, 2026-07-09):
+ * gatherClaims used to await Promise.all() over every pending seat's
+ * decision and only dispatch CLAIM_RESPONSE for any of them once ALL had
+ * resolved. That's harmless for headless AI-vs-AI play (every controller
+ * resolves near-instantly), but online a human seat can stay pending
+ * indefinitely (FallbackController waits for a real socket click) -- so
+ * the broadcast state stayed frozen at all-null responses the whole time,
+ * even after the AI seats had already decided to pass. The client's
+ * ActionBar picks the lowest-indexed still-null seat as "who needs to act",
+ * so whenever that frozen state pointed at an AI seat instead of the human
+ * (i.e. the human wasn't seated immediately next to the discarder), the
+ * human saw no Pass button at all and the hand froze -- the human WAS the
+ * one being waited on, they just had no way to know it. Fixed by dispatching
+ * each CLAIM_RESPONSE the moment its controller resolves, so already-decided
+ * seats show up immediately and the still-pending seat is always the real
+ * bottleneck.
+ *
  * Dependencies: game-state.ts, turn-engine.ts
  */
 
@@ -61,20 +78,32 @@ export class GameRunner {
     this.onStateChange(this.state);
   }
 
-  private async gatherClaims(excludeSeat: SeatIndex, alreadyResponded: ReadonlyArray<ClaimDecision | null>): Promise<Array<{ seat: SeatIndex; decision: ClaimDecision }>> {
-    const snapshot = this.state;
-    const count    = snapshot.config.playerCount;
-    const resolved: Array<{ seat: SeatIndex; decision: ClaimDecision }> = [];
-    await Promise.all(
-      Array.from({ length: count }, async (_, i) => {
-        const seat = i as SeatIndex;
-        if (seat === excludeSeat) return;
-        if (alreadyResponded[seat] !== null) return;
-        const decision = await this.controllers[seat]!.getClaimDecision(snapshot, seat);
-        resolved.push({ seat, decision });
-      }),
-    );
-    return resolved;
+  /**
+   * Asks every pending seat (except `excludeSeat`) for its claim decision
+   * concurrently, but -- unlike the old batch-then-apply version -- dispatches
+   * each CLAIM_RESPONSE the instant its own promise resolves, rather than
+   * waiting for every seat to answer first. `phaseAtStart` guards against
+   * applying a now-stale decision after the window has already resolved from
+   * another seat's response (e.g. a win came in before this seat replied) --
+   * dispatching onto a state that has moved to a different phase would throw.
+   */
+  private async gatherClaims(excludeSeat: SeatIndex, alreadyResponded: ReadonlyArray<ClaimDecision | null>): Promise<void> {
+    const snapshot      = this.state;
+    const count         = snapshot.config.playerCount;
+    const phaseAtStart  = this.state.phase;
+    const tasks: Promise<void>[] = [];
+    for (let i = 0; i < count; i++) {
+      const seat = i as SeatIndex;
+      if (seat === excludeSeat) continue;
+      if (alreadyResponded[seat] !== null) continue;
+      tasks.push(
+        this.controllers[seat]!.getClaimDecision(snapshot, seat).then(decision => {
+          if (this.state.phase !== phaseAtStart) return; // window already resolved by another seat
+          this.advance({ type: 'CLAIM_RESPONSE', seat, decision });
+        }),
+      );
+    }
+    await Promise.all(tasks);
   }
 
   private async step(): Promise<void> {
@@ -94,21 +123,13 @@ export class GameRunner {
         break;
       }
       case 'CLAIM_WINDOW': {
-        const cw       = this.state.claimWindow!;
-        const resolved = await this.gatherClaims(this.state.currentSeat, cw.responses);
-        for (const { seat, decision } of resolved) {
-          if (this.state.phase !== 'CLAIM_WINDOW') break;
-          this.advance({ type: 'CLAIM_RESPONSE', seat, decision });
-        }
+        const cw = this.state.claimWindow!;
+        await this.gatherClaims(this.state.currentSeat, cw.responses);
         break;
       }
       case 'ROBBING_KONG': {
-        const rk       = this.state.robbingKong!;
-        const resolved = await this.gatherClaims(rk.melderSeat, rk.responses);
-        for (const { seat, decision } of resolved) {
-          if (this.state.phase !== 'ROBBING_KONG') break;
-          this.advance({ type: 'CLAIM_RESPONSE', seat, decision });
-        }
+        const rk = this.state.robbingKong!;
+        await this.gatherClaims(rk.melderSeat, rk.responses);
         break;
       }
       case 'HAND_OVER': {
