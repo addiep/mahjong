@@ -87,7 +87,7 @@ export function setupLobby(
       socket.emit('auth_ok');
     });
 
-    socket.on('creator_config', ({ humanCount, deadWall, knittingEnabled, discardsVisible }) => {
+    socket.on('creator_config', ({ humanCount, deadWall, knittingEnabled, discardsVisible, payingSystem }) => {
       if (state.phase !== 'idle' || socket.id !== state.creatorSocketId) return;
       const count = Math.min(4, Math.max(1, Math.round(humanCount)));
       state.humanCount = count;
@@ -97,6 +97,7 @@ export function setupLobby(
       state.deadWall        = deadWall;
       state.knittingEnabled = knittingEnabled;
       state.discardsVisible = discardsVisible;
+      state.payingSystem    = payingSystem === 'traditional' ? 'traditional' : 'pool';
       state.seats = [{ socketId: socket.id, name: pendingCreatorName, seat: 0 }];
       state.phase = 'waiting';
       socket.emit('config_ok', { seat: 0 });

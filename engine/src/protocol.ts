@@ -16,7 +16,7 @@
  * socket.io-client Socket in the browser); only the event maps are shared.
  */
 
-import type { GameState, ClaimDecision, DeclaredMeld, SeatIndex } from './game-state.js';
+import type { GameState, ClaimDecision, DeclaredMeld, SeatIndex, PayingSystem } from './game-state.js';
 import type { Tile, TileId } from './tiles.js';
 import type { ScoreResult, ExposedMeldScoreResult } from './scoring.js';
 import type { BonusScoreResult } from './flower-scoring.js';
@@ -166,18 +166,20 @@ export interface ClientToServerEvents {
    * Creator sets the number of human players (1-4) plus the hand-config
    * options for the whole session. Sent after auth_ok.
    *
-   * `deadWall`, `knittingEnabled`, and `discardsVisible` mirror the options
-   * GameSetup.tsx already offers for local pass-and-play (Module 2.6).
-   * Before 2026-07-02 the online lobby only ever asked for humanCount, and
-   * the server used hardcoded defaults for the rest (game-session.ts's
-   * HAND_CONFIG) -- the creator had no way to turn on the dead wall or
-   * knitting/crocheting online. See Module 3.2 / Decisions Log 2026-07-02.
+   * `deadWall`, `knittingEnabled`, `discardsVisible`, and `payingSystem`
+   * mirror the options GameSetup.tsx already offers for local pass-and-play
+   * (Modules 2.6 and Todo F). Before 2026-07-02 the online lobby only ever
+   * asked for humanCount, and the server used hardcoded defaults for the rest
+   * (game-session.ts's HAND_CONFIG) -- the creator had no way to turn on the
+   * dead wall or knitting/crocheting online. See Module 3.2 / Decisions Log
+   * 2026-07-02. `payingSystem` was added the same way on 2026-07-09 (Todo F).
    */
   creator_config: (data: {
     humanCount:      number;
     deadWall:        boolean;
     knittingEnabled: boolean;
     discardsVisible: boolean;
+    payingSystem:    PayingSystem;
   }) => void;
   /** Joiner enters their name. Only valid when server is waiting. */
   joiner_join: (data: { name: string }) => void;
