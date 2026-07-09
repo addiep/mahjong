@@ -515,7 +515,8 @@ class FallbackController implements PlayerController {
       if (
         payload.type === 'DISCARD' ||
         payload.type === 'DECLARE_WIN' ||
-        payload.type === 'DECLARE_ADDED_KONG'
+        payload.type === 'DECLARE_ADDED_KONG' ||
+        payload.type === 'DECLARE_CONCEALED_KONG'
       ) {
         if (!this.pendingDiscard) return;
         const { resolve, state, seat } = this.pendingDiscard;

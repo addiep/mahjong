@@ -76,6 +76,32 @@ export function getAddKongOptions(state: GameState): { tileId: TileId; label: st
     });
 }
 
+/**
+ * Returns options for declaring a brand-new CONCEALED kong during DISCARDING:
+ * tile kinds with all four copies already sitting in the current player's
+ * concealed hand (not an existing exposed pung -- see getAddKongOptions for
+ * that case). Added for the external codebase review (finding 1, 2026-07-09):
+ * there was previously no UI path to DECLARE_CONCEALED_KONG at all, in either
+ * local or online play.
+ */
+export function getConcealedKongOptions(state: GameState): { tileId: TileId; label: string }[] {
+  const player = state.players[state.currentSeat];
+  if (!player) return [];
+  const byKind = new Map<string, Tile[]>();
+  for (const t of player.concealed) {
+    const key = tileKey(t);
+    const arr = byKind.get(key);
+    if (arr) arr.push(t); else byKind.set(key, [t]);
+  }
+  const options: { tileId: TileId; label: string }[] = [];
+  for (const tiles of byKind.values()) {
+    if (tiles.length === 4) {
+      options.push({ tileId: tiles[0]!.id, label: `Concealed Kong: ${tileName(tiles[0]!)}` });
+    }
+  }
+  return options;
+}
+
 // --- Game initialisation (local pass-and-play) -----
 
 // Fixed roster of local-play display names, indexed by a stable "identity"
