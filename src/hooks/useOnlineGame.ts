@@ -116,6 +116,9 @@ export function useOnlineGame(
         result:       payload.result,
         playerBonuses: [...payload.playerBonuses],
         winnerHand:   payload.winnerHand,
+        // Todo F: computed server-side (only the server sees every loser's real
+        // concealed tiles, so only it can work out the loser-to-loser leg).
+        settlement:   payload.settlement,
       });
       setOnlineRunningTotals([...payload.runningTotals]);
     });

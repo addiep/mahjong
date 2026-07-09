@@ -21,6 +21,7 @@ import {
   type Wind,
   type Dragon,
   type ScoreResult,
+  type SettlementResult,
 } from '@mahjong/engine';
 import type { PlayerBonusInfo, WinnerHandInfo } from '../components/ScorePanel';
 
@@ -109,6 +110,12 @@ export interface HandScoreInfo {
   playerBonuses: PlayerBonusInfo[];
   /** Winner's full hand for display; null on a draw. */
   winnerHand: WinnerHandInfo | null;
+  /**
+   * Todo F: who paid whom, and each seat's net delta. Non-null only when the
+   * traditional paying system is on and the hand was won. Null under 'pool'
+   * (each seat banks its own score) and on a draw (nothing settles).
+   */
+  settlement: SettlementResult | null;
 }
 
 /**

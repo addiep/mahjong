@@ -22,6 +22,7 @@ import {
   scoreWinningHand,
   scoreBonusTiles,
   scoreExposedMelds,
+  settleScores,
   HeuristicController,
   type GameState,
   type GameConfig,
@@ -30,6 +31,7 @@ import {
   type Wind,
   type ClaimDecision,
   type ScoreResult,
+  type SettlementResult,
   type WinContext,
 } from '@mahjong/engine';
 import type { PlayerBonusInfo, WinnerHandInfo } from '../components/ScorePanel';
@@ -424,9 +426,12 @@ export function useLocalGame(
     const hr = state.handResult;
     if (!hr) return;
 
-    // Draw: no scoring, no running total update.
+    // Draw: no scoring, no running total update, nothing to settle.
     if (hr.reason === 'draw') {
-      setHandScore({ winnerName: null, result: null, playerBonuses: [], winnerHand: null });
+      setHandScore({
+        winnerName: null, result: null, playerBonuses: [],
+        winnerHand: null, settlement: null,
+      });
       return;
     }
 
@@ -493,25 +498,50 @@ export function useLocalGame(
         : null,
     }));
 
-    setRunningTotals(prev =>
-      prev.map((t, i) => {
-        const player = state.players[i];
-        if (!player) return t;
-        const pb = playerBonuses[i];
-        // Winner's bonus tile points are NOT added for limit hands (rule change).
-        const isWinnerLimit = i === hr.winnerSeat && result?.isLimitHand;
-        const bonusPts = isWinnerLimit ? 0 : (pb?.bonus.points ?? 0);
-        const handPts  = i === hr.winnerSeat && result ? result.total : 0;
-        const meldPts  = i !== hr.winnerSeat ? (pb?.meldScore?.total ?? 0) : 0;
-        return t + bonusPts + handPts + meldPts;
-      }),
-    );
+    // Each seat's hand score for this hand. Identical under both paying
+    // systems -- payingSystem decides how these move between players, not how
+    // they are earned. Extracted so settleScores (Todo F) can take them.
+    const handScores = state.players.map((_p, i) => {
+      const pb = playerBonuses[i];
+      // Winner's bonus tile points are NOT added for limit hands (rule change).
+      const isWinnerLimit = i === hr.winnerSeat && result?.isLimitHand;
+      const bonusPts = isWinnerLimit ? 0 : (pb?.bonus.points ?? 0);
+      const handPts  = i === hr.winnerSeat && result ? result.total : 0;
+      const meldPts  = i !== hr.winnerSeat ? (pb?.meldScore?.total ?? 0) : 0;
+      return bonusPts + handPts + meldPts;
+    });
+
+    // Todo F. 'pool' (the default): every seat banks its own hand score.
+    // 'traditional': the losers pay the winner and settle differences among
+    // themselves, East doubling throughout; the net deltas (which sum to zero)
+    // move the running totals instead. Local pass-and-play sees every real
+    // hand on one screen, so it can compute this itself -- unlike an online
+    // client, whose filtered state hides the other losers' concealed tiles.
+    let settlement: SettlementResult | null = null;
+    if (state.config.payingSystem === 'traditional' && hr.winnerSeat !== null) {
+      try {
+        settlement = settleScores({
+          handScores,
+          winnerSeat:  hr.winnerSeat,
+          playerCount: state.config.playerCount,
+        });
+      } catch (err) {
+        // Only thrown on a broken invariant. Fall back to pool scoring rather
+        // than losing the hand's score entirely.
+        console.error('Settlement error, falling back to pool scoring:', err);
+        settlement = null;
+      }
+    }
+
+    const deltas = settlement ? settlement.deltas : handScores;
+    setRunningTotals(prev => prev.map((t, i) => t + (deltas[i] ?? 0)));
 
     setHandScore({
       winnerName: hr.winnerSeat !== null ? (state.players[hr.winnerSeat]?.name ?? null) : null,
       result,
       playerBonuses,
       winnerHand,
+      settlement,
     });
   }, [state]);
 

@@ -12,12 +12,19 @@
  *
  * Scoring fixes (2026-06-19):
  *  - Section renamed from 'Exposed melds' to 'Other players\' hands'.
+ *
+ * Todo F (2026-07-09):
+ *  - `settlement` prop: under the traditional paying system, a "Settlement"
+ *    section lists every payment (who pays whom, and where East's doubling
+ *    applied) followed by each seat's net change. Absent under the default
+ *    'pool' system and on a draw, where the panel renders exactly as before.
  */
 import type {
   ScoreResult,
   BonusScoreResult,
   SeatIndex,
   ExposedMeldScoreResult,
+  SettlementResult,
   Tile as TileData,
   DeclaredMeld,
   TileId,
@@ -50,9 +57,15 @@ export interface ScorePanelProps {
   winnerName: string | null;
   result: ScoreResult | null;
   playerBonuses: PlayerBonusInfo[];
+  /** Indexed by seat: runningTotals[seat] is that seat's player. */
   runningTotals: { name: string; total: number }[];
   /** Winner's hand tiles for display; null for a draw. */
   winnerHand: WinnerHandInfo | null;
+  /**
+   * Todo F: who paid whom this hand. Null under the default 'pool' paying
+   * system and on a draw -- the section is then not rendered at all.
+   */
+  settlement?: SettlementResult | null;
   onNewHand: () => void;
 }
 
@@ -66,6 +79,7 @@ export function ScorePanel({
   playerBonuses,
   runningTotals,
   winnerHand,
+  settlement,
   onNewHand,
 }: ScorePanelProps) {
   const isDraw = winnerName === null && result === null;
@@ -73,6 +87,14 @@ export function ScorePanel({
   const nonWinnersWithScore = playerBonuses.filter(
     pb => pb.meldScore !== null && pb.meldScore.total > 0,
   );
+
+  // Seat -> display name. runningTotals is indexed by seat (both call sites
+  // build it with `state.players.map`), so it doubles as the seat-name table.
+  const seatName = (seat: SeatIndex | number): string =>
+    runningTotals[seat]?.name ?? `Seat ${seat}`;
+
+  const toWinner = settlement?.payments.filter(p => p.reason === 'to-winner') ?? [];
+  const betweenLosers = settlement?.payments.filter(p => p.reason === 'between-losers') ?? [];
 
   return (
     <div className={styles.overlay}>
@@ -218,6 +240,66 @@ export function ScorePanel({
                     </tr>
                   ) : null
                 )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* ── Settlement (Todo F: traditional paying system only) ── */}
+        {settlement && (
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>Settlement</h3>
+
+            {toWinner.length > 0 && (
+              <table className={styles.table}>
+                <tbody>
+                  {toWinner.map((p, i) => (
+                    <tr key={`w${i}`}>
+                      <td className={styles.labelCell}>
+                        {seatName(p.from)} pays {seatName(p.to)}
+                        {p.doubled && <span className={styles.doubledTag}> East ×2</span>}
+                      </td>
+                      <td className={styles.numCell}>{p.amount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {betweenLosers.length > 0 && (
+              <>
+                <h4 className={styles.subTitle}>Between the losing hands</h4>
+                <table className={styles.table}>
+                  <tbody>
+                    {betweenLosers.map((p, i) => (
+                      <tr key={`l${i}`}>
+                        <td className={styles.labelCell}>
+                          {seatName(p.from)} pays {seatName(p.to)}
+                          {p.doubled && <span className={styles.doubledTag}> East ×2</span>}
+                        </td>
+                        <td className={styles.numCell}>{p.amount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+
+            {settlement.payments.length === 0 && (
+              <p className={styles.drawNote}>Nothing changed hands this time.</p>
+            )}
+
+            <h4 className={styles.subTitle}>Net this hand</h4>
+            <table className={styles.table}>
+              <tbody>
+                {settlement.deltas.map((d, seat) => (
+                  <tr key={seat}>
+                    <td className={styles.labelCell}>{seatName(seat)}</td>
+                    <td className={`${styles.numCell} ${d < 0 ? styles.negative : styles.positive}`}>
+                      {d > 0 ? `+${d}` : d}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

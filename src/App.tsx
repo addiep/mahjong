@@ -150,6 +150,7 @@ export function App() {
             result={online.onlineHandScore.result}
             playerBonuses={online.onlineHandScore.playerBonuses}
             winnerHand={online.onlineHandScore.winnerHand}
+            settlement={online.onlineHandScore.settlement}
             runningTotals={onlineState.players.map((p, i) => ({
               name:  p.name,
               total: online.onlineRunningTotals[i] ?? 0,
@@ -244,6 +245,7 @@ export function App() {
           result={local.handScore.result}
           playerBonuses={local.handScore.playerBonuses}
           winnerHand={local.handScore.winnerHand}
+          settlement={local.handScore.settlement}
           runningTotals={state.players.map((p, i) => ({
             name: p.name,
             total: local.runningTotals[i] ?? 0,
