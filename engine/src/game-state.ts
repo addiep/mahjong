@@ -45,7 +45,25 @@ export interface GameConfig {
    * absent is treated as false. The game setup passes this to `buildWall`.
    */
   readonly deadWall?:       boolean;
+  /**
+   * Todo F -- how points move between players once a hand ends.
+   *
+   * 'pool'        -- the current behaviour: each player's hand score is added
+   *                  to their own running total; nobody pays anybody.
+   * 'traditional' -- each of the three losers pays the winner the winner's
+   *                  hand score; the losers then settle the differences
+   *                  between their own hand scores with each other; East pays
+   *                  and receives double throughout.
+   *
+   * Optional for backward compatibility; absent is treated as 'pool'.
+   * Purely a settlement concern -- it does not affect how a hand is scored,
+   * only how that score is distributed. See `settleScores`.
+   */
+  readonly payingSystem?: PayingSystem;
 }
+
+/** How points move between players at the end of a hand. See GameConfig.payingSystem. */
+export type PayingSystem = 'pool' | 'traditional';
 
 /**
  * Sensible defaults: 4-player, face-up discards, no knitting,
@@ -56,6 +74,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   discardsVisible: true,
   knittingEnabled: false,
   deadWall:        false,
+  payingSystem:    'pool',
 };
 
 // --- Declared melds -----

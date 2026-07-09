@@ -9,6 +9,8 @@
  *                  reconnect_attempt; otherwise they are disconnected.
  */
 
+import type { PayingSystem } from '@mahjong/engine';
+
 export type ServerPhase = 'idle' | 'waiting' | 'in-progress';
 
 export interface ConnectedSeat {
@@ -32,6 +34,7 @@ export interface ServerState {
   deadWall: boolean;
   knittingEnabled: boolean;
   discardsVisible: boolean;
+  payingSystem: PayingSystem;
   /** Human seats that have a player connected. Creator is always seat 0. */
   seats: ConnectedSeat[];
   /** Socket id of the creator; only they may send creator_config / creator_deal. */
@@ -53,6 +56,7 @@ export function createServerState(): ServerState {
     deadWall: false,
     knittingEnabled: false,
     discardsVisible: true,
+    payingSystem: 'pool',
     seats: [],
     creatorSocketId: null,
     reconnectHandler: null,
@@ -66,6 +70,7 @@ export function resetServerState(state: ServerState): void {
   state.deadWall        = false;
   state.knittingEnabled = false;
   state.discardsVisible = true;
+  state.payingSystem    = 'pool';
   state.seats           = [];
   state.creatorSocketId = null;
   state.reconnectHandler = null;
