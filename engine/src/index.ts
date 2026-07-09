@@ -24,6 +24,7 @@ export * from './protocol.js';
 
 
 // Module 4.x -- AI players (Phase 3)
+export * from './ai/shanten.js';
 export * from './ai/targets.js';
 export * from './ai/assessment.js';
 export * from './ai/discard.js';
