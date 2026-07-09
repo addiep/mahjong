@@ -228,8 +228,12 @@ const BASE_HONOUR_RISK = 0.4;
 /** A non-chow-eligible seat can still pung/kong; that is a fraction of full suit risk. */
 const PUNG_ONLY_SHARE = 0.5;
 
-/** Turns-left figure below which the hand counts as "late" (mirrors Module 4.6's EV gate). */
-const EARLY_GAME_TURNS = 12;
+/**
+ * Turns-left figure below which the hand counts as "late" (mirrors Module 4.6's
+ * EV gate). Exported: claims.ts (Todo I) reuses the same figure for its
+ * kong-vs-pung-and-hold-back lateness split, rather than inventing a new one.
+ */
+export const EARLY_GAME_TURNS = 12;
 /** Global scale never drops all the way to zero -- a fishing opponent is never fully ignored. */
 const MIN_GLOBAL_SCALE = 0.2;
 

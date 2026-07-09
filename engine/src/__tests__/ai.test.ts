@@ -261,6 +261,45 @@ describe('chooseClaimDecision', () => {
   });
 });
 
+// --- kong vs pung-and-hold-back (Todo I, 2026-07-09) -----
+
+describe('chooseClaimDecision -- kong vs pung-and-hold-back', () => {
+  it('kongs a suited tile that fits the plan early in the hand', () => {
+    const concealed = [bam(7), bam(7,1), bam(7,2), chr(2)];
+    const st = claimState(concealed, bam(7,3), 1, 0);
+    const early = { ...st, wall: wallOf(80) }; // turnsLeft = 20, well above the threshold
+    expect(chooseClaimDecision(early, 1, cleanPlan('bamboo')).type).toBe('kong');
+  });
+
+  it('pungs and holds the spare tile back late in the hand instead of konging', () => {
+    const concealed = [bam(7), bam(7,1), bam(7,2), chr(2)];
+    const st = claimState(concealed, bam(7,3), 1, 0);
+    const late = { ...st, wall: wallOf(8) }; // turnsLeft = 2, deep into the hand
+    expect(chooseClaimDecision(late, 1, cleanPlan('bamboo')).type).toBe('pung');
+  });
+
+  it('always kongs a dragon, even late, since holding back has no chow upside', () => {
+    const concealed = [dragon('red'), dragon('red',1), dragon('red',2), bam(2)];
+    const st = claimState(concealed, dragon('red',3), 1, 0);
+    const late = { ...st, wall: wallOf(8) };
+    expect(chooseClaimDecision(late, 1, cleanPlan('bamboo')).type).toBe('kong');
+  });
+
+  it("always kongs the AI's own seat wind, even late", () => {
+    const concealed = [wind('east'), wind('east',1), wind('east',2), bam(2)];
+    const st = claimState(concealed, wind('east',3), 1, 0);
+    const late = { ...st, wall: wallOf(8) };
+    expect(chooseClaimDecision(late, 1, cleanPlan('bamboo', 'east')).type).toBe('kong');
+  });
+
+  it('does not kong or pung an off-suit tile in clean mode regardless of lateness', () => {
+    const concealed = [chr(7), chr(7,1), chr(7,2), bam(2)];
+    const st = claimState(concealed, chr(7,3), 1, 0);
+    const early = { ...st, wall: wallOf(80) };
+    expect(chooseClaimDecision(early, 1, cleanPlan('bamboo')).type).toBe('pass');
+  });
+});
+
 // --- AI vs AI harness (Module 4.5) -----
 
 function tileCount(state: GameState): number {

@@ -6,8 +6,13 @@
  *   - Declare Mah Jong whenever the hand is legal (any seat may win on a
  *     discard, per the family rule). No holding back for a bigger hand.
  *   - Pung a tile that fits the plan: target suit, a dragon, or the AI's own
- *     wind. (Baseline pungs even when a kong is possible -- simpler, and avoids
- *     the kong replacement draw. Konging is a later refinement.)
+ *     wind. When the seat actually holds all three copies needed for a kong
+ *     (Todo I, Adam 2026-07-09), choose kong-or-pung-and-hold-back by
+ *     lateness: kong while there is time to recoup the tempo cost from the
+ *     extra score, pung-and-hold once speed to Mah Jong matters more. Holding
+ *     back only ever helps a suited tile (the spare could still complete a
+ *     chow); an honour (dragon / own wind) has no chow to hold back for, so it
+ *     always kongs when it fits the plan. See `preferKong` below.
  *   - Chow only when the AI is the seat to the discarder's right and the tile
  *     is in the target suit (or any suit in dirty mode).
  *   - Chow-vs-pung tension: do not break a held pair to form a chow while the
@@ -31,9 +36,10 @@ import {
   isSuited, isWind, isDragon, tileKey,
 } from '../tiles.js';
 import { GameState, SeatIndex, ClaimDecision } from '../game-state.js';
-import { canPung, canChow } from '../claim-window.js';
+import { canPung, canKong, canChow } from '../claim-window.js';
 import { isWinningHand } from '../hand-evaluator.js';
 import { HandPlan } from './assessment.js';
+import { EARLY_GAME_TURNS } from './discard.js';
 
 /** Green tiles for Imperial Jade: bamboo 2,3,4,6,8 and the Green Dragon. */
 function isGreen(t: Tile): boolean {
@@ -56,6 +62,30 @@ function fitsForMeld(tile: Tile, plan: HandPlan): boolean {
     return (tile as SuitedTile).suit === plan.targetSuit;
   }
   return false;
+}
+
+/**
+ * Kong vs pung-and-hold-back (Todo I, Adam 2026-07-09): when a claimable
+ * discard could be taken as either a pung or a kong, decide which is worth
+ * more right now.
+ *
+ *   - Honours (dragon / own wind): always kong. The spare tile left behind by
+ *     a pung can never become anything -- all four copies are already
+ *     accounted for (three in the meld, one concealed) -- so there is no
+ *     hold-back upside, only the lost kong score.
+ *   - Suited tiles: the spare tile left behind by a pung stays concealed and
+ *     could still complete a chow later, so holding back has a real upside.
+ *     Follow the same turnsLeft lateness figure Todo D's defensive discarding
+ *     and Module 4.6's special-hand EV already use (reused from discard.ts,
+ *     not a new threshold): kong while there is still time to recoup the
+ *     kong's tempo cost from its extra score; once the hand is late enough
+ *     that speed to Mah Jong matters more than the extra points, pung and
+ *     hold the spare back instead.
+ */
+function preferKong(state: GameState, discard: Tile): boolean {
+  if (!isSuited(discard)) return true;
+  const turnsLeft = Math.floor(state.wall.live.length / state.config.playerCount);
+  return turnsLeft >= EARLY_GAME_TURNS;
 }
 
 /** Copies of a tile's kind already visible to everyone (discards + all exposed melds). */
@@ -169,9 +199,15 @@ export function chooseClaimDecision(state: GameState, seat: SeatIndex, plan: Han
     return { type: 'pass' };
   }
 
-  // 2. Pung if it fits the plan.
-  if (canPung(concealed, discard) && fitsForMeld(discard, plan)) {
-    return { type: 'pung' };
+  // 2. Pung/kong if it fits the plan (Todo I: choose between them by lateness
+  //    when a kong is actually available; see preferKong).
+  if (fitsForMeld(discard, plan)) {
+    if (canKong(concealed, discard)) {
+      return { type: preferKong(state, discard) ? 'kong' : 'pung' };
+    }
+    if (canPung(concealed, discard)) {
+      return { type: 'pung' };
+    }
   }
 
   // 3. Chow (right of discarder only) if it fits, subject to pung tension and
