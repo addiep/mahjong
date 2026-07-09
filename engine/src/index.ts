@@ -15,6 +15,7 @@ export * from './hand-evaluator.js';
 export * from './scoring-config.js';
 export * from './scoring.js';
 export * from './flower-scoring.js';
+export * from './settlement.js';
 export * from './inference.js';
 
 // Client <-> server wire protocol (shared by the Node server and the React
