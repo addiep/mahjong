@@ -1,17 +1,27 @@
 /**
  * Module 1.9 — Flower / Season Scoring
  *
- * Bonus-tile scoring at the end of a hand: a flat number of points (4 by
- * default) for every flower or season a player has set aside. This applies to
- * *every* player, not just the winner — anyone holding bonus tiles banks the
- * points when the hand ends.
+ * DISPLAY-ONLY since 2026-07-10 (Adam's call). Originally this module's flat
+ * per-tile total was what actually credited a player for their bonus tiles --
+ * added on top of Module 1.8's hand/meld total, AFTER doubling, via this
+ * wholly separate mechanism. Adam asked for flowers/seasons to just be
+ * ordinary points within the hand itself ("like a pung of dragons"), so
+ * Module 1.8 (`scoreNormalReading` / `scoreExposedMelds`) now folds each
+ * bonus tile's flat points into its own base, BEFORE doublings -- meaning a
+ * `ScoreResult.total` / `ExposedMeldScoreResult.total` already includes
+ * every bonus tile's contribution, correctly doubled alongside everything
+ * else.
  *
- * Per OQ-2 (resolved) there is no own-flower distinction and no own-flower
- * doubling: each flower and each season is worth the same flat amount, and the
- * player's seat is irrelevant. The complete-set-of-flowers / complete-set-of-
- * seasons *doublings* are not handled here — those belong to the hand's
- * doublings tally and are applied by Module 1.8 (`scoreWinningHand`). This
- * module owns only the flat per-tile points.
+ * `scoreBonusTiles` still exists purely to drive the score panel's
+ * informational "Bonus tiles" breakdown (flowerCount / seasonCount / a flat,
+ * undoubled points figure for that display only). Its `points` value must
+ * NEVER be added into a hand score, running total, or Todo F settlement
+ * input again -- that would double-count what Module 1.8 already folded in.
+ * See DESIGN.md Module 1.8/1.9 and Todo F for the full history.
+ *
+ * The complete-set-of-flowers / complete-set-of-seasons *doublings* were
+ * always Module 1.8's job (`scoreWinningHand` / `scoreExposedMelds`) and
+ * still are -- unaffected by this change.
  *
  * Pure function of its inputs. No UI dependencies, no side effects. The flat
  * value lives in scoring-config.ts (`flowerOrSeason`).
