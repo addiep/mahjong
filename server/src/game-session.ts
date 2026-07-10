@@ -315,13 +315,18 @@ function computeHandScore(state: GameState, runningTotals: number[]): HandScoreP
   // Each seat's hand score for this hand. Identical under both paying systems
   // -- `payingSystem` decides how these move between players, not how they are
   // earned. Extracted from the running-total loop so settleScores can take it.
+  //
+  // Bonus tiles (2026-07-10): `result.total` and `meldScore.total` already
+  // include each player's own flower/season points, folded into base and
+  // doubled like everything else (Module 1.8). `playerBonuses[i].bonus` is
+  // display-only now (the score panel's "Bonus tiles" breakdown) -- adding
+  // its `.points` here again would double-count what's already inside
+  // `result`/`meldScore`. See flower-scoring.ts's module doc for the history.
   const handScores = state.players.map((_p, i) => {
     const pb = playerBonuses[i];
-    const isWinnerLimit = i === hr.winnerSeat && (result?.isLimitHand ?? false);
-    const bonusPts = isWinnerLimit ? 0 : (pb?.bonus.points ?? 0);
-    const handPts  = i === hr.winnerSeat && result ? result.total : 0;
-    const meldPts  = i !== hr.winnerSeat ? (pb?.meldScore?.total ?? 0) : 0;
-    return bonusPts + handPts + meldPts;
+    const handPts = i === hr.winnerSeat && result ? result.total : 0;
+    const meldPts = i !== hr.winnerSeat ? (pb?.meldScore?.total ?? 0) : 0;
+    return handPts + meldPts;
   });
 
   // Todo F. 'pool' (default): every seat banks its own hand score, as before.
