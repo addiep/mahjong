@@ -23,6 +23,7 @@ import {
   scoreBonusTiles,
   scoreExposedMelds,
   settleScores,
+  TRADITIONAL_STARTING_STAKE,
   HeuristicController,
   type GameState,
   type GameConfig,
@@ -62,6 +63,8 @@ export function useLocalGame(
   });
   const [state, setState] = useState<GameState | null>(null);
   const [handScore, setHandScore] = useState<HandScoreInfo | null>(null);
+  // Real starting values are set in startGame() once the chosen payingSystem
+  // is known; this initial value is only ever visible before Deal is clicked.
   const [runningTotals, setRunningTotals] = useState<number[]>([0, 0, 0, 0]);
 
   // Number of AI opponents. Fixed for the session (set once in GameSetup);
@@ -137,7 +140,12 @@ export function useLocalGame(
     dealerChangeCountRef.current = 0;
     setWallStartOffset(Math.floor(Math.random() * 1000));
     buildAiControllers(config.playerCount, ai);
-    setRunningTotals(Array(config.playerCount).fill(0));
+    // Starting stake (2026-07-10, Adam): traditional mode starts every seat at
+    // TRADITIONAL_STARTING_STAKE (1000), not 0, so a lost hand doesn't
+    // immediately go negative. Pool mode is unaffected (starts at 0, as
+    // before -- each seat only ever banks its own hand score there).
+    const startingStake = config.payingSystem === 'traditional' ? TRADITIONAL_STARTING_STAKE : 0;
+    setRunningTotals(Array(config.playerCount).fill(startingStake));
     handOrdersRef.current.clear();
     setCurrentSeatOrder(undefined);
     setHandScore(null);
