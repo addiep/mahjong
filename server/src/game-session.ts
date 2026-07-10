@@ -54,6 +54,7 @@ import {
   scoreBonusTiles,
   scoreExposedMelds,
   settleScores,
+  TRADITIONAL_STARTING_STAKE,
 } from '@mahjong/engine';
 import type {
   ServerToClientEvents,
@@ -750,7 +751,13 @@ export async function startGameSession(
 
   // Authoritative running totals, one per seat, accumulated across every hand
   // of this session (Finding 3 fix). Clients no longer maintain their own copy.
-  const runningTotals: number[] = [0, 0, 0, 0];
+  //
+  // Starting stake (2026-07-10, Adam): traditional mode starts every seat at
+  // TRADITIONAL_STARTING_STAKE (1000) rather than 0, so a lost hand doesn't
+  // immediately go negative -- pool mode is unaffected (it starts at 0, as
+  // before, since each seat only ever banks its own hand score there).
+  const startingStake = handConfig.payingSystem === 'traditional' ? TRADITIONAL_STARTING_STAKE : 0;
+  const runningTotals: number[] = [startingStake, startingStake, startingStake, startingStake];
 
   // Track the most recent state so reconnectors receive it immediately.
   let lastKnownState: GameState | null = null;
