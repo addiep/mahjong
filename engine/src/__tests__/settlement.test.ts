@@ -6,9 +6,18 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { settleScores, type SeatIndex } from '../index.js';
+import { settleScores, TRADITIONAL_STARTING_STAKE, type SeatIndex } from '../index.js';
 
 const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
+
+describe('TRADITIONAL_STARTING_STAKE', () => {
+  it('is 1000, per Adam (2026-07-10)', () => {
+    // Guards against a silent rename/retune -- both call sites
+    // (server/src/game-session.ts, src/hooks/useLocalGame.ts) import this
+    // rather than hardcoding the figure.
+    expect(TRADITIONAL_STARTING_STAKE).toBe(1000);
+  });
+});
 
 describe('settleScores -- basic settlement', () => {
   it('every loser pays the winner the winner\'s hand score', () => {
