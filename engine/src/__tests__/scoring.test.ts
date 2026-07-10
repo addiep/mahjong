@@ -17,6 +17,7 @@ const O = (v: number) => mk({ category: 'suited', suit: 'circles', value: v });
 const W = (w: string) => mk({ category: 'wind', wind: w });
 const D = (d: string) => mk({ category: 'dragon', dragon: d });
 const FL = (f: string) => mk({ category: 'flower', flower: f });
+const SE = (s: string) => mk({ category: 'season', season: s });
 
 const x3 = (f: (v: number) => Tile, v: number) => [f(v), f(v), f(v)];
 const pr = (f: (v: number) => Tile, v: number) => [f(v), f(v)];
@@ -73,7 +74,7 @@ describe('normal scoring — base points and doublings', () => {
     expect(disc.total).toBe(416);
   });
 
-  it('adds complete-set-of-flowers doubling but NOT flat per-flower points', () => {
+  it('folds flat per-flower points into base, on top of the complete-set doubling (2026-07-10 change)', () => {
     const declared = [dm('pung', x3(B, 5)), dm('pung', x3(B, 7))];
     const concealed = [...x3(B, 2), B(6), B(7), B(8), ...pr(B, 9)];
     const bonus = [FL('plum'), FL('orchid'), FL('chrysanthemum'), FL('bamboo')];
@@ -81,11 +82,24 @@ describe('normal scoring — base points and doublings', () => {
       declaredMelds: declared, concealed, winningTile: concealed[0]!, bonusTiles: bonus,
       wonByDiscard: true, winContext: { source: 'discard' },
     });
-    expect(r.basePoints).toBe(26);                 // flat flower points excluded (Module 1.9)
+    expect(r.basePoints).toBe(42);                  // 26 melds/going + 4 flowers × 4 pts, folded in
+    expect(r.lines.filter(l => l.label === 'flower')).toHaveLength(4);
     expect(r.bonusTileCount).toBe(4);
     expect(r.doublings).toBe(7);                    // clean 1 + bouquet flowers 3 + purity 3
     expect(r.doublingLines.some(l => l.label === 'bouquet (flowers)')).toBe(true);
-    expect(r.total).toBe(1000);                     // 26 × 64 = 1664, capped at limit
+    expect(r.total).toBe(1000);                      // 42 × 128 = 5376, capped at limit
+  });
+
+  it('doubles a bonus tile\'s points along with the rest of the hand, not just the base (2026-07-10)', () => {
+    // Same hand as the very first test in this file (base 38, doublings 3,
+    // total 304), plus one flower -- no complete set, so no extra doubling.
+    // If bonus points were still added AFTER doubling (the old design), total
+    // would be 304 + 4 = 308. Folded in BEFORE doubling, it is (38 + 4) × 8.
+    const concealed = [...D3('red'), ...x3(B, 2), ...x3(B, 7), B(4), B(5), B(6), ...pr(B, 9)];
+    const r = score({ concealed, winningTile: concealed[10]!, bonusTiles: [FL('plum')] });
+    expect(r.basePoints).toBe(42);
+    expect(r.doublings).toBe(3);
+    expect(r.total).toBe(336); // (38 + 4) × 8, NOT 304 + 4 = 308
   });
 
   it('scores a seat-wind pair', () => {
@@ -381,5 +395,36 @@ describe('scoreExposedMelds — wind of the round', () => {
     const r = scoreExposedMelds(melds, [], undefined, 'south' as Wind, []);
     expect(r.doublings).toBe(0);
     expect(r.total).toBe(4);
+  });
+});
+
+// ─── Non-winner bonus-tile folding (Adam, 2026-07-10) ────────────────────────
+
+describe('scoreExposedMelds — flower/season points fold into base like a pung', () => {
+  it('a bonus tile alone gives a non-winner points, even with no other scoring element', () => {
+    const r = scoreExposedMelds([], [FL('plum')], undefined, 'south' as Wind, []);
+    expect(r.basePoints).toBe(4);
+    expect(r.lines.some(l => l.label === 'flower')).toBe(true);
+    expect(r.total).toBe(4);
+  });
+
+  it('doubles bonus points along with the rest of a clean/pure hand, not just the base', () => {
+    const melds = [dm('pung', x3(B, 5))]; // exposed minor pung, one suit, no honours
+    const r = scoreExposedMelds(melds, [FL('plum'), SE('spring')], undefined, 'south' as Wind, []);
+    // base: exposed pung 2 + flower 4 + season 4 = 10; doublings: clean hand 1 + purity 3 = 4
+    // (bonus tiles aren't suited/honour tiles, so they don't affect which of these fire --
+    // this hand happens to satisfy both, since the only real tiles are one suit, no honours).
+    expect(r.basePoints).toBe(10);
+    expect(r.doublings).toBe(4);
+    expect(r.total).toBe(160); // 10 × 16, NOT 2×2 + 8 = 12 -- bonus points are doubled too
+  });
+
+  it('still applies the complete-set bouquet doubling on top of the folded-in points', () => {
+    const bonus = [FL('plum'), FL('orchid'), FL('chrysanthemum'), FL('bamboo')];
+    const r = scoreExposedMelds([], bonus, undefined, 'south' as Wind, []);
+    // base: 4 flowers × 4 = 16; doublings: bouquet (flowers) 3.
+    expect(r.basePoints).toBe(16);
+    expect(r.doublingLines.some(l => l.label === 'bouquet (flowers)')).toBe(true);
+    expect(r.total).toBe(128); // 16 × 8
   });
 });
