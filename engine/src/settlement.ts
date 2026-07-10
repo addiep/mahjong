@@ -35,6 +35,19 @@
 
 import type { SeatIndex } from './game-state.js';
 
+/**
+ * Traditional mode's starting running total for every seat (Adam, 2026-07-10).
+ *
+ * Pool mode still starts every seat at 0 -- each hand banks its own score
+ * directly, so there is nothing to go negative against. Traditional mode
+ * moves points *between* players every hand, so starting at 0 meant a player
+ * who lost hand 1 was immediately negative, which reads oddly for a running
+ * score. 1,000 is an arbitrary but generous stake -- large enough that normal
+ * hands don't exhaust it in a short session, and easy to re-tune later if
+ * Adam wants a different figure after more live play.
+ */
+export const TRADITIONAL_STARTING_STAKE = 1000;
+
 /** Which rule produced a payment; used to group the score-panel display. */
 export type PaymentReason = 'to-winner' | 'between-losers';
 
