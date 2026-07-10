@@ -10,11 +10,18 @@
  * docstring anticipated — we ask the shared `decomposeStandard` helper for
  * *every* carving of the concealed tiles, score each, and keep the maximum.
  *
+ * Flower / season bonus tiles (folded in 2026-07-10, Adam's call): each bonus
+ * tile is an ordinary flat-points line, exactly like a pung or the going-
+ * Mah-Jong bonus, added to base BEFORE doublings -- so a hand's own
+ * doublings (clean hand, purity, and so on) apply to bonus points too, same
+ * as everything else. The complete-set-of-flowers / complete-set-of-seasons
+ * doublings are a separate, additional bonus on top (unaffected by this
+ * change). Module 1.9's `scoreBonusTiles` still exists, but purely as a
+ * display helper now (the score panel's informational "bonus tiles" list) --
+ * its flat, undoubled total must never be added a second time on top of a
+ * `ScoreResult`/`ExposedMeldScoreResult` total, which already includes it.
+ *
  * What this module deliberately does NOT do:
- *   - Per-flower / per-season flat points (a flat 4 each) are Module 1.9's job.
- *     We surface the bonus-tile count, and we DO apply the complete-set-of-
- *     flowers / complete-set-of-seasons doublings here (they belong to the
- *     doublings table), but we do not add the flat 4-per-tile points.
  *   - Settling points between players. This scores one winning hand; how the
  *     table tally moves is a higher-level concern.
  *
@@ -224,6 +231,20 @@ function scoreNormalReading(hand: FullHand, input: ScoreInput, cfg: ScoringConfi
     base += cfg.winFromLiveWall;
   }
   if (noChows) { lines.push({ label: 'no chows', points: cfg.noChows }); base += cfg.noChows; }
+
+  // ── Flower / season bonus tiles (Adam, 2026-07-10) ──
+  // Flat per-tile points fold straight into base, exactly like a pung or the
+  // going-Mah-Jong bonus above -- so the hand's own doublings (clean hand,
+  // purity, and so on) apply to them too, same as everything else. This
+  // replaces the previous design (Module 1.9's scoreBonusTiles added its flat
+  // total on top, AFTER doubling, via a wholly separate mechanism): that made
+  // bonus points the one scoring element immune to a hand's own doublings,
+  // and meant Todo F's settlement was doubling/differencing a number that
+  // silently mixed doubled and undoubled points together.
+  for (const t of input.bonusTiles) {
+    if (isFlower(t)) { lines.push({ label: 'flower', points: cfg.flowerOrSeason }); base += cfg.flowerOrSeason; }
+    else if (isSeason(t)) { lines.push({ label: 'season', points: cfg.flowerOrSeason }); base += cfg.flowerOrSeason; }
+  }
 
   // ── Doublings ──
   let doublings = 0;
@@ -840,6 +861,15 @@ export function scoreExposedMelds(
         }
       }
     }
+  }
+
+  // ── Flower / season bonus tiles (Adam, 2026-07-10) ──
+  // Same fold-in as the winner path in scoreNormalReading above: flat
+  // per-tile points join base before doublings, so a non-winner's own
+  // clean-hand/purity/bouquet doublings apply to their bonus tiles too.
+  for (const t of bonusTiles) {
+    if (isFlower(t)) { scoreLines.push({ label: 'flower', points: cfg.flowerOrSeason }); base += cfg.flowerOrSeason; }
+    else if (isSeason(t)) { scoreLines.push({ label: 'season', points: cfg.flowerOrSeason }); base += cfg.flowerOrSeason; }
   }
 
   let doublings = 0;
